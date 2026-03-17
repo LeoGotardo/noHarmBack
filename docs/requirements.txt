@@ -13,6 +13,7 @@ bcrypt==4.1.1
 cryptography==41.0.7
 pydantic[email]==2.5.0
 PyJWT==2.8.0
+dynaconf==3.2.12
 
 # --- Banco de Dados e Migrations ---
 sqlalchemy==2.0.23
