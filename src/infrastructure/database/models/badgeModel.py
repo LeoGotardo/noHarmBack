@@ -7,24 +7,21 @@ from core.config import Config
 
 import uuid, datetime
 
-class badgeModel(Base):
+class BadgeModel(Base):
     __tablename__ = "tb_1"
-    id = Column("cl_1a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column("cl_1b", String(500), nullable=False)
-    _name_encrypted = Column("cl_1b", String(500), nullable=False)
-    _name_hash = Column("cl_1b_h", String(64), nullable=False, index=True)
-    description = Column("cl_1c", Text, nullable=False)
-    _description_encrypted = Column("cl_1c", Text, nullable=False)
-    _description_hash = Column("cl_1c_h", String(64), nullable=False, index=True)
-    milestone = Column("cl_1d", DateTime, nullable=False)
-    _milestone_encrypted = Column("cl_1d", DateTime, nullable=False)
-    _milestone_hash = Column("cl_1d_h", String(64), nullable=False, index=True)
-    icon = Column("cl_1e", LargeBinary, nullable=False)
-    _icon_encrypted = Column("cl_1e", LargeBinary, nullable=False)
-    _icon_hash = Column("cl_1e_h", String(64), nullable=False, index=True)
-    status = Column("cl_1e", Integer, nullable=False)
-    created_at = Column("cl_1f", DateTime, nullable=False)
-    updated_at = Column("cl_1g", DateTime, nullable=False)
+    
+    id = Column("cl_5a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    _name_encrypted = Column("cl_5b", String(500), nullable=False)
+    _name_hash = Column("cl_5b_h", String(64), nullable=False, index=True)
+    _description_encrypted = Column("cl_5c", Text, nullable=False)
+    _description_hash = Column("cl_5c_h", String(64), nullable=False, index=True)
+    _milestone_encrypted = Column("cl_5d", DateTime, nullable=False)
+    _milestone_hash = Column("cl_5d_h", String(64), nullable=False, index=True)
+    _icon_encrypted = Column("cl_5e", LargeBinary, nullable=False)
+    _icon_hash = Column("cl_5e_h", String(64), nullable=False, index=True)
+    status = Column("cl_5e", Integer, nullable=False)
+    created_at = Column("cl_5f", DateTime, nullable=False)
+    updated_at = Column("cl_5g", DateTime, nullable=False)
 
     @hybrid_property
     def name(self):

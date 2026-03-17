@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text
+from sqlalchemy import Column, Integer, String, DateTime, LargeBinary
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
@@ -10,12 +10,14 @@ import uuid
 
 class UserModel(Base):
     __tablename__ = "tb_0"
+    
     id = Column("cl_0a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     _username_encrypted = Column("cl_0b", String(500), nullable=False, unique=True)
     _username_hash = Column("cl_0b_h", String(64), nullable=False, unique=True, index=True)
     _email_encrypted = Column("cl_0c", String(500), nullable=False, unique=True)
     _email_hash = Column("cl_0c_h", String(64), nullable=False, unique=True, index=True)
-    profile_picture = Column("cl_0d", Text, nullable=False)
+    _profile_picture_encrypted = Column("cl_0d", LargeBinary, nullable=False)
+    _profile_picture_hash = Column("cl_0d_h", String(64), nullable=False, index=True)
     status = Column("cl_0e", Integer, nullable=False)
     badges = relationship("BadgeModel", back_populates="user")
     created_at = Column("cl_0f", DateTime, nullable=False)
