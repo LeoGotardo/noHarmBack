@@ -10,7 +10,8 @@ class Config:
             load_dotenv=True,
             validators=[
                 Validator("ENCRYPTION_KEY", must_exist=True, is_type_of=str),
-                Validator("DATABASE_URI", must_exist=True, is_type_of=str),
+                Validator("DATABASE_URL", must_exist=True, is_type_of=str),
+                Validator("DATABASE_HOST", must_exist=True, is_type_of=str),
                 Validator("DATABASE_NAME", must_exist=True, is_type_of=str),
                 Validator("DATABASE_USER", must_exist=True, is_type_of=str),
                 Validator("DATABASE_PASSWORD", must_exist=True, is_type_of=str),
@@ -27,7 +28,8 @@ class Config:
 
         # Atributos tipados e acessíveis diretamente
         self.ENCRYPTION_KEY: str = self._settings.ENCRYPTION_KEY
-        self.DATABASE_URI: str = self._settings.DATABASE_URI
+        self.DATABASE_URL: str = self._settings.DATABASE_URL
+        self.DATABASE_HOST: str = self._settings.DATABASE_HOST
         self.DATABASE_NAME: str = self._settings.DATABASE_NAME
         self.DATABASE_USER: str = self._settings.DATABASE_USER
         self.DATABASE_PASSWORD: str = self._settings.DATABASE_PASSWORD
