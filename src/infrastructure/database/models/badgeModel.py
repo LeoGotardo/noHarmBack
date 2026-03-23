@@ -8,7 +8,7 @@ from core.config import Config
 import uuid, datetime
 
 class BadgeModel(Base):
-    __tablename__ = "tb_1"
+    __tablename__ = "tb_5"
     
     id = Column("cl_5a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     _name_encrypted = Column("cl_5b", String(500), nullable=False)
