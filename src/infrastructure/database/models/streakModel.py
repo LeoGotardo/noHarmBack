@@ -2,8 +2,8 @@ from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Boolean
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
-from external.storageService import Base
-from core.config import Config
+from infrastructure.external.storageService import Base
+from core.config import config as appConfig
 
 import uuid, datetime
 
@@ -24,7 +24,7 @@ class StreakModel(Base):
     @hybrid_property
     def start(self):
         if self._start_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._start_encrypted, key)
                 if success == True:
@@ -34,7 +34,7 @@ class StreakModel(Base):
     @start.setter
     def start(self, value: datetime):
         if value:
-            _, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            _, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             success, encrypted = Encryption.encrypt(value.isoformat(), key)
             if success:
                 self._start_encrypted = encrypted
@@ -42,7 +42,7 @@ class StreakModel(Base):
     @hybrid_property
     def end(self):
         if self._end_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._end_encrypted, key)
                 if success == True:
@@ -52,7 +52,7 @@ class StreakModel(Base):
     @end.setter
     def end(self, value: datetime):
         if value:
-            _, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            _, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             success, encrypted = Encryption.encrypt(value.isoformat(), key)
             if success: 
                 self._end_encrypted = encrypted

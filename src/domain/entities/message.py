@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 
 @dataclass
-class Chat:
+class Message:
     id: str
+    chat: str
     sender: str
-    reciver: str
-    _started_at: str
-    _ended_at: str
+    _message: str
     status: int
-    messages: list
+    send_at: str
+    recived_at: str
     _created_at: str
     _updated_at: str

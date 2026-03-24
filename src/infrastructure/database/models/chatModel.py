@@ -2,9 +2,9 @@ from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
-from external.storageService import Base
+from infrastructure.external.storageService import Base
 from sqlalchemy.orm import relationship
-from core.config import Config
+from core.config import config as appConfig
 
 import uuid, datetime
 
@@ -26,7 +26,7 @@ class ChatModel(Base):
     @hybrid_property
     def started_at(self):
         if self._started_at_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._started_at_encrypted, key)
                 if success == True:
@@ -36,7 +36,7 @@ class ChatModel(Base):
     @started_at.setter
     def started_at(self, value: datetime):
         if value:
-            _, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            _, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             success, encrypted = Encryption.encrypt(value.isoformat(), key)
             if success:
                 self._started_at_encrypted = encrypted
@@ -44,7 +44,7 @@ class ChatModel(Base):
     @hybrid_property
     def ended_at(self):
         if self._ended_at_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._ended_at_encrypted, key)
                 if success == True:
@@ -54,7 +54,7 @@ class ChatModel(Base):
     @ended_at.setter
     def ended_at(self, value: datetime):
         if value:
-            _, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            _, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             success, encrypted = Encryption.encrypt(value.isoformat(), key)
             if success: 
                 self._ended_at_encrypted = encrypted

@@ -1,12 +1,11 @@
 from dataclasses import dataclass
 
 @dataclass
-class Badge:
+class AuditLogs:
     id: str
-    name: str
+    type: int
+    catalist_id: str
+    catalist: int
     description: str
-    milestone: str
-    icon: str
-    status: int
     created_at: str
     updated_at: str

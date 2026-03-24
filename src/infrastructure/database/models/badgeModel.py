@@ -2,8 +2,8 @@ from sqlalchemy import Column, Integer, String, DateTime, LargeBinary, Text
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
-from external.storageService import Base
-from core.config import Config
+from infrastructure.external.storageService import Base
+from core.config import config as appConfig
 
 import uuid, datetime
 
@@ -19,14 +19,14 @@ class BadgeModel(Base):
     _milestone_hash = Column("cl_5d_h", String(64), nullable=False, index=True)
     _icon_encrypted = Column("cl_5e", LargeBinary, nullable=False)
     _icon_hash = Column("cl_5e_h", String(64), nullable=False, index=True)
-    status = Column("cl_5e", Integer, nullable=False)
-    created_at = Column("cl_5f", DateTime, nullable=False)
-    updated_at = Column("cl_5g", DateTime, nullable=False)
+    status = Column("cl_5f", Integer, nullable=False)
+    created_at = Column("cl_5g", DateTime, nullable=False)
+    updated_at = Column("cl_5h", DateTime, nullable=False)
 
     @hybrid_property
     def name(self):
         if self._name_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._name_encrypted, key)
                 if success == True:
@@ -36,7 +36,7 @@ class BadgeModel(Base):
     @name.setter
     def name(self, value):
         if value:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, encrypted = Encryption.encrypt(value, key)
                 if success == True:
@@ -46,7 +46,7 @@ class BadgeModel(Base):
     @hybrid_property
     def description(self):
         if self._description_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._description_encrypted, key)
                 if success == True:
@@ -56,7 +56,7 @@ class BadgeModel(Base):
     @description.setter
     def description(self, value):
         if value:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, encrypted = Encryption.encrypt(value, key)
                 if success == True:
@@ -66,7 +66,7 @@ class BadgeModel(Base):
     @hybrid_property
     def milestone(self):
         if self._milestone:
-            _, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            _, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             success, decrypted = Encryption.decrypt(self._milestone, key)
             if success:
                 return datetime.fromisoformat(decrypted)
@@ -75,7 +75,7 @@ class BadgeModel(Base):
     @milestone.setter
     def milestone(self, value: datetime):
         if value:
-            _, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            _, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             success, encrypted = Encryption.encrypt(value.isoformat(), key)
             if success:
                 self._milestone = encrypted
@@ -83,7 +83,7 @@ class BadgeModel(Base):
     @hybrid_property
     def icon(self):
         if self._icon_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._icon_encrypted, key)
                 if success == True:
@@ -92,7 +92,7 @@ class BadgeModel(Base):
     @icon.setter
     def icon(self, value):
         if value:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, encrypted = Encryption.encrypt(value, key)
                 if success == True:
