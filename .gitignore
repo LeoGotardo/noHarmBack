@@ -1,4 +1,1 @@
 venv
-.env
-.secrets.toml
-.env.local
