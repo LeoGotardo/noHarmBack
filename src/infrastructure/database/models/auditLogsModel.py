@@ -2,8 +2,8 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
-from external.storageService import Base
-from core.config import Config
+from infrastructure.external.storageService import Base
+from core.config import config as appConfig
 
 import uuid
 
@@ -22,7 +22,7 @@ class AuditLogsModel(Base):
     @hybrid_property
     def description(self):
         if self._description_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._description_encrypted, key)
                 if success == True:
@@ -32,7 +32,7 @@ class AuditLogsModel(Base):
     @description.setter
     def description(self, value):
         if value:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, encrypted = Encryption.encrypt(value, key)
                 if success == True:

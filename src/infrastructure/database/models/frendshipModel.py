@@ -2,8 +2,8 @@ from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
-from external.storageService import Base
-from core.config import Config
+from infrastructure.external.storageService import Base
+from core.config import config as appConfig
 
 import uuid, datetime
 
@@ -18,14 +18,14 @@ class FriendshipModel(Base):
     _recived_at_encrypted = Column("cl_2e", DateTime, nullable=False)
     _recived_at_hash = Column("cl_2e_h", String(64), nullable=False, index=True)
     status = Column("cl_2f", Integer, nullable=False)
-    _created_at = Column("cl_2f", DateTime, nullable=False)
-    _updated_at = Column("cl_2g", DateTime, nullable=False)
+    _created_at = Column("cl_2g", DateTime, nullable=False)
+    _updated_at = Column("cl_2h", DateTime, nullable=False)
     
     
     @hybrid_property
     def send_at(self):
         if self._send_at_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._send_at_encrypted, key)
                 if success == True:
@@ -35,7 +35,7 @@ class FriendshipModel(Base):
     @send_at.setter
     def send_at(self, value: datetime):
         if value:
-            _, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            _, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             success, encrypted = Encryption.encrypt(value.isoformat(), key)
             if success:
                 self._send_at_encrypted = encrypted
@@ -43,7 +43,7 @@ class FriendshipModel(Base):
     @hybrid_property
     def recived_at(self):
         if self._recived_at_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._recived_at_encrypted, key)
                 if success == True:
@@ -53,7 +53,7 @@ class FriendshipModel(Base):
     @recived_at.setter
     def recived_at(self, value: datetime):
         if value:
-            _, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            _, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             success, encrypted = Encryption.encrypt(value.isoformat(), key)
             if success: 
                 self._recived_at_encrypted = encrypted

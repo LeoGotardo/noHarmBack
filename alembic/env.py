@@ -4,14 +4,11 @@ from alembic import context
 import sys
 import os
 
-# Adiciona o src/ no path para os imports funcionarem
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-# Importa o Base e o config do projeto
 from infrastructure.external.storageService import Base
 from core.config import config as appConfig
 
-# Importa todos os models para o Alembic detectar as tabelas
 from infrastructure.database.models import (
     userModel,
     streakModel,
@@ -23,43 +20,36 @@ from infrastructure.database.models import (
     auditLogsModel,
 )
 
-# Config do Alembic
 alembicConfig = context.config
 
 if alembicConfig.config_file_name is not None:
     fileConfig(alembicConfig.config_file_name)
 
-# Aponta para o metadata do projeto (onde estão as tabelas)
 target_metadata = Base.metadata
 
-# Monta a URL do banco a partir do config do projeto
-DATABASE_URI = (
-    f"{appConfig.DATABASE_URL}://"
-    f"{appConfig.DATABASE_USER}:{appConfig.DATABASE_PASSWORD}"
-    f"@{appConfig.DATABASE_HOST}/{appConfig.DATABASE_NAME}"
-)
+# Usa a URL unpooled — pgbouncer (pooled) quebra o Alembic
+MIGRATION_URL = appConfig.DATABASE_URL_UNPOOLED
 
 
-def run_migrations_offline() -> None:
+def runMigrationsOffline() -> None:
     context.configure(
-        url=DATABASE_URI,
+        url=MIGRATION_URL,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
-
     with context.begin_transaction():
         context.run_migrations()
 
 
-def run_migrations_online() -> None:
+def runMigrationsOnline() -> None:
     configuration = alembicConfig.get_section(alembicConfig.config_ini_section, {})
-    configuration["sqlalchemy.url"] = DATABASE_URI
+    configuration["sqlalchemy.url"] = MIGRATION_URL
 
     connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+        poolclass=pool.NullPool,  # NullPool é essencial para Neon/serverless
     )
 
     with connectable.connect() as connection:
@@ -67,12 +57,11 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
         )
-
         with context.begin_transaction():
             context.run_migrations()
 
 
 if context.is_offline_mode():
-    run_migrations_offline()
+    runMigrationsOffline()
 else:
-    run_migrations_online()
+    runMigrationsOnline()

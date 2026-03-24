@@ -1,19 +1,17 @@
-from exceptions.databaseExceptions import NoEngineException, NoSessionException, NoDatabaseParamterException
+from exceptions.databaseExceptions import NoEngineException, NoSessionException
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import create_engine
 from core.config import config
 from typing import Generator
+from infrastructure.external.storageService import Base
 
 
 class Database:
     def __init__(self):
-        self.database_url      = config.DATABASE_URL
-        self.database_user     = config.DATABASE_USER
-        self.database_password = config.DATABASE_PASSWORD
-        self.database_host     = config.DATABASE_HOST
-        self.database_name     = config.DATABASE_NAME
-        self._engine           = self._setupEngine()
-        self._SessionLocal     = self._setupSession()
+        self._engine       = self._setupEngine()
+        self._SessionLocal = self._setupSession()
+        
+        self._createTables()
 
 
     @property
@@ -30,37 +28,35 @@ class Database:
         return self._engine
 
 
-    @property
-    def _database_uri(self) -> str:
-        missing = [
-            key for key in ["database_url", "database_host", "database_name", "database_user", "database_password"]
-            if not getattr(self, key, None)
-        ]
-        if missing:
-            raise NoDatabaseParamterException(f"Missing: {', '.join(missing)}")
-
-        return f"{self.database_url}://{self.database_user}:{self.database_password}@{self.database_host}/{self.database_name}"
-
-
     def _setupEngine(self):
-        return create_engine(self._database_uri, pool_pre_ping=True)
+        # SQLAlchemy 2.x não aceita "postgres://", só "postgresql://"
+        dbUrl = config.DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        
+        return create_engine(
+            dbUrl,
+            pool_pre_ping=True,
+            connect_args={"sslmode": "require"}
+        )
 
 
     def _setupSession(self):
-        return sessionmaker(bind=self._engine, autocommit=False, autoflush=False)
+        return sessionmaker(
+            bind=self._engine,
+            autocommit=False,
+            autoflush=False
+        )
 
 
     def getDb(self) -> Generator[Session, None, None]:
-        
-        """
-        Dependency do FastAPI.
-        Uso nas rotas: db: Session = Depends(database.getDb)
-        """
         db = self._SessionLocal()
         try:
             yield db
         finally:
             db.close()
+            
+            
+    def _createTables(self):
+        Base.metadata.create_all(self._engine)
 
 
 database = Database()

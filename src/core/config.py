@@ -15,6 +15,7 @@ class Config:
                 Validator("DATABASE_NAME", must_exist=True, is_type_of=str),
                 Validator("DATABASE_USER", must_exist=True, is_type_of=str),
                 Validator("DATABASE_PASSWORD", must_exist=True, is_type_of=str),
+                Validator("DATABASE_URL_UNPOOLED", must_exist=True, is_type_of=str),
                 Validator("STORAGE_SERVICE_URI", must_exist=True, is_type_of=str),
                 Validator("STORAGE_SERVICE_KEY", must_exist=True, is_type_of=str),
                 Validator("EXEC_MODE", must_exist=True, is_type_of=str),
@@ -32,6 +33,7 @@ class Config:
         self.DATABASE_HOST: str = self._settings.DATABASE_HOST
         self.DATABASE_NAME: str = self._settings.DATABASE_NAME
         self.DATABASE_USER: str = self._settings.DATABASE_USER
+        self.DATABASE_URL_UNPOOLED: str = self._settings.DATABASE_URL_UNPOOLED
         self.DATABASE_PASSWORD: str = self._settings.DATABASE_PASSWORD
         self.STORAGE_SERVICE_URI: str = self._settings.STORAGE_SERVICE_URI
         self.STORAGE_SERVICE_KEY: str = self._settings.STORAGE_SERVICE_KEY
