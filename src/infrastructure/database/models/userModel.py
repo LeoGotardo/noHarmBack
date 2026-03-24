@@ -19,7 +19,7 @@ class UserModel(Base):
     _profile_picture_encrypted = Column("cl_0d", LargeBinary, nullable=False)
     _profile_picture_hash = Column("cl_0d_h", String(64), nullable=False, index=True)
     status = Column("cl_0e", Integer, nullable=False)
-    badges = relationship("BadgeModel", back_populates="user")
+    user_badges = relationship("UserBadgesModel", foreign_keys="UserBadgesModel.user_id")
     created_at = Column("cl_0f", DateTime, nullable=False)
     updated_at = Column("cl_0g", DateTime, nullable=False)
 
