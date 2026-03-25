@@ -2,9 +2,9 @@ from sqlalchemy import Column, Integer, String, DateTime, LargeBinary
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
-from external.storageService import Base
+from infrastructure.external.storageService import Base
 from sqlalchemy.orm import relationship
-from core.config import Config
+from core.config import config as appConfig
 
 import uuid
 
@@ -19,14 +19,14 @@ class UserModel(Base):
     _profile_picture_encrypted = Column("cl_0d", LargeBinary, nullable=False)
     _profile_picture_hash = Column("cl_0d_h", String(64), nullable=False, index=True)
     status = Column("cl_0e", Integer, nullable=False)
-    badges = relationship("BadgeModel", back_populates="user")
+    user_badges = relationship("UserBadgesModel", foreign_keys="UserBadgesModel.user_id")
     created_at = Column("cl_0f", DateTime, nullable=False)
     updated_at = Column("cl_0g", DateTime, nullable=False)
 
     @hybrid_property
     def username(self):
         if self._username_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._username_encrypted, key)
                 if success == True:
@@ -36,7 +36,7 @@ class UserModel(Base):
     @username.setter
     def username(self, value):
         if value:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, encrypted = Encryption.encrypt(value, key)
                 if success == True:
@@ -46,7 +46,7 @@ class UserModel(Base):
     @hybrid_property
     def email(self):
         if self._email_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._email_encrypted, key)
                 if success == True:
@@ -56,7 +56,7 @@ class UserModel(Base):
     @email.setter
     def email(self, value):
         if value:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, encrypted = Encryption.encrypt(value, key)
                 if success == True:

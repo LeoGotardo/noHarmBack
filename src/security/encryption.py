@@ -103,3 +103,18 @@ class Encryption:
             return hash
         except Exception as e:
             return False, f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}'
+        
+        
+    @staticmethod
+    def encrypt(message: str, key: bytes) -> tuple[bool, bytes] | tuple[bool, str]:
+        return Encryption.encryptSentence(message, key)
+
+
+    @staticmethod
+    def decrypt(encrypted_string: bytes, key: bytes) -> tuple[bool, str]:
+        return Encryption.decryptSentence(encrypted_string, key)
+
+
+    @staticmethod
+    def hash(value: str) -> str:
+        return sha256(value.encode('utf-8')).hexdigest()
