@@ -4,10 +4,11 @@ from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
 from infrastructure.external.storageService import Base
 from core.config import config as appConfig
+from infrastructure.database.models.baseModel import TimestampMixin
 
 import uuid, datetime
 
-class StreakModel(Base):
+class StreakModel(Base, TimestampMixin):
     __tablename__ = "tb_1"
     
     id = Column("cl_1a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -18,8 +19,6 @@ class StreakModel(Base):
     _end_hash = Column("cl_1d_h", String(64), nullable=False, index=True)
     status = Column("cl_1e", Integer, nullable=False)
     is_record = Column("cl_1f", Boolean, nullable=False)
-    _created_at = Column("cl_1g", DateTime, nullable=False)
-    _updated_at = Column("cl_1h", DateTime, nullable=False)
 
     @hybrid_property
     def start(self):
