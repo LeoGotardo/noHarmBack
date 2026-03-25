@@ -4,9 +4,9 @@ from dataclasses import dataclass
 class Streak:
     id: str
     owner_id: str
-    _start: str
-    _end: str
+    start: str
+    end: str
     status: int
     is_record: bool
-    _created_at: str
-    _updated_at: str
+    created_at: str
+    updated_at: str

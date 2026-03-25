@@ -10,12 +10,12 @@ from starlette.status import HTTP_200_OK
 
 # Importa todos os models para o SQLAlchemy reconhecer as tabelas
 from infrastructure.database.models import (
+    friendshipModel,
     userModel,
     streakModel,
     chatModel,
     messageModel,
     badgeModel,
-    frendshipModel,
     userBedgesModel,
     auditLogsModel,
 )
