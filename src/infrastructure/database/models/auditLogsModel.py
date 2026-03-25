@@ -12,12 +12,11 @@ class AuditLogsModel(Base):
     
     id = Column("cl_7a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     type = Column("cl_7b", Integer, nullable=False)
-    catalist_id = Column("cl_7c", UUID(as_uuid=True), ForeignKey("tb_0.cl_0a"), nullable=True)
-    catalist = Column("cl_7d",  Integer, nullable=True)
+    catalyst_id = Column("cl_7c", UUID(as_uuid=True), ForeignKey("tb_0.cl_0a"), nullable=True)
+    catalyst = Column("cl_7d",  Integer, nullable=True)
     _description_encrypted = Column("cl_7e", Text, nullable=False)
     _description_hash = Column("cl_7e_h", String(64), nullable=False, index=True)
     _created_at = Column("cl_7f", DateTime, nullable=False)
-    _updated_at = Column("cl_7g", DateTime, nullable=False)
 
     @hybrid_property
     def description(self):

@@ -8,5 +8,5 @@ class Friendship:
     send_at: str
     recived_at: str
     status: int
-    _created_at: str
-    _updated_at: str
+    created_at: str
+    updated_at: str
