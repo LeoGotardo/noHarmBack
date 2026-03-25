@@ -10,33 +10,111 @@ class UserBadgesRepository(UserBadge):
         self.session = database.session
         
     
-    def addUserBadge(self, user_id: str, badge_id: str, given_at: datetime) -> bool:
-        """Adiciona um badge a um usuário
+    def findByUserId(self, user_id: str) -> list[UserBadge]:
+        """Find all badges by user ID
         
         Args:
-            user_id (str): ID do usuário
-            
-            
-            badge_id (str): ID do badge
-            given_at (datetime): Data de criação do badge
+            user_id (str): User ID
             
         Returns:
-            bool: True se o badge foi adicionado com sucesso, False caso contrário
+            list[UserBadge]: List of UserBadges
         """
-        try:
-            userBadge = UserBadge(
-                user_id=user_id,
-                badge_id=badge_id,
-                given_at=given_at
-            )
+        ...
+        
+    
+    def findByBadgeId(self, badge_id: str) -> list[UserBadge]:
+        """Find all badges by badge ID
+        
+        Args:
+            badge_id (str): Badge ID
             
-            try:
-                self.session.add(userBadge)
-                self.session.commit()
-            except Exception as e:
-                self.session.rollback()
-                raise e
+        Returns:
+            list[UserBadge]: List of UserBadges
+        """
+        ...
+        
+    
+    def existsByUserAndBadge(self, user_id: str, badge_id: str) -> bool:
+        """Check if a badge exists by user ID and badge ID
+        
+        Args:
+            user_id (str): User ID
+            badge_id (str): Badge ID
             
-            return True
-        except Exception as e:
-            return False
+        Returns:
+            bool: True if badge exists, False if not
+        """
+        ...
+        
+        
+    def grant(self, user_id: str, badge_id: str, given_at: datetime) -> bool:
+        """Grant a badge to a user
+        
+        Args:
+            user_id (str): User ID
+            badge_id (str): Badge ID
+            given_at (datetime): Date of creation
+            
+        Returns:
+            bool: True if badge was granted, False if not
+        """
+        ...
+        
+    
+    def revoke(self, user_id: str, badge_id: str) -> bool:
+        """Revoke a badge from a user
+        
+        Args:
+            user_id (str): User ID
+            badge_id (str): Badge ID    
+            
+        Returns:
+            bool: True if badge was revoked, False if not
+        """
+        ...
+        
+    
+    def listAll(self) -> list[UserBadge]:
+        """List all badges
+        
+        Returns:
+            list[UserBadge]: List of UserBadges
+        """
+        ...
+        
+        
+    def updateStatus(self, id: str, status: int) -> UserBadge:
+        """Update a badge status
+        
+        Args:
+            id (str): UserBadge ID
+            status (int): New status
+            
+        Returns:
+            UserBadge: UserBadge with his full data
+        """
+        ...
+        
+    
+    def delete(self, id: str) -> bool:
+        """Delete a badge
+        
+        Args:
+            id (str): UserBadge ID
+            
+        Returns:
+            bool: True if badge was deleted, False if not
+        """
+        ...
+        
+    
+    def softDelete(self, id: str) -> bool:
+        """Soft delete a badge
+        
+        Args:
+            id (str): UserBadge ID
+            
+        Returns:
+            bool: True if badge was soft deleted, False if not
+        """
+        ...
