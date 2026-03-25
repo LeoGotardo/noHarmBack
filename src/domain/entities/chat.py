@@ -5,9 +5,9 @@ class Chat:
     id: str
     sender: str
     reciver: str
-    _started_at: str
-    _ended_at: str
+    started_at: str
+    ended_at: str
     status: int
     messages: list
-    _created_at: str
-    _updated_at: str
+    created_at: str
+    updated_at: str

@@ -5,14 +5,17 @@ from exceptions.baseExceptions import NoHarmException
 from core.config import config
 from core.database import database
 
+from fastapi.responses import JSONResponse, RedirectResponse
+from starlette.status import HTTP_200_OK
+
 # Importa todos os models para o SQLAlchemy reconhecer as tabelas
 from infrastructure.database.models import (
+    friendshipModel,
     userModel,
     streakModel,
     chatModel,
     messageModel,
     badgeModel,
-    frendshipModel,
     userBedgesModel,
     auditLogsModel,
 )
@@ -33,11 +36,22 @@ app.add_middleware(
 )
 
 @app.exception_handler(NoHarmException)
-async def noHarmExceptionHandler(request: Request, exc: NoHarmException):
+def noHarmExceptionHandler(request: Request, exc: NoHarmException):
     return JSONResponse(status_code=exc.statusCode, content=exc.toDict())
 
-@app.get("/health")
-async def healthCheck():
+
+@app.get("/")
+def __redirect_to_docs():
+    return RedirectResponse(url="/docs")
+
+
+@app.get("/health",
+    name="health_check",
+    summary="Checa o status da API",
+    status_code=HTTP_200_OK,
+    responses={HTTP_200_OK: {"description": "A API está responsiva"}},
+)
+def healthCheck():
     # Testa a conexão em tempo real
     try:
         with database.engine.connect():
