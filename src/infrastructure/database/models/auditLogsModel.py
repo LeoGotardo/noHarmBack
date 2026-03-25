@@ -4,10 +4,11 @@ from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
 from infrastructure.external.storageService import Base
 from core.config import config as appConfig
+from infrastructure.database.models.baseModel import TimestampMixin
 
 import uuid
 
-class AuditLogsModel(Base):
+class AuditLogsModel(Base, TimestampMixin):
     __tablename__ = "tb_7"
     
     id = Column("cl_7a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -15,8 +16,6 @@ class AuditLogsModel(Base):
     catalyst_id = Column("cl_7c", UUID(as_uuid=True), ForeignKey("tb_0.cl_0a"), nullable=True)
     catalyst = Column("cl_7d",  Integer, nullable=True)
     _description_encrypted = Column("cl_7e", Text, nullable=False)
-    _description_hash = Column("cl_7e_h", String(64), nullable=False, index=True)
-    _created_at = Column("cl_7f", DateTime, nullable=False)
 
     @hybrid_property
     def description(self):

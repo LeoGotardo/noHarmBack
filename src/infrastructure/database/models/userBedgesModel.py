@@ -4,10 +4,11 @@ from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
 from infrastructure.external.storageService import Base
 from core.config import config as appConfig
+from infrastructure.database.models.baseModel import TimestampMixin
 
 import uuid, datetime
 
-class UserBadgesModel(Base):
+class UserBadgesModel(Base, TimestampMixin):
     __tablename__ = "tb_6"
     
     id = Column("cl_6a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -16,8 +17,6 @@ class UserBadgesModel(Base):
     _given_at_encrypted = Column("cl_6d", DateTime, nullable=False)
     _given_at_hash = Column("cl_6d_h", String(64), nullable=False, index=True)
     status = Column("cl_6e", Integer, nullable=False)
-    _created_at = Column("cl_6f", DateTime, nullable=False)
-    _updated_at = Column("cl_6g", DateTime, nullable=False)
     
     @hybrid_property
     def given_at(self):

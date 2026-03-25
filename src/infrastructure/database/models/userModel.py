@@ -5,10 +5,11 @@ from security.encryption import Encryption
 from infrastructure.external.storageService import Base
 from sqlalchemy.orm import relationship
 from core.config import config as appConfig
+from infrastructure.database.models.baseModel import TimestampMixin
 
 import uuid
 
-class UserModel(Base):
+class UserModel(Base, TimestampMixin):
     __tablename__ = "tb_0"
     
     id = Column("cl_0a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -20,8 +21,6 @@ class UserModel(Base):
     _profile_picture_hash = Column("cl_0d_h", String(64), nullable=False, index=True)
     status = Column("cl_0e", Integer, nullable=False)
     user_badges = relationship("UserBadgesModel", foreign_keys="UserBadgesModel.user_id")
-    created_at = Column("cl_0f", DateTime, nullable=False)
-    updated_at = Column("cl_0g", DateTime, nullable=False)
 
     @hybrid_property
     def username(self):

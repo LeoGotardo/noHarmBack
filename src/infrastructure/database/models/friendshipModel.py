@@ -4,10 +4,11 @@ from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
 from infrastructure.external.storageService import Base
 from core.config import config as appConfig
+from infrastructure.database.models.baseModel import TimestampMixin
 
 import uuid, datetime
 
-class FriendshipModel(Base):
+class FriendshipModel(Base, TimestampMixin):
     __tablename__ = "tb_2"
     
     id = Column("cl_2a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -18,8 +19,6 @@ class FriendshipModel(Base):
     _recived_at_encrypted = Column("cl_2e", DateTime, nullable=False)
     _recived_at_hash = Column("cl_2e_h", String(64), nullable=False, index=True)
     status = Column("cl_2f", Integer, nullable=False)
-    _created_at = Column("cl_2g", DateTime, nullable=False)
-    _updated_at = Column("cl_2h", DateTime, nullable=False)
     
     
     @hybrid_property

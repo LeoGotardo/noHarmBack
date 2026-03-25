@@ -4,10 +4,11 @@ from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
 from infrastructure.external.storageService import Base
 from core.config import config as appConfig
+from infrastructure.database.models.baseModel import TimestampMixin
 
 import uuid, datetime
 
-class BadgeModel(Base):
+class BadgeModel(Base, TimestampMixin):
     __tablename__ = "tb_5"
     
     id = Column("cl_5a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -20,8 +21,6 @@ class BadgeModel(Base):
     _icon_encrypted = Column("cl_5e", LargeBinary, nullable=False)
     _icon_hash = Column("cl_5e_h", String(64), nullable=False, index=True)
     status = Column("cl_5f", Integer, nullable=False)
-    created_at = Column("cl_5g", DateTime, nullable=False)
-    updated_at = Column("cl_5h", DateTime, nullable=False)
 
     @hybrid_property
     def name(self):
