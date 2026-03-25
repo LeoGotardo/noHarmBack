@@ -10,12 +10,12 @@ from infrastructure.external.storageService import Base
 from core.config import config as appConfig
 
 from infrastructure.database.models import (
+    friendshipModel,
     userModel,
     streakModel,
     chatModel,
     messageModel,
     badgeModel,
-    frendshipModel,
     userBedgesModel,
     auditLogsModel,
 )
