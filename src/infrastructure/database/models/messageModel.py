@@ -4,10 +4,11 @@ from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
 from infrastructure.external.storageService import Base
 from core.config import config as appConfig
+from infrastructure.database.models.baseModel import TimestampMixin
 
 import uuid, datetime
 
-class MessageModel(Base):
+class MessageModel(Base, TimestampMixin):
     __tablename__ = "tb_4"
     
     id = Column("cl_4a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -20,8 +21,6 @@ class MessageModel(Base):
     send_at_hash = Column("cl_4f_h", String(64), nullable=False, index=True)
     recived_at_encrypted = Column("cl_4g", DateTime, nullable=False)
     recived_at_hash = Column("cl_4g_h", String(64), nullable=False, index=True)
-    _created_at = Column("cl_4h", DateTime, nullable=False)
-    _updated_at = Column("cl_4i", DateTime, nullable=False)
 
     @hybrid_property
     def message(self):

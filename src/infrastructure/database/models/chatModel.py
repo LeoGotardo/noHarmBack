@@ -5,10 +5,11 @@ from security.encryption import Encryption
 from infrastructure.external.storageService import Base
 from sqlalchemy.orm import relationship
 from core.config import config as appConfig
+from infrastructure.database.models.baseModel import TimestampMixin
 
 import uuid, datetime
 
-class ChatModel(Base):
+class ChatModel(Base, TimestampMixin):
     __tablename__ = "tb_3"
     
     id = Column("cl_3a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -20,8 +21,6 @@ class ChatModel(Base):
     _ended_at_hash = Column("cl_3e_h", String(64), nullable=False, index=True)
     status = Column("cl_3f", Integer, nullable=False)
     messages = relationship("MessageModel", back_populates="chat")
-    _created_at = Column("cl_3g", DateTime, nullable=False)
-    _updated_at = Column("cl_3h", DateTime, nullable=False)
 
     @hybrid_property
     def started_at(self):
