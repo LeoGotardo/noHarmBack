@@ -2,8 +2,8 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.dialects.postgresql import UUID
 from security.encryption import Encryption
-from external.storageService import Base
-from core.config import Config
+from infrastructure.external.storageService import Base
+from core.config import config as appConfig
 
 import uuid, datetime
 
@@ -20,13 +20,13 @@ class MessageModel(Base):
     send_at_hash = Column("cl_4f_h", String(64), nullable=False, index=True)
     recived_at_encrypted = Column("cl_4g", DateTime, nullable=False)
     recived_at_hash = Column("cl_4g_h", String(64), nullable=False, index=True)
-    _created_at = Column("cl_4e", DateTime, nullable=False)
-    _updated_at = Column("cl_4f", DateTime, nullable=False)
+    _created_at = Column("cl_4h", DateTime, nullable=False)
+    _updated_at = Column("cl_4i", DateTime, nullable=False)
 
     @hybrid_property
     def message(self):
         if self._message_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._message_encrypted, key)
                 if success == True:
@@ -36,7 +36,7 @@ class MessageModel(Base):
     @message.setter
     def message(self, value):
         if value:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, encrypted = Encryption.encrypt(value, key)
                 if success == True:
@@ -46,7 +46,7 @@ class MessageModel(Base):
     @hybrid_property
     def send_at(self):
         if self._send_at_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._send_at_encrypted, key)
                 if success == True:
@@ -56,7 +56,7 @@ class MessageModel(Base):
     @send_at.setter
     def send_at(self, value: datetime):
         if value:
-            _, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            _, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             success, encrypted = Encryption.encrypt(value.isoformat(), key)
             if success:
                 self._send_at_encrypted = encrypted
@@ -64,7 +64,7 @@ class MessageModel(Base):
     @hybrid_property
     def recived_at(self):
         if self._recived_at_encrypted:
-            response, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            response, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             if response == True:
                 success, decrypted = Encryption.decrypt(self._recived_at_encrypted, key)
                 if success == True:
@@ -74,7 +74,7 @@ class MessageModel(Base):
     @recived_at.setter
     def recived_at(self, value: datetime):
         if value:
-            _, key = Encryption.keyGenerator(Config.ENCRYPTION_KEY)
+            _, key = Encryption.keyGenerator(appConfig.ENCRYPTION_KEY)
             success, encrypted = Encryption.encrypt(value.isoformat(), key)
             if success: 
                 self._recived_at_encrypted = encrypted
