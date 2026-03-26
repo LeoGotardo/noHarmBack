@@ -8,22 +8,10 @@ from fastapi.responses import JSONResponse
 from exceptions.baseExceptions import NoHarmException
 from core.config import config
 from core.database import database
+from security.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.status import HTTP_200_OK
-
-# Importa todos os models para o SQLAlchemy reconhecer as tabelas
-from infrastructure.database.models import (
-    friendshipModel,
-    userModel,
-    streakModel,
-    chatModel,
-    messageModel,
-    badgeModel,
-    userBedgesModel,
-    auditLogsModel,
-)
-
 
 
 app = FastAPI(
@@ -32,12 +20,15 @@ app = FastAPI(
     debug=config.DEBUG
 )
 
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=config.ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 @app.exception_handler(NoHarmException)
@@ -54,7 +45,7 @@ def __redirect_to_docs():
     name="health_check",
     summary="Checa o status da API",
     status_code=HTTP_200_OK,
-    responses={HTTP_200_OK: {"description": "A API está responsiva"}},
+    responses={HTTP_200_OK: {"status": "ok", "database": "database is connected or disconnected", "env": "config mode [development, production]"}},
 )
 def healthCheck():
     # Testa a conexão em tempo real
