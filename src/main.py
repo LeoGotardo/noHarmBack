@@ -19,7 +19,10 @@ from infrastructure.database.models import (
     userBedgesModel,
     auditLogsModel,
 )
-from infrastructure.external.storageService import Base
+
+import os, sys
+
+sys.path.insert(0, os.path.dirname(__file__))
 
 app = FastAPI(
     title="NoHarm API",
