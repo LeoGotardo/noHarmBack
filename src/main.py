@@ -1,3 +1,7 @@
+import os, sys
+
+sys.path.insert(0, os.path.dirname(__file__))
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -20,9 +24,7 @@ from infrastructure.database.models import (
     auditLogsModel,
 )
 
-import os, sys
 
-sys.path.insert(0, os.path.dirname(__file__))
 
 app = FastAPI(
     title="NoHarm API",
