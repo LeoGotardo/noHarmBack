@@ -22,6 +22,13 @@ class Config:
                 Validator("DEBUG", must_exist=True, is_type_of=bool),
                 Validator("PORT", must_exist=True, is_type_of=int),
                 Validator("STATUS_CODES", must_exist=True, is_type_of=dict),
+                Validator("JWT_SECRET_KEY", must_exist=True, is_type_of=str),
+                Validator("JWT_REFRESH_SECRET_KEY", must_exist=True, is_type_of=str),
+                Validator("JWT_ALGORITHM", must_exist=True, is_type_of=str),
+                Validator("ACCESS_TOKEN_EXPIRE_MINUTES", must_exist=True, is_type_of=int),
+                Validator("REFRESH_TOKEN_EXPIRE_DAYS", must_exist=True, is_type_of=int),
+                Validator("STORAGE_PATH", must_exist=True, is_type_of=str),
+                Validator("ALLOWED_ORIGINS", must_exist=True, is_type_of=list),
             ],
         )
 
@@ -41,6 +48,13 @@ class Config:
         self.DEBUG: bool = self._settings.DEBUG
         self.PORT: int = self._settings.PORT
         self.STATUS_CODES: dict = self._settings.STATUS_CODES
+        self.JWT_SECRET_KEY: str = self._settings.JWT_SECRET_KEY
+        self.JWT_REFRESH_SECRET_KEY: str = self._settings.JWT_REFRESH_SECRET_KEY
+        self.JWT_ALGORITHM: str = self._settings.JWT_ALGORITHM
+        self.ACCESS_TOKEN_EXPIRE_MINUTES: int = self._settings.ACCESS_TOKEN_EXPIRE_MINUTES
+        self.REFRESH_TOKEN_EXPIRE_DAYS: int = self._settings.REFRESH_TOKEN_EXPIRE_DAYS
+        self.STORAGE_PATH: str = self._settings.STORAGE_PATH
+        self.ALLOWED_ORIGINS: list = self._settings.ALLOWED_ORIGINS
 
 
 config = Config()
