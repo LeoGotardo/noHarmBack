@@ -1,16 +1,24 @@
 # noHarmBack
 
-Backend do aplicativo **NoHarm** — app mobile de apoio à recuperação de vícios.
+Backend of the **NoHarm** application — a mobile app for addiction recovery support.
 
-**Stack:** Python · FastAPI · PostgreSQL · WebSocket (Socket.IO) · SQLAlchemy · JWT
+**Stack:** Python · FastAPI · PostgreSQL · WebSocket (Socket.IO) · SQLAlchemy · JWT · Dynaconf
 
 ---
 
-## Estrutura do Projeto
+## Project Structure
 
 ```
 noHarmBack/
+├── alembic/                    # Database migrations
+│   ├── versions/
+│   ├── env.py
+│   └── script.py.mako
 ├── docs/
+│   ├── README.md               # This file
+│   ├── TODO.md                 # Architecture context and implementation plan
+│   ├── security.md             # Security guide — covered attacks and countermeasures
+│   └── requirements.txt        # Python dependencies
 ├── src/
 │   ├── api/
 │   │   ├── dependencies/
@@ -28,142 +36,166 @@ noHarmBack/
 │   ├── security/
 │   ├── websocket/
 │   │   └── handlers/
-│   └── main.py
+│   ├── main.py
+│   └── run.py
+├── .secrets.toml               # Environment secrets (never commit)
+├── alembic.ini
+├── migrate.sh
+├── requirements.txt
+└── vercel.json
 ```
 
 ---
 
-## `docs/`
+## Source Code — `src/`
 
-Documentação do projeto.
+The application is organised in layers following **Clean Architecture**. Each layer has a single responsibility and depends only on layers below it.
 
-| Arquivo | Descrição |
-|---|---|
-| `README.md` | Visão geral do projeto |
-| `TODO.md` | Contexto completo, decisões de arquitetura e plano de implementação |
-| `security.md` | Guia detalhado de segurança — ataques cobertos e como se proteger |
-| `requirements.txt` | Dependências Python do projeto |
-
----
-
-## `src/`
-
-Código-fonte da aplicação, organizado em camadas segundo a **Clean Architecture**.
+```
+HTTP Request
+    │
+    ▼
+Route        — validates schema (Pydantic) · extracts JWT (Dependency)
+    │
+    ▼
+Service      — applies business rules · orchestrates repositories
+    │
+    ▼
+Repository   — executes database queries
+    │
+    ▼
+Model        — ORM maps table ↔ Python object
+    │
+    ▼
+PostgreSQL
+```
 
 ---
 
 ### `src/api/`
 
-Camada de apresentação. Responsável por expor a aplicação ao mundo externo via HTTP.
+Presentation layer. Exposes the application to the outside world over HTTP.
 
 #### `src/api/dependencies/`
 
-Dependências reutilizáveis injetadas nas rotas pelo FastAPI.
+Reusable FastAPI dependencies injected into routes.
 
-| Arquivo | Descrição |
-|---|---|
-| `auth.py` | Extrai e valida o usuário autenticado a partir do JWT (`getCurrentUser`) |
-| `database.py` | Fornece a sessão do banco de dados (`getDb`) para as rotas |
+| File | Description |
+|------|-------------|
+| `auth.py` | Extracts and validates the authenticated user from the JWT (`getCurrentUser`) |
+| `database.py` | Provides the database session (`getDb`) to routes |
 
 #### `src/api/routes/`
 
-Endpoints HTTP da aplicação. Cada arquivo agrupa as rotas de um domínio. As rotas **não contêm lógica de negócio** — apenas recebem a requisição, delegam ao `Service` correspondente e retornam a resposta.
+HTTP endpoints. Each file groups routes for one domain. Routes contain **no business logic** — they receive the request, delegate to the corresponding `Service`, and return the response.
 
-| Arquivo | Descrição |
-|---|---|
-| `authRoutes.py` | Rotas de autenticação: login, logout, refresh token |
-| `userRoutes.py` | Rotas de usuário: cadastro, perfil, atualização de dados |
-| `streakRoutes.py` | Rotas de streak: consultar, incrementar e resetar dias limpos |
-| `chatRoutes.py` | Rotas de mensagens: histórico de conversas |
-| `badgesRoutes.py` | Rotas de conquistas: listar e consultar badges do usuário |
+| File | Description |
+|------|-------------|
+| `authRoutes.py` | Authentication routes: login, logout, token refresh |
+| `userRoutes.py` | User routes: registration, profile, data update |
+| `streakRoutes.py` | Streak routes: query, increment, and reset clean days |
+| `chatRoutes.py` | Message routes: conversation history |
+| `badgesRoutes.py` | Achievement routes: list and query user badges |
 
 ---
 
 ### `src/core/`
 
-Configurações e recursos centrais compartilhados por toda a aplicação.
+Central configuration and resources shared across the entire application.
 
-| Arquivo | Descrição |
-|---|---|
-| `config.py` | Carrega e valida as variáveis de ambiente via Dynaconf |
-| `database.py` | Cria o engine do SQLAlchemy e a `SessionLocal` |
-| `security.py` | Utilitários de segurança transversais (ex: hash de senha) |
+| File | Description |
+|------|-------------|
+| `config.py` | Loads and validates environment variables via Dynaconf |
+| `database.py` | Creates the SQLAlchemy engine and `SessionLocal` |
 
 ---
 
 ### `src/domain/`
 
-Núcleo da aplicação. Contém as regras de negócio, completamente isoladas de detalhes de infraestrutura (banco, HTTP, etc).
+Application core. Contains business rules completely isolated from infrastructure details (database, HTTP, etc.).
 
 #### `src/domain/entities/`
 
-Representação pura dos conceitos do domínio, sem acoplamento a ORM ou frameworks.
+Pure domain concept representations, with no ORM or framework coupling.
 
-| Arquivo | Descrição |
-|---|---|
-| `user.py` | Entidade de usuário (id, username, email, status, timestamps) |
-| `streak.py` | Entidade de streak (dias limpos, maior sequência, última data) |
-| `chat.py` | Entidade de mensagem de chat |
-| `badge.py` | Entidade de conquista/badge |
-| `friendship.py` | Entidade de amizade entre usuários |
+| File | Entity | Key Fields |
+|------|--------|------------|
+| `user.py` | User | id, username, email, profilePicture, status, timestamps |
+| `streak.py` | Streak | id, ownerId, start, end, status, isRecord |
+| `chat.py` | Chat | id, sender, reciver, startedAt, endedAt, status, messages |
+| `message.py` | Message | id, chat, sender, message, status, sendAt, recivedAt |
+| `badge.py` | Badge | id, name, description, milestone, icon, status |
+| `userBadge.py` | UserBadge | id, userId, badgeId, givenAt, status |
+| `friendship.py` | Friendship | id, sender, reciver, sendAt, recivedAt, status |
+| `auditLogs.py` | AuditLogs | id, type, catalistId, catalist, description, timestamps |
 
 #### `src/domain/services/`
 
-Orquestram as regras de negócio. Chamam os `Repositories` para acessar dados e aplicam as regras antes de retornar o resultado às rotas.
+Orchestrate business rules. Call `Repositories` to access data and apply rules before returning results to routes.
 
-| Arquivo | Descrição |
-|---|---|
-| `userService.py` | Registro, atualização de perfil, busca de usuários |
-| `streakService.py` | Incremento diário, verificação de expiração, reset com histórico |
-| `chatsService.py` | Envio e recuperação de mensagens, validação de destinatário |
-| `badgeService.py` | Concessão e listagem de conquistas |
+| File | Responsibility |
+|------|----------------|
+| `userService.py` | Registration, profile update, user search |
+| `streakService.py` | Daily increment, expiry check, reset with history |
+| `chatsService.py` | Sending and retrieving messages, recipient validation |
+| `badgeService.py` | Granting and listing achievements |
 
 ---
 
 ### `src/infrastructure/`
 
-Implementações concretas de acesso a dados e serviços externos.
+Concrete implementations of data access and external services.
 
 #### `src/infrastructure/database/models/`
 
-Mapeamento ORM das tabelas do banco via SQLAlchemy. Cada arquivo define **apenas a estrutura da tabela** — sem lógica de negócio.
+ORM table mappings via SQLAlchemy. Every file defines **only table structure** — no business logic.
 
-| Arquivo | Tabela | Descrição |
-|---|---|---|
-| `userModel.py` | `tb_0` | Usuários com username e email criptografados + hash para busca |
-| `streakModel.py` | — | Contagem de dias limpos por usuário |
-| `chatModel.py` | — | Mensagens trocadas entre usuários |
-| `badgeModel.py` | — | Conquistas associadas a usuários |
-| `logsModel.py` | — | Registro de eventos de auditoria |
+All sensitive fields (username, email, message content, timestamps, etc.) are stored **encrypted at rest** using AES-256 (Fernet) and are also indexed by a SHA-256 hash to allow equality queries without exposing plaintext.
+
+| File | Table | Encrypted Fields |
+|------|-------|-----------------|
+| `userModel.py` | `tb_0` | username, email, profilePicture |
+| `streakModel.py` | `tb_1` | start, end |
+| `friendshipModel.py` | `tb_2` | sendAt, recivedAt |
+| `chatModel.py` | `tb_3` | startedAt, endedAt |
+| `messageModel.py` | `tb_4` | message, sendAt, recivedAt |
+| `badgeModel.py` | `tb_5` | name, description, milestone, icon |
+| `userBedgesModel.py` | `tb_6` | givenAt |
+| `auditLogsModel.py` | `tb_7` | description |
+| `baseModel.py` | — | TimestampMixin (createdAt, updatedAt) |
 
 #### `src/infrastructure/database/repositories/`
 
-Camada de acesso a dados. Cada arquivo encapsula as queries do banco para um modelo específico. Os `Services` chamam os `Repositories` — nunca acessam o banco diretamente.
+Data access layer. Each file encapsulates queries for a specific model. **Services call Repositories — they never access the database directly.**
 
-| Arquivo | Descrição |
-|---|---|
-| `userRepository.py` | `findByEmail`, `findById`, `create`, `update` de usuários |
-| `streakRepository.py` | `findByUserId`, `create`, `update`, `findTopStreaks` |
-| `chatRepository.py` | `saveMessage`, `findConversation`, `markAsRead` |
-| `badgeRepository.py` | `findByUserId`, `grant`, `listAll` |
+| File | Key Methods |
+|------|-------------|
+| `userRepository.py` | `findById`, `findByEmail`, `findByUsername`, `findAll`, `create`, `update`, `updateStatus`, `softDelete` |
+| `streakRepository.py` | `findById`, `findByOwnerId`, `findAllByOwnerId`, `findCurrentStreak`, `findCurrentRecord`, `create`, `update`, `markAsRecord`, `updateStatus` |
+| `chatRepository.py` | `findById`, `findByParticipants`, `findAllByUserId`, `create`, `updateStatus`, `updateEndedAt` |
+| `messageRepository.py` | `findById`, `findByChatId`, `findUnreadByChatId`, `create`, `markAsRead`, `markAllAsRead`, `updateStatus` |
+| `friendshipRepository.py` | `findById`, `findByPair`, `findAllByReciverPending`, `findAllBySenderId`, `create`, `updateStatus` |
+| `badgeRepository.py` | `findById`, `findAll`, `create`, `update`, `updateStatus`, `softDelete` |
+| `userBadgesRepository.py` | `findByUserId`, `findByBadgeId`, `existsByUserAndBadge`, `grant`, `revoke`, `listAll` |
+| `auditLogsRepository.py` | `findById`, `findByType`, `findByCatalystId`, `findByDateRange`, `create` |
 
 #### `src/infrastructure/external/`
 
-Integrações com serviços externos.
+Integrations with external services.
 
-| Arquivo | Descrição |
-|---|---|
-| `emailService.py` | Envio de emails (verificação, recuperação de senha) |
-| `storageService.py` | Upload e recuperação de arquivos (fotos de perfil) |
+| File | Description |
+|------|-------------|
+| `emailService.py` | Email sending (verification, password recovery) |
+| `storageService.py` | Declares `Base` (SQLAlchemy DeclarativeBase) — file/photo uploads planned |
 
 ---
 
 ### `src/schemas/`
 
-DTOs (Data Transfer Objects) definidos com **Pydantic**. Responsáveis por validar os dados de entrada e filtrar os dados de saída das rotas, garantindo que informações sensíveis (ex: `passwordHash`) nunca sejam expostas.
+DTOs defined with **Pydantic**. Responsible for validating input data and filtering output data from routes, ensuring sensitive information (e.g. `passwordHash`) is never exposed.
 
-| Arquivo | Descrição |
-|---|---|
+| File | Purpose |
+|------|---------|
 | `userSchemas.py` | `UserRegisterRequest`, `UserResponse`, `UserUpdateRequest` |
 | `streakSchemas.py` | `StreakResponse`, `StreakResetRequest` |
 | `chatSchemas.py` | `MessageRequest`, `MessageResponse`, `ConversationResponse` |
@@ -173,103 +205,150 @@ DTOs (Data Transfer Objects) definidos com **Pydantic**. Responsáveis por valid
 
 ### `src/security/`
 
-Módulos de segurança reutilizáveis por toda a aplicação.
+Reusable security modules shared across the application.
 
-| Arquivo | Descrição |
-|---|---|
-| `jwtHandler.py` | Geração e validação de Access e Refresh tokens com blacklist |
-| `rateLimiter.py` | Rate limiting por IP e por usuário (sliding window) |
-| `sanitizer.py` | Sanitização de inputs para prevenção de XSS e injeções |
-| `encryption.py` | Criptografia simétrica de dados sensíveis (username, email) |
+| File | Description |
+|------|-------------|
+| `jwtHandler.py` | Generation and validation of Access and Refresh tokens with blacklist support |
+| `tokenBlacklist.py` | Persistent JWT revocation list (append-only JSONL log + in-memory hashtable) |
+| `persistentHashTable.py` | Append-only log data structure with O(1) write and periodic compaction |
+| `rateLimiter.py` | IP-based rate limiting (sliding window) + login brute-force protection per username |
+| `middleware.py` | `RateLimitMiddleware` and `SecurityHeadersMiddleware` registered globally in `main.py` |
+| `sanitizer.py` | HTML sanitisation via `bleach` for XSS prevention |
+| `encryption.py` | AES-256 symmetric encryption (Fernet) + Argon2 password hashing + SHA-256 hashing |
+
+**JWT flow:**
+- Access token: 15-minute lifetime, signed with `JWT_SECRET_KEY`
+- Refresh token: 7-day lifetime, signed with `JWT_REFRESH_SECRET_KEY`
+- Each token carries a unique `jti` claim that enables individual revocation
+- Revoked JTIs are stored hashed (SHA-256) in a persistent JSONL blacklist
+
+**Token blacklist:**
+The blacklist uses `PersistentHashTable` — an append-only JSONL file that survives server restarts. On startup, state is rebuilt by replaying log events. Expired entries are removed via `cleanup()`.
 
 ---
 
 ### `src/websocket/`
 
-Comunicação em tempo real via Socket.IO.
+Real-time communication via Socket.IO.
 
-| Arquivo | Descrição |
-|---|---|
-| `socketManager.py` | Gerencia conexões WebSocket: autenticação JWT, rate limiting de mensagens, validação de payloads e roteamento de eventos |
+| File | Description |
+|------|-------------|
+| `socketManager.py` | Manages WebSocket connections: JWT auth, message rate limiting, payload validation, event routing |
 
 #### `src/websocket/handlers/`
 
-Handlers isolados por responsabilidade, chamados pelo `socketManager`.
+Handlers isolated by responsibility, called by `socketManager`.
 
-| Arquivo | Descrição |
-|---|---|
-| `chatHandlers.py` | Processamento de mensagens de chat em tempo real |
-| `presenceHandlers.py` | Status online/offline dos usuários |
+| File | Description |
+|------|-------------|
+| `chatHandlers.py` | Real-time chat message processing |
+| `presenceHandlers.py` | User online/offline status |
 
 ---
 
 ### `src/main.py`
 
-Ponto de entrada da aplicação. Inicializa o FastAPI, registra os middlewares (CORS, rate limiting, segurança, CSRF), inclui as rotas e sobe o servidor Socket.IO junto ao HTTP.
+Application entry point. Initialises FastAPI, registers middlewares (CORS, rate limiting, security headers), includes routes, and mounts the Socket.IO server alongside HTTP.
+
+### `src/run.py`
+
+Convenience script to start the server with Uvicorn using settings from `config`.
+
+### `src/exceptions/`
+
+| File | Description |
+|------|-------------|
+| `baseExceptions.py` | `NoHarmException` — base class with `statusCode`, `errorCode`, `message`, `details`, and `toDict()` |
+| `databaseExceptions.py` | `NoEngineException`, `NoSessionException`, `NoDatabaseParameterException` |
 
 ---
 
-## Fluxo de uma Requisição
+## Configuration
 
+The application uses [Dynaconf](https://www.dynaconf.com/) with `.secrets.toml` and supports three environments: `development`, `staging`, and `production`.
+
+Set the active environment with the `ENV` environment variable:
+```bash
+export ENV=development   # or staging, production
 ```
-Cliente (JSON)
-    │
-    ▼
-Route  ──── valida schema (Pydantic) · extrai JWT (Dependency)
-    │
-    ▼
-Service ──── aplica regras de negócio · orquestra repositórios
-    │
-    ▼
-Repository ── executa queries no banco
-    │
-    ▼
-Model ──────── ORM mapeia tabela ↔ objeto Python
-    │
-    ▼
-PostgreSQL
+
+### Required secrets (`.secrets.toml`)
+
+```toml
+[development]
+ENCRYPTION_KEY          = "..."   # Master key for AES-256 field encryption
+DATABASE_URL            = "postgres://..."
+DATABASE_URL_UNPOOLED   = "postgresql://..."
+DATABASE_HOST           = "..."
+DATABASE_NAME           = "..."
+DATABASE_USER           = "..."
+DATABASE_PASSWORD       = "..."
+JWT_SECRET_KEY          = "..."   # Access token signing key
+JWT_REFRESH_SECRET_KEY  = "..."   # Refresh token signing key
+JWT_ALGORITHM           = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES  = 15
+REFRESH_TOKEN_EXPIRE_DAYS    = 7
+STORAGE_PATH            = "data"
+ALLOWED_ORIGINS         = ["*"]
+DEBUG                   = true
+PORT                    = 8080
+```
+
+Generate secure secrets with:
+```python
+import secrets
+print(secrets.token_urlsafe(32))  # run three times for the three keys
 ```
 
 ---
 
-## Primeiros Passos
+## Getting Started
 
 ```bash
-# Ambiente virtual
-python -m venv venv && source venv/bin/activate
+# Create and activate virtual environment
+python -m venv venv
+source venv/bin/activate        # Linux / macOS
+# venv\Scripts\activate         # Windows
 
-# Dependências
-pip install -r docs/requirements.txt
+# Install dependencies
+pip install -r requirements.txt
 
-# Configuração
-cp .env.example .env
-# edite .env com seus valores
+# Configure secrets
+cp .env.example .secrets.toml
+# Edit .secrets.toml with your values
 
-# Migrations
-alembic upgrade head
+# Run database migrations
+ENV=development alembic upgrade head
 
-# Servidor
+# Start the server
+cd src && python run.py
+# or
 uvicorn src.main:app --reload
 ```
 
-### Gerar secrets para o `.env`
+---
 
-```python
-import secrets
-print(f"JWT_SECRET_KEY={secrets.token_urlsafe(32)}")
-print(f"JWT_REFRESH_SECRET_KEY={secrets.token_urlsafe(32)}")
-print(f"ENCRYPTION_MASTER_KEY={secrets.token_urlsafe(32)}")
-```
+## Deployment (Vercel)
+
+The project is configured for Vercel serverless deployment via `vercel.json`. Migrations are run automatically on build via `migrate.sh` (triggered by `package.json`'s `vercel-build` script).
+
+The database is hosted on **Neon** (serverless PostgreSQL). Alembic uses the unpooled connection URL because pgBouncer (pooled) is incompatible with Alembic's DDL operations.
 
 ---
 
-## Convenções de Código
+## Coding Conventions
 
-O projeto adota **camelCase** para variáveis, funções e atributos em Python:
+The project uses **camelCase** for all Python variables, functions, and attributes:
 
 ```python
-# ✅ Padrão do projeto
+# ✅ Project standard
 def getUserById(userId: str): ...
-passwordHash = bcrypt.hashpw(...)
+passwordHash = encryption.encryptPass(...)
 createdAt = datetime.utcnow()
+
+# ❌ Not used (PEP 8 default)
+def get_user_by_id(user_id: str): ...
 ```
+
+Class names and file names follow PascalCase and camelCase respectively, consistent with the rest of the codebase.

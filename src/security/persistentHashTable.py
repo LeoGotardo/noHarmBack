@@ -7,15 +7,16 @@ from typing import Any
 
 class PersistentHashTable:
     """
-    Hashtable com persistência em disco usando append-only log (JSONL).
+    Hash table with disk persistence using an append-only log (JSONL).
 
-    Cada operação de escrita adiciona uma linha ao arquivo em vez de
-    reescrever tudo — custo O(1) por operação.
+    Each write operation appends a new line to the file instead of
+    rewriting the entire file — O(1) cost per operation.
 
-    Na inicialização, o estado é reconstruído lendo os eventos em ordem.
-    O cleanup compacta o arquivo removendo entradas expiradas.
+    On initialization, the current state is reconstructed by replaying
+    all events in order. The cleanup method compacts the file by
+    removing expired entries.
 
-    Formato do arquivo (.jsonl):
+    File format (.jsonl):
         {"key": "<hash>", "value": "<iso_datetime>", "op": "add"}
         {"key": "<hash>", "value": "<iso_datetime>", "op": "remove"}
     """
@@ -28,26 +29,26 @@ class PersistentHashTable:
         self._load()
 
 
-    # ── Interface pública ──────────────────────────────────────────────────────
+    # ── Public interface ───────────────────────────────────────────────────────
 
     def set(self, key: str, value: Any) -> None:
-        """Adiciona ou atualiza uma entrada e persiste o evento."""
+        """Adds or updates an entry and persists the event."""
         self._table[key] = value
         self._appendEvent(key, value, "add")
 
 
     def get(self, key: str) -> Any | None:
-        """Retorna o valor associado à chave ou None se não existir."""
+        """Returns the value associated with the key, or None if it does not exist."""
         return self._table.get(key)
 
 
     def exists(self, key: str) -> bool:
-        """Verifica se a chave existe na tabela."""
+        """Checks whether the key exists in the table."""
         return key in self._table
 
 
     def delete(self, key: str) -> None:
-        """Remove uma entrada e persiste o evento de remoção."""
+        """Removes an entry and persists the removal event."""
         if key in self._table:
             del self._table[key]
             self._appendEvent(key, None, "remove")
@@ -55,11 +56,11 @@ class PersistentHashTable:
 
     def cleanup(self, isExpired: callable) -> None:
         """
-        Remove entradas expiradas da memória e compacta o arquivo.
+        Removes expired entries from memory and compacts the file.
 
         Args:
-            isExpired: função que recebe o valor e retorna True se expirado.
-                       Ex: lambda exp: datetime.fromisoformat(exp) < datetime.utcnow()
+            isExpired: A callable that receives a value and returns True if expired.
+                       Example: lambda exp: datetime.fromisoformat(exp) < datetime.utcnow()
         """
         self._table = {
             key: value
@@ -70,10 +71,10 @@ class PersistentHashTable:
         self._rewrite()
 
 
-    # ── Persistência ──────────────────────────────────────────────────────────
+    # ── Persistence ───────────────────────────────────────────────────────────
 
     def _ensureFile(self) -> None:
-        """Cria o arquivo e diretórios necessários se não existirem."""
+        """Creates the file and any required directories if they do not exist."""
         dirPath = os.path.dirname(self._filepath)
 
         if dirPath:
@@ -85,9 +86,9 @@ class PersistentHashTable:
 
     def _load(self) -> None:
         """
-        Reconstrói o estado atual lendo todos os eventos do arquivo em ordem.
-        Eventos 'add' inserem, eventos 'remove' deletam.
-        Linhas corrompidas são ignoradas silenciosamente.
+        Reconstructs the current state by replaying all events from the file in order.
+        'add' events insert entries; 'remove' events delete them.
+        Corrupted lines are silently ignored.
         """
         with open(self._filepath, 'r') as file:
             for line in file:
@@ -114,8 +115,8 @@ class PersistentHashTable:
 
     def _appendEvent(self, key: str, value: Any, op: str) -> None:
         """
-        Acrescenta um evento ao final do arquivo — O(1).
-        Nunca reescreve o arquivo inteiro.
+        Appends a single event to the end of the file — O(1).
+        Never rewrites the entire file.
         """
         event = json.dumps({
             "key":   key,
@@ -129,8 +130,8 @@ class PersistentHashTable:
 
     def _rewrite(self) -> None:
         """
-        Reescreve o arquivo com apenas o estado atual limpo.
-        Chamado somente pelo cleanup — O(n), mas raro.
+        Rewrites the file with only the current clean state.
+        Called exclusively by cleanup — O(n), but infrequent.
         """
         with open(self._filepath, 'w') as file:
             for key, value in self._table.items():

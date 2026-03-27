@@ -4,12 +4,12 @@ from typing import Optional
 
 class IpRateLimiter:
     """
-    Rate limiter por IP usando sliding window.
+    IP-based rate limiter using a sliding window.
 
-    Limita o número de requisições por IP em uma janela de tempo
-    e bloqueia temporariamente IPs que excedem o limite.
+    Limits the number of requests per IP within a time window
+    and temporarily blocks IPs that exceed the limit.
 
-    Uso:
+    Usage:
         limiter = IpRateLimiter()
 
         allowed, reason = limiter.check("192.168.1.1")
@@ -17,9 +17,9 @@ class IpRateLimiter:
             raise HTTPException(429, reason)
     """
 
-    _WINDOW_SECONDS  = 60
-    _MAX_REQUESTS    = 60
-    _BLOCK_MINUTES   = 60
+    _WINDOW_SECONDS = 60
+    _MAX_REQUESTS   = 60
+    _BLOCK_MINUTES  = 60
 
 
     def __init__(self):
@@ -27,35 +27,35 @@ class IpRateLimiter:
         self._blocked: dict[str, datetime]       = {}
 
 
-    # ── Interface pública ──────────────────────────────────────────────────────
+    # ── Public interface ──────────────────────────────────────────────────────
 
     def check(self, ip: str) -> tuple[bool, Optional[str]]:
         """
-        Verifica se o IP pode fazer uma requisição.
-        Registra a tentativa internamente.
+        Checks whether the IP is allowed to make a request.
+        Records the attempt internally.
 
         Args:
-            ip: endereço IP do cliente
+            ip: client IP address
 
         Returns:
-            (True, None)           se permitido
-            (False, mensagem)      se bloqueado ou limite excedido
+            (True, None)       if allowed
+            (False, message)   if blocked or limit exceeded
         """
         if self._isBlocked(ip):
             remaining = self._blockedSecondsRemaining(ip)
-            return False, f"IP bloqueado. Tente novamente em {remaining}s"
+            return False, f"IP blocked. Try again in {remaining}s"
 
         self._cleanWindow(ip)
         self._windows.setdefault(ip, []).append(datetime.utcnow())
 
         if len(self._windows[ip]) > self._MAX_REQUESTS:
             self._block(ip)
-            return False, f"Muitas requisições. IP bloqueado por {self._BLOCK_MINUTES} minutos"
+            return False, f"Too many requests. IP blocked for {self._BLOCK_MINUTES} minutes"
 
         return True, None
 
 
-    # ── Interno ───────────────────────────────────────────────────────────────
+    # ── Internal ──────────────────────────────────────────────────────────────
 
     def _isBlocked(self, ip: str) -> bool:
         if ip not in self._blocked:
@@ -78,7 +78,7 @@ class IpRateLimiter:
 
 
     def _cleanWindow(self, ip: str) -> None:
-        """Remove timestamps fora da janela de tempo atual."""
+        """Removes timestamps that fall outside the current time window."""
         if ip not in self._windows:
             return
 
@@ -88,19 +88,19 @@ class IpRateLimiter:
 
 class LoginRateLimiter:
     """
-    Rate limiter por username para proteção contra brute force.
+    Per-username rate limiter for brute-force protection.
 
-    Após 5 tentativas falhas em 15 minutos, bloqueia a conta
-    por 30 minutos. Tentativas bem-sucedidas limpam o histórico.
+    After 5 failed attempts within 15 minutes, the account is locked
+    for 30 minutes. Successful attempts clear the attempt history.
 
-    Uso:
+    Usage:
         limiter = LoginRateLimiter()
 
         allowed, reason = limiter.check(username)
         if not allowed:
             raise HTTPException(429, reason)
 
-        # após autenticar:
+        # after authenticating successfully:
         limiter.onSuccess(username)
     """
 
@@ -114,23 +114,23 @@ class LoginRateLimiter:
         self._locked:   dict[str, datetime]       = {}
 
 
-    # ── Interface pública ──────────────────────────────────────────────────────
+    # ── Public interface ──────────────────────────────────────────────────────
 
     def check(self, username: str) -> tuple[bool, Optional[str]]:
         """
-        Verifica se o username pode tentar login.
-        Registra a tentativa internamente.
+        Checks whether the username is allowed to attempt login.
+        Records the attempt internally.
 
         Args:
-            username: identificador da conta (email ou username)
+            username: account identifier (email or username)
 
         Returns:
-            (True, None)           se permitido
-            (False, mensagem)      se conta bloqueada ou limite excedido
+            (True, None)       if allowed
+            (False, message)   if account is locked or limit exceeded
         """
         if self._isLocked(username):
             remaining = self._lockedSecondsRemaining(username)
-            return False, f"Conta bloqueada. Tente novamente em {remaining}s"
+            return False, f"Account locked. Try again in {remaining}s"
 
         self._cleanWindow(username)
         self._attempts.setdefault(username, []).append(datetime.utcnow())
@@ -139,37 +139,36 @@ class LoginRateLimiter:
 
         if attempts >= self._MAX_ATTEMPTS:
             self._lock(username)
-            return False, f"Conta bloqueada após {self._MAX_ATTEMPTS} tentativas. Tente em {self._LOCKOUT_MINUTES} minutos"
+            return False, f"Account locked after {self._MAX_ATTEMPTS} attempts. Try again in {self._LOCKOUT_MINUTES} minutes"
 
-        remaining = self._MAX_ATTEMPTS - attempts
         return True, None
 
 
     def onSuccess(self, username: str) -> None:
         """
-        Limpa o histórico de tentativas após login bem-sucedido.
-        Deve ser chamado pelo authService após autenticar o usuário.
+        Clears the attempt history after a successful login.
+        Must be called by authService after authenticating the user.
 
         Args:
-            username: identificador da conta
+            username: account identifier
         """
         self._attempts.pop(username, None)
 
 
     def attemptsRemaining(self, username: str) -> int:
         """
-        Retorna quantas tentativas restam antes do bloqueio.
-        Útil para o authService incluir na resposta de erro.
+        Returns how many attempts remain before lockout.
+        Useful for authService to include in error responses.
 
         Args:
-            username: identificador da conta
+            username: account identifier
         """
         self._cleanWindow(username)
         attempts = len(self._attempts.get(username, []))
         return max(0, self._MAX_ATTEMPTS - attempts)
 
 
-    # ── Interno ───────────────────────────────────────────────────────────────
+    # ── Internal ──────────────────────────────────────────────────────────────
 
     def _isLocked(self, username: str) -> bool:
         if username not in self._locked:
@@ -193,7 +192,7 @@ class LoginRateLimiter:
 
 
     def _cleanWindow(self, username: str) -> None:
-        """Remove tentativas fora da janela de tempo atual."""
+        """Removes attempts that fall outside the current time window."""
         if username not in self._attempts:
             return
 
