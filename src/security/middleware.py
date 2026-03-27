@@ -1,22 +1,22 @@
-from fastapi        import Request
-from fastapi.responses  import JSONResponse
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from security.rateLimiter import IpRateLimiter
 
 
-# Instância global — compartilhada entre todas as requisições
+# Global instance — shared across all requests
 _ipLimiter = IpRateLimiter()
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
-    Middleware global de rate limiting por IP.
+    Global IP-based rate limiting middleware.
 
-    Aplicado em todas as rotas automaticamente.
-    Retorna 429 com header Retry-After quando o limite é excedido.
+    Applied automatically to all routes.
+    Returns 429 with a Retry-After header when the limit is exceeded.
 
-    Registro no main.py:
+    Registration in main.py:
         app.add_middleware(RateLimitMiddleware)
     """
 
@@ -40,8 +40,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     def _extractIp(self, request: Request) -> str:
         """
-        Extrai o IP real do cliente respeitando proxies.
-        X-Forwarded-For é preenchido pela Vercel automaticamente.
+        Extracts the real client IP, respecting reverse proxies.
+        X-Forwarded-For is populated automatically by Vercel.
         """
         forwarded = request.headers.get("X-Forwarded-For")
 
@@ -53,9 +53,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """
-    Middleware que adiciona headers de segurança em todas as respostas.
+    Middleware that adds security headers to all responses.
 
-    Registro no main.py:
+    Registration in main.py:
         app.add_middleware(SecurityHeadersMiddleware)
     """
 

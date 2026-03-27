@@ -6,19 +6,19 @@ from core.config import config
 
 class TokenBlacklist:
     """
-    Blacklist de tokens JWT revogados.
+    Blacklist of revoked JWT tokens.
 
-    Tokens adicionados nunca são removidos manualmente — só saem
-    quando expiram naturalmente, via cleanup.
+    Tokens added here are never removed manually — they are only evicted
+    when they expire naturally, via cleanup.
 
-    O JTI é armazenado como hash SHA-256 para não expor o valor
-    original em disco.
+    The JTI is stored as a SHA-256 hash to avoid writing the original
+    value to disk in plaintext.
 
-    Uso:
+    Usage:
         blacklist = TokenBlacklist()
         blacklist.add(jti, expiresAt)
         blacklist.isBlacklisted(jti)  # True/False
-        blacklist.cleanup()           # remove expirados
+        blacklist.cleanup()           # removes expired entries
     """
 
     _STORAGE_PATH = str(config.STORAGE_PATH + '/blacklist.jsonl')
@@ -28,15 +28,15 @@ class TokenBlacklist:
         self.cleanup()
 
 
-    # ── Interface pública ──────────────────────────────────────────────────────
+    # ── Public interface ──────────────────────────────────────────────────────
 
     def add(self, jti: str, expiresAt: datetime) -> None:
         """
-        Revoga um token adicionando seu JTI à blacklist.
+        Revokes a token by adding its JTI to the blacklist.
 
         Args:
-            jti:       ID único do token (claim 'jti' do JWT)
-            expiresAt: momento em que o token expira naturalmente
+            jti:       unique token ID ('jti' claim from the JWT)
+            expiresAt: moment the token expires naturally
         """
         hashedJti = self._hash(jti)
         self._storage.set(hashedJti, expiresAt.isoformat())
@@ -44,13 +44,13 @@ class TokenBlacklist:
 
     def isBlacklisted(self, jti: str) -> bool:
         """
-        Verifica se um token está revogado.
+        Checks whether a token has been revoked.
 
         Args:
-            jti: ID único do token (claim 'jti' do JWT)
+            jti: unique token ID ('jti' claim from the JWT)
 
         Returns:
-            True se o token está na blacklist, False caso contrário
+            True if the token is on the blacklist, False otherwise
         """
         hashedJti = self._hash(jti)
         return self._storage.exists(hashedJti)
@@ -58,9 +58,9 @@ class TokenBlacklist:
 
     def cleanup(self) -> None:
         """
-        Remove da memória e do arquivo todos os tokens já expirados.
-        Chamado automaticamente na inicialização e pode ser chamado
-        periodicamente para manter o arquivo compacto.
+        Removes all expired tokens from memory and from the backing file.
+        Called automatically on startup and can be scheduled periodically
+        to keep the file compact.
         """
         now = datetime.utcnow()
 
@@ -69,11 +69,11 @@ class TokenBlacklist:
         )
 
 
-    # ── Interno ───────────────────────────────────────────────────────────────
+    # ── Internal ──────────────────────────────────────────────────────────────
 
     def _hash(self, jti: str) -> str:
         """
-        Retorna o hash SHA-256 do JTI.
-        Nunca armazenamos o JTI em plaintext em disco.
+        Returns the SHA-256 hash of the JTI.
+        Plaintext JTIs are never stored on disk.
         """
         return Encryption.hash(jti)

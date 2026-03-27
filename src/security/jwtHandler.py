@@ -11,16 +11,16 @@ from core.config import config
 
 class JwtHandler:
     """
-    Geração e validação de tokens JWT.
+    JWT token generation and validation.
 
-    Emite dois tipos de token:
-        - access:  vida curta (15 min), usado em cada requisição
-        - refresh: vida longa (7 dias), usado para emitir novos access tokens
+    Issues two token types:
+        - access:  short-lived (15 min), sent on every request
+        - refresh: long-lived (7 days), used to issue new access tokens
 
-    Cada token carrega um JTI único que permite revogação individual
-    via blacklist, sem invalidar todos os tokens do usuário.
+    Each token carries a unique JTI that allows individual revocation
+    via blacklist without invalidating all tokens for the user.
 
-    Uso:
+    Usage:
         handler = JwtHandler()
 
         accessToken  = handler.createAccessToken(userId)
@@ -43,22 +43,22 @@ class JwtHandler:
 
 
     def __init__(self, blacklist: TokenBlacklist):
-        self._blacklist       = blacklist
+        self._blacklist    = blacklist
         self._accessKey    = config.JWT_ACCESS_KEY
         self._refreshKey   = config.JWT_REFRESH_KEY
 
 
-    # ── Geração ───────────────────────────────────────────────────────────────
+    # ── Generation ────────────────────────────────────────────────────────────
 
     def createAccessToken(self, userId: str) -> str:
         """
-        Gera um access token de vida curta (15 minutos).
+        Issues a short-lived access token (15 minutes).
 
         Args:
-            userId: ID do usuário dono do token
+            userId: ID of the token owner
 
         Returns:
-            Token JWT assinado em formato string
+            Signed JWT as a string
         """
         expiresAt = datetime.utcnow() + timedelta(minutes=self._ACCESS_EXPIRE_MINUTES)
 
@@ -72,13 +72,13 @@ class JwtHandler:
 
     def createRefreshToken(self, userId: str) -> str:
         """
-        Gera um refresh token de vida longa (7 dias).
+        Issues a long-lived refresh token (7 days).
 
         Args:
-            userId: ID do usuário dono do token
+            userId: ID of the token owner
 
         Returns:
-            Token JWT assinado em formato string
+            Signed JWT as a string
         """
         expiresAt = datetime.utcnow() + timedelta(days=self._REFRESH_EXPIRE_DAYS)
 
@@ -90,24 +90,24 @@ class JwtHandler:
         )
 
 
-    # ── Validação ─────────────────────────────────────────────────────────────
+    # ── Validation ────────────────────────────────────────────────────────────
 
     def verifyToken(self, token: str, tokenType: str) -> Optional[dict]:
         """
-        Valida um token JWT e retorna o payload se válido.
+        Validates a JWT and returns the payload if valid.
 
-        Verificações realizadas em ordem:
-            1. Assinatura e expiração (PyJWT)
-            2. Claims obrigatórios presentes
-            3. Tipo do token corresponde ao esperado
-            4. Token não está na blacklist
+        Checks performed in order:
+            1. Signature and expiry (PyJWT)
+            2. Required claims are present
+            3. Token type matches the expected type
+            4. Token is not on the blacklist
 
         Args:
-            token:     token JWT em formato string
-            tokenType: tipo esperado — "access" ou "refresh"
+            token:     JWT string
+            tokenType: expected type — "access" or "refresh"
 
         Returns:
-            Payload do token se válido, None caso contrário
+            Token payload if valid, None otherwise
         """
         secret = self._secretForType(tokenType)
 
@@ -136,24 +136,24 @@ class JwtHandler:
         return payload
 
 
-    # ── Revogação ─────────────────────────────────────────────────────────────
+    # ── Revocation ────────────────────────────────────────────────────────────
 
     def revokeToken(self, jti: str, exp: int) -> None:
         """
-        Revoga um token adicionando seu JTI à blacklist.
+        Revokes a token by adding its JTI to the blacklist.
 
-        Deve ser chamado no logout (access + refresh)
-        e na rotação de refresh tokens (refresh antigo).
+        Must be called on logout (access + refresh)
+        and on refresh token rotation (old refresh token).
 
         Args:
-            jti: claim 'jti' do payload do token
-            exp: claim 'exp' do payload (timestamp Unix)
+            jti: 'jti' claim from the token payload
+            exp: 'exp' claim from the token payload (Unix timestamp)
         """
         expiresAt = datetime.utcfromtimestamp(exp)
         self._blacklist.add(jti, expiresAt)
 
 
-    # ── Interno ───────────────────────────────────────────────────────────────
+    # ── Internal ──────────────────────────────────────────────────────────────
 
     def _buildToken(
         self,
@@ -180,7 +180,7 @@ class JwtHandler:
         if tokenType == self._REFRESH_TYPE:
             return self._refreshKey
 
-        raise ValueError(f"Tipo de token inválido: {tokenType}")
+        raise ValueError(f"Invalid token type: {tokenType}")
 
 
     def _hasValidType(self, payload: dict, expectedType: str) -> bool:
@@ -192,7 +192,7 @@ class JwtHandler:
 
         if not secret:
             raise EnvironmentError(
-                f"Variável de ambiente obrigatória não encontrada: {envKey}"
+                f"Required environment variable not found: {envKey}"
             )
 
         return secret
