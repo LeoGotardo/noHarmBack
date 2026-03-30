@@ -33,8 +33,4 @@ class AuditLogsResponse(AuditLogsBase):
         
 class AuditLogsListResponse(BaseModel):
     auditLogs: list[AuditLogsResponse]
-<<<<<<< HEAD
     total: int
-=======
-    total: int
->>>>>>> 6715b83333eacb12cfbad92996df929667b3ab8a
