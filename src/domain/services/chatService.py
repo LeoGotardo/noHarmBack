@@ -1,7 +1,6 @@
 from infrastructure.database.repositories.chatRepository import ChatRepository
 from domain.entities.chat import Chat
 from core.database import Database
-from domain.services.messageService import MessageService
 
 from datetime import datetime
 
@@ -10,7 +9,6 @@ class ChatService:
     def __init__(self, db):
         self.database: Database = db
         self.chatRepository = ChatRepository(self.database)
-        self.messageService = MessageService(self.database)
     
     
     def getAllByUserId(self, userId: str) -> list[Chat]:
@@ -34,7 +32,6 @@ class ChatService:
             Chat: chat
         """
         chat = self.chatRepository.findById(chatId)
-        chat.messages = self.messageService.getByChatId(chatId)
         return chat
     
     
@@ -77,20 +74,6 @@ class ChatService:
             Chat: updated chat
         """
         self.chatRepository.updateEndedAt(chatId, endedAt)
-        
-    
-    def markAsRead(self, chatId: str) -> Chat:
-        """
-        Mark a chat as read.
-        
-        Args:
-            chatId: ID of the chat
-            
-        Returns:
-            Chat: updated chat
-        """
-        
-        return self.messageService.markAllAsRead(chatId)
         
         
     def delete(self, chatId: str) -> bool:
