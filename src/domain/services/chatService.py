@@ -13,14 +13,14 @@ class ChatService:
         self.messageService = MessageService(self.database)
     
     
-    def getAll(self) -> list[Chat]:
+    def getAllByUserId(self, userId: str) -> list[Chat]:
         """
         Return all chats.
         
         Returns:
             list[Chat]: list of chats
         """
-        return self.chatRepository.findAll()
+        return self.chatRepository.findByParticipant(userId)
     
     
     def get(self, chatId: str) -> Chat:
@@ -51,23 +51,57 @@ class ChatService:
         return self.chatRepository.create(newChat)
     
     
-    def updateStatus(self, chatId: str, status: int) -> None:
+    def updateStatus(self, chatId: str, status: int) -> Chat:
         """
         Update the status of a chat.
         
         Args:
             chatId: ID of the chat
             status: new status (ex: 1 enabled, 0 disabled)
+            
+        Returns:
+            Chat: updated chat
         """
         self.chatRepository.updateStatus(chatId, status)
         
         
-    def updateEndedAt(self, chatId: str, endedAt: datetime) -> None:
+    def updateEndedAt(self, chatId: str, endedAt: datetime) -> Chat:
         """
         Update the endedAt field of a chat.
         
         Args:
             chatId: ID of the chat
             endedAt: new endedAt value
+            
+        Returns:
+            Chat: updated chat
         """
         self.chatRepository.updateEndedAt(chatId, endedAt)
+        
+    
+    def markAsRead(self, chatId: str) -> Chat:
+        """
+        Mark a chat as read.
+        
+        Args:
+            chatId: ID of the chat
+            
+        Returns:
+            Chat: updated chat
+        """
+        
+        return self.messageService.markAllAsRead(chatId)
+        
+        
+    def delete(self, chatId: str) -> bool:
+        """
+        Soft delete a chat.
+        
+        Args:
+            chatId: ID of the chat
+        
+        Returns:
+            bool: True if chat was deleted, False if not
+        """
+        
+        return self.chatRepository.softDelete(chatId)

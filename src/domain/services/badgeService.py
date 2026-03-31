@@ -45,6 +45,17 @@ class BadgeService:
         return self.badgeRepository.update(newBadge)
     
     
+    def updateStatus(self, badgeId: str, status: int) -> None:
+        """
+        Update the status of a badge.
+        
+        Args:
+            badgeId: ID of the badge
+            status: new status (ex: 1 enabled, 0 disabled)
+        """
+        return self.badgeRepository.updateStatus(badgeId, status)
+    
+    
     def delete(self, badgeId: str) -> None:
         """
         Delete a badge.

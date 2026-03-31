@@ -43,17 +43,6 @@ class AuditLogsService:
             AuditLogs: created audit log
         """
         return self.auditLogsRepository.create(newAuditLog)
-    
-    
-    def updateStatus(self, auditLogId: str, status: int) -> None:
-        """
-        Update the status of an audit log.
-        
-        Args:
-            auditLogId: ID of the audit log
-            status: new status (ex: 1 enabled, 0 disabled)
-        """
-        self.auditLogsRepository.updateStatus(auditLogId, status)
         
         
     def getByCatalyst(self, catalistId: str) -> list[AuditLogs]:
