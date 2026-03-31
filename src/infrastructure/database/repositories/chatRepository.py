@@ -38,7 +38,7 @@ class ChatRepository(Chat):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
-    def findByParticipants(self, participant_id: str) -> list[Chat]:
+    def findByParticipant(self, participant_id: str) -> list[Chat]:
         """Find all chats by participant ID
         
         Args:
@@ -56,7 +56,7 @@ class ChatRepository(Chat):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
-    def findAllByUserId(self, user_id: str) -> list[Chat]:
+    def findAllBySenderId(self, user_id: str) -> list[Chat]:
         """Find all chats by user ID
         
         Args:
@@ -67,6 +67,24 @@ class ChatRepository(Chat):
         """
         try:
             chats = self.session.query(ChatModel).filter(ChatModel.sender == user_id).all()
+            return chats
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+        
+        
+    def findAllByReciverId(self, user_id: str) -> list[Chat]:
+        """Find all chats by user ID
+        
+        Args:
+            user_id (str): User ID
+            
+        Returns:
+            list[Chat]: List of Chats
+        """
+        try:
+            chats = self.session.query(ChatModel).filter(ChatModel.reciver == user_id).all()
             return chats
         except Exception as e:
             if isinstance(e, NoHarmException):

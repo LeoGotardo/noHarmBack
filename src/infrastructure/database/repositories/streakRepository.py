@@ -38,27 +38,6 @@ class StreakRepository(Streak):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
-    def findByOwnerId(self, owner_id: str) -> Streak:
-        """Find a streak by owner ID
-        
-        Args:
-            owner_id (str): Owner ID
-            
-        Returns:
-            Streak: Streak with his full data
-        """
-        try:
-            streak = self.session.query(StreakModel).filter(StreakModel.owner_id == owner_id).first()
-            if streak:
-                return streak
-            else:
-                raise NoHarmException(status_code=404, message="Streak not found")
-        except Exception as e:
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
-    
     def findAllByOwnerId(self, owner_id: str) -> list[Streak]:
         """Find all streaks by owner ID
         
@@ -180,29 +159,7 @@ class StreakRepository(Streak):
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
-        
-    def updateStart(self, id: str, start: datetime) -> Streak:
-        """Update a streak start
-        
-        Args:
-            id (str): Streak ID
-            start (datetime): New start
-            
-        Returns:
-            Streak: Streak with his full data
-        """
-        try:
-            streak = self.findById(id)
-            streak.start = start
-            self.session.commit()
-            return streak
-        except Exception as e:
-            self.session.rollback()
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
+    
     
     def updateEnd(self, id: str, end: datetime) -> Streak:
         """Update a streak end
