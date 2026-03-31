@@ -207,3 +207,24 @@ class UserBadgesRepository(UserBadge):
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+        
+        
+    def softDelete(self, id: str) -> bool:
+        """Soft delete a badge
+        
+        Args:
+            id (str): UserBadge ID
+            
+        Returns:
+            bool: True if badge was soft deleted, False if not
+        """
+        try:
+            userBadge = self.findById(id)
+            userBadge.status = config.STATUS_CODES["deleted"]
+            self.session.commit()
+            return True
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
