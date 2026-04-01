@@ -1,6 +1,7 @@
 from infrastructure.database.models.messageModel import MessageModel
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.message import Message
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse, createPaginatedResponse
 
 from core.database import Database
 from core.config import config
@@ -179,10 +180,10 @@ class MessageRepository(Message):
         
     def softDelete(self, id: str) -> bool:
         """Soft delete a message
-        
+
         Args:
             id (str): Message ID
-            
+
         Returns:
             bool: True if message was soft deleted, False if not
         """
@@ -193,6 +194,53 @@ class MessageRepository(Message):
             return True
         except Exception as e:
             self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+
+
+    def findByChatIdPaginated(self, chat_id: str, params: PaginationParams) -> PaginatedResponse[Message]:
+        """Find all messages by chat ID with pagination
+
+        Args:
+            chat_id: Chat ID
+            params: Pagination parameters
+
+        Returns:
+            PaginatedResponse[Message]: Paginated list of messages
+        """
+        try:
+            query = self.session.query(MessageModel).filter(MessageModel.chat == chat_id)
+            total = query.count()
+            offset = (params.page - 1) * params.pageSize
+            items = query.offset(offset).limit(params.pageSize).all()
+            return createPaginatedResponse(items, total, params.page, params.pageSize)
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+
+
+    def findUnreadByChatIdPaginated(self, chat_id: str, params: PaginationParams) -> PaginatedResponse[Message]:
+        """Find all unread messages by chat ID with pagination
+
+        Args:
+            chat_id: Chat ID
+            params: Pagination parameters
+
+        Returns:
+            PaginatedResponse[Message]: Paginated list of unread messages
+        """
+        try:
+            query = self.session.query(MessageModel).filter(
+                MessageModel.chat == chat_id,
+                MessageModel.status == config.STATUS_CODES["unread"]
+            )
+            total = query.count()
+            offset = (params.page - 1) * params.pageSize
+            items = query.offset(offset).limit(params.pageSize).all()
+            return createPaginatedResponse(items, total, params.page, params.pageSize)
+        except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')

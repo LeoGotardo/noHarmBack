@@ -1,6 +1,7 @@
 from infrastructure.database.models.userModel import UserModel
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.user import User
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse, createPaginatedResponse
 from core.database import Database
 from core.config import config
 
@@ -179,10 +180,10 @@ class UserRepository(User):
     
     def softDelete(self, id: str) -> bool:
         """Soft delete a user
-        
+
         Args:
             id (str): User ID
-            
+
         Returns:
             bool: True if user was soft deleted, False if not
         """
@@ -193,6 +194,27 @@ class UserRepository(User):
             return True
         except Exception as e:
             self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+
+
+    def findAllPaginated(self, params: PaginationParams) -> PaginatedResponse[User]:
+        """Find all users with pagination
+
+        Args:
+            params: Pagination parameters (page, pageSize)
+
+        Returns:
+            PaginatedResponse[User]: Paginated list of users
+        """
+        try:
+            query = self.session.query(UserModel)
+            total = query.count()
+            offset = (params.page - 1) * params.pageSize
+            items = query.offset(offset).limit(params.pageSize).all()
+            return createPaginatedResponse(items, total, params.page, params.pageSize)
+        except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
