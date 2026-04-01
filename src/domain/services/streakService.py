@@ -1,4 +1,5 @@
 from infrastructure.database.repositories.streakRepository import StreakRepository
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from domain.entities.streak import Streak
 from core.database import Database
 
@@ -9,6 +10,19 @@ class StreakService:
     def __init__(self, db):
         self.database: Database = db
         self.streakRepository = StreakRepository(self.database)
+        
+        
+    def get(self, streakId: str) -> Streak:
+        """
+        Return a streak by ID.
+        
+        Args:
+            streakId: ID of the streak
+            
+        Returns:
+            Streak: Streak with his full data
+        """
+        return self.streakRepository.findById(streakId)
     
     
     def getAllByUserId(self, userId: str) -> list[Streak]:
@@ -48,7 +62,22 @@ class StreakService:
             Streak: record streak
         """
         return self.streakRepository.findCurrentRecord(userId)
-    
+
+
+    def getAllByUserIdPaginated(self, userId: str, params: PaginationParams) -> PaginatedResponse[Streak]:
+        """
+        Return paginated streaks by user ID.
+
+        Args:
+            userId: ID of the user
+            params: Pagination parameters
+
+        Returns:
+            PaginatedResponse[Streak]: Paginated list of streaks
+        """
+        return self.streakRepository.findAllByOwnerIdPaginated(userId, params)
+
+
     
     def markAsRecord(self, streakId: str) -> Streak:
         """

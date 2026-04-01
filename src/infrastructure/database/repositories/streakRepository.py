@@ -129,9 +129,9 @@ class StreakRepository(Streak):
         """
         try:
             streak = self.findById(streak_id)
-            streak.start = updatedStreak.start
-            streak.end = updatedStreak.end
-            streak.status = updatedStreak.status
+            streak.start = updatedStreak.start if updatedStreak.start else streak.start
+            streak.end = updatedStreak.end if updatedStreak.end else streak.end
+            streak.status = updatedStreak.status if updatedStreak.status else streak.status
             self.session.commit()
             return streak
         except Exception as e:

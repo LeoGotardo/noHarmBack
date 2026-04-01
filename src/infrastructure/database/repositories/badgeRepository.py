@@ -83,11 +83,11 @@ class BadgeRepository(Badge):
         """
         try:
             badge = self.findById(badge_id)
-            badge.name = updatedBadge.name
-            badge.description = updatedBadge.description
-            badge.milestone = updatedBadge.milestone
-            badge.icon = updatedBadge.icon
-            badge.status = updatedBadge.status
+            badge.name = updatedBadge.name if updatedBadge.name else badge.name
+            badge.description = updatedBadge.description if updatedBadge.description else badge.description
+            badge.milestone = updatedBadge.milestone if updatedBadge.milestone else badge.milestone
+            badge.icon = updatedBadge.icon if updatedBadge.icon else badge.icon
+            badge.status = updatedBadge.status if updatedBadge.status else badge.status
             self.session.commit()
             return badge
         except Exception as e:

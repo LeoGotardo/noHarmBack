@@ -86,6 +86,20 @@ class AuditLogsService:
         return self.auditLogsRepository.findByType(type)
 
 
+    def updateStatus(self, id: str, status: int) -> AuditLogs:
+        """
+        Update the status of an audit log.
+
+        Args:
+            id: Audit log ID
+            status: New status (ex: enabled, disabled)
+
+        Returns:
+            AuditLogs: Updated audit log
+        """
+        return self.auditLogsRepository.updateStatus(id, status)
+
+
     def getAllPaginated(self, params: PaginationParams) -> PaginatedResponse[AuditLogs]:
         """
         Return paginated audit logs.

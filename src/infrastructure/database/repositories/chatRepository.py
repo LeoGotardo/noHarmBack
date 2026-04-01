@@ -134,6 +134,31 @@ class ChatRepository(Chat):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
+    
+    def update(self, id: str, updatedChat: Chat) -> Chat:
+        """Update a chat    
+        
+        Args:
+            id (str): Chat ID
+            updatedChat (Chat): Chat with updated data
+            
+        Returns:
+            Chat: Chat with his full data
+        """
+        try:
+            chat = self.findById(id)
+            chat.sender = updatedChat.sender if updatedChat.sender else chat.sender
+            chat.reciver = updatedChat.reciver if updatedChat.reciver else chat.reciver
+            chat.status = updatedChat.status if updatedChat.status else chat.status
+            chat.ended_at = updatedChat.ended_at if updatedChat.ended_at else chat.ended_at
+            self.session.commit()
+            return chat
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+    
         
     def updateEndedAt(self, id: str, ended_at: datetime) -> Chat:
         """Update a chat ended at

@@ -1,4 +1,5 @@
 from infrastructure.database.repositories.userBadgesRepository import UserBadgesRepository
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from domain.entities.userBadge import UserBadge
 from core.database import Database
 
@@ -85,18 +86,6 @@ class UserBadgeService:
         return self.userBadgeRepository.revoke(user_id, badge_id)
     
     
-    def listAll(self, user_id: str) -> list[UserBadge]:
-        """List all badges from a user
-        
-        Args:
-            user_id (str): User ID
-        
-        Returns:
-            list[UserBadge]: List of UserBadges
-        """
-        return self.userBadgeRepository.listAll(user_id)
-    
-    
     def updateStatus(self, id: str, status: int) -> UserBadge:
         """Update a badge status
         
@@ -120,3 +109,29 @@ class UserBadgeService:
             bool: True if badge was deleted, False if not
         """
         return self.userBadgeRepository.softDelete(id)
+    
+    
+    def getByUserIdPaginated(self, user_id: str, params: PaginationParams) -> PaginatedResponse[UserBadge]:
+        """List all badges from a user with pagination
+
+        Args:
+            user_id: User ID
+            params: Pagination parameters
+
+        Returns:
+            PaginatedResponse[UserBadge]: Paginated list of user badges
+        """
+        return self.userBadgeRepository.findByUserIdPaginated(user_id, params)
+    
+    
+    def getByBadgeIdPaginated(self, badge_id: str, params: PaginationParams) -> PaginatedResponse[UserBadge]:
+        """List all user badges by badge ID with pagination
+
+        Args:
+            badge_id: Badge ID
+            params: Pagination parameters
+
+        Returns:
+            PaginatedResponse[UserBadge]: Paginated list of user badges
+        """
+        return self.userBadgeRepository.findByBadgeIdPaginated(badge_id, params)

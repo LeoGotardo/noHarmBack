@@ -10,11 +10,12 @@ class BadgeBase(BaseModel):
     description: str = Field(..., min_length=3, max_length=500)
     milestone: datetime = Field(..., description="Milestone date")
     status: int = Field(default=1, description="Badge status (ex: 1 active, 0 inactive)")
+    icon: bytes = Field(..., description="Icon image in binary format")
     
     
 class BadgeCreate(BadgeBase):
-    icon_picture: Optional[bytes] = Field(None, description="Icon image in binary format")
-    
+    pass
+
     
 class BadgeUpdate(BadgeBase):
     name: Optional[str] = Field(None, min_length=3, max_length=50)

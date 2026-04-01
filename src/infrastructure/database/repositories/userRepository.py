@@ -123,9 +123,13 @@ class UserRepository(User):
             User: User with his full data
         """
         try:
-            self.findById(user_id)
+            user = self.findById(user_id)
             
-            user = updatedUser # TODO: Review if this will work properly
+            user.username = updatedUser.username if updatedUser.username else user.username
+            user.email = updatedUser.email if updatedUser.email else user.email
+            user.status = updatedUser.status if updatedUser.status else user.status
+            user.profile_picture = updatedUser.profile_picture if updatedUser.profile_picture else user.profile_picture
+            
             self.session.commit()
             return user
         except Exception as e:

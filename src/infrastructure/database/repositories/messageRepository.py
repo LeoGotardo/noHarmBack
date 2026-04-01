@@ -155,7 +155,30 @@ class MessageRepository(Message):
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
+    
+    
+    def update(self, id: str, updatedMessage: Message) -> Message:
+        """Update a message
+
+        Args:
+            id (str): Message ID
+            updatedMessage (Message): Message with updated data
+
+        Returns:
+            Message: Message with his full data
+        """
+        try:
+            message = self.findById(id)
+            message.sender = updatedMessage.sender if updatedMessage.sender else message.sender
+            message.status = updatedMessage.status if updatedMessage.status else message.status
+            
+            self.session.commit()
+            return message
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+    
         
     def delete(self, id: str) -> bool:
         """Delete a message
