@@ -1,5 +1,6 @@
 from infrastructure.database.repositories.auditLogsRepository import AuditLogsRepository
 from domain.entities.auditLogs import AuditLogs
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from core.database import Database
 
 
@@ -75,11 +76,75 @@ class AuditLogsService:
     def getByType(self, type: int) -> list[AuditLogs]:
         """
         Return all audit logs of a specific type.
-        
+
         Args:
             type: type of the audit log (ex: 1 login, 2 password change, etc.)
-            
+
         Returns:
             list[AuditLogs]: list of audit logs
         """
         return self.auditLogsRepository.findByType(type)
+
+
+    def getAllPaginated(self, params: PaginationParams) -> PaginatedResponse[AuditLogs]:
+        """
+        Return paginated audit logs.
+
+        Args:
+            params: Pagination parameters (page, pageSize)
+
+        Returns:
+            PaginatedResponse[AuditLogs]: Paginated list of audit logs
+        """
+        return self.auditLogsRepository.findAllPaginated(params)
+
+
+    def getByTypePaginated(self, type: int, params: PaginationParams) -> PaginatedResponse[AuditLogs]:
+        """
+        Return paginated audit logs filtered by type.
+
+        Args:
+            type: Type of the audit log
+            params: Pagination parameters
+
+        Returns:
+            PaginatedResponse[AuditLogs]: Paginated list of audit logs
+        """
+        return self.auditLogsRepository.findByTypePaginated(type, params)
+
+
+    def getByCatalystPaginated(self, catalistId: str, params: PaginationParams) -> PaginatedResponse[AuditLogs]:
+        """
+        Return paginated audit logs filtered by catalyst.
+
+        Args:
+            catalistId: ID of the catalyst
+            params: Pagination parameters
+
+        Returns:
+            PaginatedResponse[AuditLogs]: Paginated list of audit logs
+        """
+        return self.auditLogsRepository.findByCatalystIdPaginated(catalistId, params)
+
+
+    def getByDateRangePaginated(
+        self,
+        startDate: str,
+        endDate: str,
+        params: PaginationParams
+    ) -> PaginatedResponse[AuditLogs]:
+        """
+        Return paginated audit logs filtered by date range.
+
+        Args:
+            startDate: Start date (YYYY-MM-DD)
+            endDate: End date (YYYY-MM-DD)
+            params: Pagination parameters
+
+        Returns:
+            PaginatedResponse[AuditLogs]: Paginated list of audit logs
+        """
+        from datetime import datetime
+        start = datetime.strptime(startDate, "%Y-%m-%d")
+        end = datetime.strptime(endDate, "%Y-%m-%d")
+        return self.auditLogsRepository.findByDateRangePaginated(start, end, params)

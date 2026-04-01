@@ -1,6 +1,7 @@
 from infrastructure.database.models.badgeModel import BadgeModel
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.badge import Badge
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse, createPaginatedResponse
 
 from core.database import Database
 from core.config import config
@@ -141,10 +142,10 @@ class BadgeRepository(Badge):
     
     def softDelete(self, id: str) -> bool:
         """Soft delete a badge
-        
+
         Args:
             id (str): Badge ID
-            
+
         Returns:
             bool: True if badge was soft deleted, False if not
         """
@@ -155,6 +156,27 @@ class BadgeRepository(Badge):
             return True
         except Exception as e:
             self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+
+
+    def findAllPaginated(self, params: PaginationParams) -> PaginatedResponse[Badge]:
+        """Find all badges with pagination
+
+        Args:
+            params: Pagination parameters (page, pageSize)
+
+        Returns:
+            PaginatedResponse[Badge]: Paginated list of badges
+        """
+        try:
+            query = self.session.query(BadgeModel)
+            total = query.count()
+            offset = (params.page - 1) * params.pageSize
+            items = query.offset(offset).limit(params.pageSize).all()
+            return createPaginatedResponse(items, total, params.page, params.pageSize)
+        except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')

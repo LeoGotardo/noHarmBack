@@ -1,6 +1,7 @@
 from infrastructure.database.models.userBedgesModel import UserBadgesModel
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.userBadge import UserBadge
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse, createPaginatedResponse
 
 from core.database import Database
 from core.config import config
@@ -211,10 +212,10 @@ class UserBadgesRepository(UserBadge):
         
     def softDelete(self, id: str) -> bool:
         """Soft delete a badge
-        
+
         Args:
             id (str): UserBadge ID
-            
+
         Returns:
             bool: True if badge was soft deleted, False if not
         """
@@ -225,6 +226,72 @@ class UserBadgesRepository(UserBadge):
             return True
         except Exception as e:
             self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+
+
+    def findByUserIdPaginated(self, user_id: str, params: PaginationParams) -> PaginatedResponse[UserBadge]:
+        """Find all badges by user ID with pagination
+
+        Args:
+            user_id: User ID
+            params: Pagination parameters
+
+        Returns:
+            PaginatedResponse[UserBadge]: Paginated list of user badges
+        """
+        try:
+            query = self.session.query(UserBadgesModel).filter(UserBadgesModel.user_id == user_id)
+            total = query.count()
+            offset = (params.page - 1) * params.pageSize
+            items = query.offset(offset).limit(params.pageSize).all()
+            return createPaginatedResponse(items, total, params.page, params.pageSize)
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+
+
+    def findByBadgeIdPaginated(self, badge_id: str, params: PaginationParams) -> PaginatedResponse[UserBadge]:
+        """Find all user badges by badge ID with pagination
+
+        Args:
+            badge_id: Badge ID
+            params: Pagination parameters
+
+        Returns:
+            PaginatedResponse[UserBadge]: Paginated list of user badges
+        """
+        try:
+            query = self.session.query(UserBadgesModel).filter(UserBadgesModel.badge_id == badge_id)
+            total = query.count()
+            offset = (params.page - 1) * params.pageSize
+            items = query.offset(offset).limit(params.pageSize).all()
+            return createPaginatedResponse(items, total, params.page, params.pageSize)
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+
+
+    def listAllPaginated(self, user_id: str, params: PaginationParams) -> PaginatedResponse[UserBadge]:
+        """List all badges from a user with pagination
+
+        Args:
+            user_id: User ID
+            params: Pagination parameters
+
+        Returns:
+            PaginatedResponse[UserBadge]: Paginated list of user badges
+        """
+        try:
+            query = self.session.query(UserBadgesModel).filter(UserBadgesModel.user_id == user_id)
+            total = query.count()
+            offset = (params.page - 1) * params.pageSize
+            items = query.offset(offset).limit(params.pageSize).all()
+            return createPaginatedResponse(items, total, params.page, params.pageSize)
+        except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')

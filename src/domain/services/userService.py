@@ -1,5 +1,6 @@
 from infrastructure.database.repositories.userRepository import UserRepository
 from domain.entities.user import User
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from core.database import Database
 
 
@@ -94,11 +95,23 @@ class UserService:
     
     def delete(self, id: str) -> bool:
         """Soft delete a user
-        
+
         Args:
             id (str): User ID
-            
+
         Returns:
             bool: True if user was deleted, False if not
         """
         return self.userRepository.softDelete(id)
+
+
+    def getAllPaginated(self, params: PaginationParams) -> PaginatedResponse[User]:
+        """Get all users with pagination
+
+        Args:
+            params: Pagination parameters
+
+        Returns:
+            PaginatedResponse[User]: Paginated list of users
+        """
+        return self.userRepository.findAllPaginated(params)
