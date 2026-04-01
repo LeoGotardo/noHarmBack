@@ -130,6 +130,28 @@ class AuditLogsRepository(AuditLogs):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
 
 
+    def updateStatus(self, id: str, status: int) -> AuditLogs:
+        """Update the status of an audit log
+
+        Args:
+            id: Audit log ID
+            status: New status (ex: enabled, disabled)
+
+        Returns:
+            AuditLogs: Updated audit log
+        """
+        try:
+            auditLog = self.findById(id)
+            auditLog.status = status
+            self.session.commit()
+            return auditLog
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+
+
     def findAllPaginated(self, params: PaginationParams) -> PaginatedResponse[AuditLogs]:
         """Find all audit logs with pagination
 

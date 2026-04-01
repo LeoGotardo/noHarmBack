@@ -150,19 +150,19 @@ class FriendshipRepository(Friendship):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
-    def updateStatus(self, id: str, status: int) -> Friendship:
+    def updateStatus(self, id: str, status: str) -> Friendship:
         """Update a friendship status
         
         Args:
             id (str): Friendship ID
-            status (int): New status
+            status (str): New status
             
         Returns:
             Friendship: Friendship with his full data
         """
         try:
             friendship = self.findById(id)
-            friendship.status = status
+            friendship.status = config.STATUS_CODES[status]
             self.session.commit()
             return friendship
         except Exception as e:
@@ -170,8 +170,32 @@ class FriendshipRepository(Friendship):
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
-    
+
+
+    def update(self, id: str, updatedFriendship: Friendship) -> Friendship:
+        """Update a friendship
+
+        Args:
+            id (str): Friendship ID
+            updatedFriendship (Friendship): Friendship with updated data
+
+        Returns:
+            Friendship: Friendship with his full data
+        """
+        try:
+            friendship = self.findById(id)
+            friendship.sender = updatedFriendship.sender if updatedFriendship.sender else friendship.sender
+            friendship.reciver = updatedFriendship.reciver if updatedFriendship.reciver else friendship.reciver
+            friendship.status = updatedFriendship.status if updatedFriendship.status else friendship.status
+            self.session.commit()
+            return friendship
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+
+
     def delete(self, id: str) -> bool:
         """Delete a friendship
         

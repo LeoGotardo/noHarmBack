@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, Union
 from datetime import datetime
 from api.dependencies.auth import getCurrentUser
 from api.dependencies.database import getDb, getDbWithRLS
@@ -8,7 +8,8 @@ from domain.services.auditLogsService import AuditLogsService
 from domain.entities.auditLogs import AuditLogs
 from schemas.auditLogsSchemas import AuditLogsResponse, AuditLogsCreate, AuditLogsListResponse
 from exceptions.baseExceptions import NoHarmException
-from schemas.paginationSchemas import PaginationParams
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse
+
 import uuid
 
 router = APIRouter(prefix="/logs", tags=["Audit Logs"])
@@ -16,13 +17,13 @@ router = APIRouter(prefix="/logs", tags=["Audit Logs"])
 
 @router.get(
     "",
-    response_model=AuditLogsListResponse,
+    response_model=Union[AuditLogsListResponse, PaginatedResponse[AuditLogs]],
     summary="Get all audit logs for current user",
     description="Returns all audit logs for the authenticated user. RLS policies ensure users only see their own logs."
 )
 def getAllAuditLogs(
     paginated: bool = False,
-    paginatedParams: PaginationParams = None,
+    paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -40,13 +41,16 @@ def getAllAuditLogs(
         
         if paginated:
             logs = service.getAllPaginated(paginatedParams)
+            
+            return logs
         else:
             logs = service.getAll()
 
-        return AuditLogsListResponse(
-            auditLogs=logs,
-            total=len(logs)
-        )
+            return AuditLogsListResponse(
+                auditLogs=logs,
+                total=len(logs)
+            )
+            
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -74,21 +78,30 @@ def getAuditLogById(
     try:
         service = AuditLogsService(db)
         log = service.get(logId)
-        return log
+        
+        return AuditLogsResponse(
+            catalist=log.catalist,
+            catalist=log.catalist_id,
+            timestamps=log.created_at,
+            description=log.description,
+            id=log.id,
+            type=log.type,
+        )
+    
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
 
 @router.get(
     "/type/{logType}",
-    response_model=AuditLogsListResponse,
+    response_model=Union[AuditLogsListResponse, PaginatedResponse[AuditLogs]],
     summary="Get audit logs by type",
     description="Returns all audit logs filtered by type (e.g., 1=login, 2=password_change)."
 )
 def getAuditLogsByType(
     logType: int,
     paginated: bool = False,
-    paginatedParams: PaginationParams = None,
+    paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -108,27 +121,30 @@ def getAuditLogsByType(
         
         if paginated:
             logs = service.getByTypePaginated(logType, paginatedParams)
+            
+            return logs
         else:
-            logs = service.getByType(logType)
+            logs = service.getAll()
 
-        return AuditLogsListResponse(
-            auditLogs=logs,
-            total=len(logs)
-        )
+            return AuditLogsListResponse(
+                auditLogs=logs,
+                total=len(logs)
+            )
+            
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
 
 @router.get(
     "/catalyst/{catalystId}",
-    response_model=AuditLogsListResponse,
+    response_model=Union[AuditLogsListResponse, PaginatedResponse[AuditLogs]],
     summary="Get audit logs by catalyst",
     description="Returns all audit logs for a specific catalyst (user)."
 )
 def getAuditLogsByCatalyst(
     catalystId: str,
     paginated: bool = False,
-    paginatedParams: PaginationParams = None,
+    paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -148,20 +164,23 @@ def getAuditLogsByCatalyst(
         
         if paginated:
             logs = service.getByCatalystPaginated(catalystId, paginatedParams)
+        
+            return logs
         else:
-            logs = service.getByCatalyst(catalystId)
+            logs = service.getAll()
 
-        return AuditLogsListResponse(
-            auditLogs=logs,
-            total=len(logs)
-        )
+            return AuditLogsListResponse(
+                auditLogs=logs,
+                total=len(logs)
+            )
+            
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
 
 @router.get(
     "/range/by-date",
-    response_model=AuditLogsListResponse,
+    response_model=Union[AuditLogsListResponse, PaginatedResponse[AuditLogs]],
     summary="Get audit logs by date range",
     description="Returns all audit logs within a specified date range."
 )
@@ -169,7 +188,7 @@ def getAuditLogsByDateRange(
     startDate: str = Query(..., description="Start date (YYYY-MM-DD)"),
     endDate: str = Query(..., description="End date (YYYY-MM-DD)"),
     paginated: bool = False,
-    paginatedParams: PaginationParams = None,
+    paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -188,13 +207,16 @@ def getAuditLogsByDateRange(
         
         if paginated:
             logs = service.getByDateRangePaginated(startDate, endDate, paginatedParams)
+        
+            return logs
         else:
-            logs = service.getByDateRange(startDate, endDate)
+            logs = service.getAll()
 
-        return AuditLogsListResponse(
-            auditLogs=logs,
-            total=len(logs)
-        )
+            return AuditLogsListResponse(
+                auditLogs=logs,
+                total=len(logs)
+            )
+            
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -236,5 +258,35 @@ def createAuditLog(
 
         createdLog = service.create(newLog)
         return createdLog
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+    
+
+@router.put("/update/{logId}/status/{status}",
+            response_model=AuditLogsResponse,
+            status_code=200,
+            summary="Update an audit log status",
+            description="Updates the status of an existing audit log.")
+def updateAuditLogStatus(
+    status: str,
+    logId: str,
+    db: Session = Depends(getDbWithRLS),
+    currentUserId: str = Depends(getCurrentUser)
+):
+    """
+    Update the status of an existing audit log.
+
+    Args:
+        status: New status (ex: enabled, disabled)
+        logId: UUID of the audit log
+
+    Returns:
+        AuditLogsResponse: The updated audit log
+    """
+    try:
+        service = AuditLogsService(db)
+
+        updatedLog = service.updateStatus(logId, status)
+        return updatedLog
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

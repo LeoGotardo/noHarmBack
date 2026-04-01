@@ -147,26 +147,8 @@ class UserBadgesRepository(UserBadge):
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
-    
-    def listAll(self, user_id: str) -> list[UserBadge]:
-        """List all badges from a user
-        
-        Args:
-            user_id (str): User ID
-        
-        Returns:
-            list[UserBadge]: List of UserBadges
-        """
-        try:
-            userBadges = self.session.query(UserBadgesModel).filter(UserBadgesModel.user_id == user_id).all()
-            return userBadges
-        except Exception as e:
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
-        
+
+
     def updateStatus(self, id: str, status: int) -> UserBadge:
         """Update a badge status
         
@@ -187,7 +169,30 @@ class UserBadgesRepository(UserBadge):
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
+    
+    
+    def update(self, id: str, updatedUserBadge: UserBadge) -> UserBadge:
+        """Update a user badge
+
+        Args:
+            id (str): UserBadge ID
+            updatedUserBadge (UserBadge): UserBadge with updated data
+
+        Returns:
+            UserBadge: UserBadge with his full data
+        """
+        try:
+            userBadge = self.findById(id)
+            
+            userBadge.status = updatedUserBadge.status if updatedUserBadge.status else userBadge.status
+            self.session.commit()
+            return userBadge
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+    
     
     def delete(self, id: str) -> bool:
         """Delete a badge
@@ -265,28 +270,6 @@ class UserBadgesRepository(UserBadge):
         """
         try:
             query = self.session.query(UserBadgesModel).filter(UserBadgesModel.badge_id == badge_id)
-            total = query.count()
-            offset = (params.page - 1) * params.pageSize
-            items = query.offset(offset).limit(params.pageSize).all()
-            return createPaginatedResponse(items, total, params.page, params.pageSize)
-        except Exception as e:
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-
-
-    def listAllPaginated(self, user_id: str, params: PaginationParams) -> PaginatedResponse[UserBadge]:
-        """List all badges from a user with pagination
-
-        Args:
-            user_id: User ID
-            params: Pagination parameters
-
-        Returns:
-            PaginatedResponse[UserBadge]: Paginated list of user badges
-        """
-        try:
-            query = self.session.query(UserBadgesModel).filter(UserBadgesModel.user_id == user_id)
             total = query.count()
             offset = (params.page - 1) * params.pageSize
             items = query.offset(offset).limit(params.pageSize).all()

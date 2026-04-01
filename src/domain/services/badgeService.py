@@ -1,4 +1,5 @@
 from infrastructure.database.repositories.badgeRepository import BadgeRepository
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from domain.entities.badge import Badge
 from core.database import Database
 
@@ -64,3 +65,16 @@ class BadgeService:
             badgeId: ID of the badge
         """
         self.badgeRepository.softDelete(badgeId)
+        
+        
+    def getAllPaginated(self, params: PaginationParams) -> PaginatedResponse[Badge]:
+        """
+        Return paginated badges.
+
+        Args:
+            params: Pagination parameters (page, pageSize)
+
+        Returns:
+            PaginatedResponse[Badge]: Paginated list of badges
+        """
+        return self.badgeRepository.findAllPaginated(params)

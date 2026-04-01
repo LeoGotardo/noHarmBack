@@ -61,6 +61,20 @@ class ChatService:
         """
         self.chatRepository.updateStatus(chatId, status)
         
+    
+    def update(self, chatId: str, updatedChat: Chat) -> Chat:
+        """
+        Update a chat.
+        
+        Args:
+            chatId: ID of the chat
+            updatedChat: Chat with updated data
+            
+        Returns:
+            Chat: updated chat
+        """
+        return self.chatRepository.update(chatId, updatedChat)
+        
         
     def updateEndedAt(self, chatId: str, endedAt: datetime) -> Chat:
         """
