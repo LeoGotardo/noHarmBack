@@ -63,6 +63,18 @@ class FriendshipService:
         return self.friendshipRepository.findPendingReceived(userId, params)
 
 
+    def unblock(self, friendshipId: str) -> Friendship:
+        """Unblock a user
+
+        Args:
+            friendshipId (str): friendship ID
+
+        Returns:
+            Friendship: Friendship with his full data
+        """
+        return self.friendshipRepository.updateStatus(friendshipId, "desabled")
+
+
     def getPendingSent(self, userId: str, params: Optional[PaginationParams] = None) -> list[Friendship] | PaginatedResponse[Friendship]:
         """Find all pending friendship requests sent by a user, optionally paginated
 
