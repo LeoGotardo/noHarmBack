@@ -2,6 +2,7 @@ from infrastructure.database.repositories.badgeRepository import BadgeRepository
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from domain.entities.badge import Badge
 from core.database import Database
+from typing import Optional
 
 
 class BadgeService:
@@ -10,14 +11,17 @@ class BadgeService:
         self.badgeRepository = BadgeRepository(self.database)
     
     
-    def getAll(self) -> list[Badge]:
+    def getAll(self, params: Optional[PaginationParams] = None) -> list[Badge] | PaginatedResponse[Badge]:
         """
-        Return all badges.
-        
+        Return all badges, optionally paginated.
+
+        Args:
+            params: Optional pagination parameters
+
         Returns:
-            list[Badge]: list of badges
+            list[Badge] | PaginatedResponse[Badge]
         """
-        return self.badgeRepository.findAll()
+        return self.badgeRepository.findAll(params)
     
     
     def get(self, badgeId: str) -> Badge:
@@ -66,15 +70,3 @@ class BadgeService:
         """
         self.badgeRepository.softDelete(badgeId)
         
-        
-    def getAllPaginated(self, params: PaginationParams) -> PaginatedResponse[Badge]:
-        """
-        Return paginated badges.
-
-        Args:
-            params: Pagination parameters (page, pageSize)
-
-        Returns:
-            PaginatedResponse[Badge]: Paginated list of badges
-        """
-        return self.badgeRepository.findAllPaginated(params)

@@ -36,7 +36,7 @@ def getAllBadges(
         service = BadgeService(db)
         
         if paginated:
-            badges = service.getAllPaginated(paginatedParams)
+            badges = service.getAll(paginatedParams)
 
             return badges
         else:

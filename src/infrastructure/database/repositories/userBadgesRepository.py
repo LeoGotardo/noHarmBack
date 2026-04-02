@@ -8,6 +8,8 @@ from core.config import config
 
 from datetime import datetime
 
+from typing import Optional
+
 import sys
 
 class UserBadgesRepository(UserBadge):
@@ -38,36 +40,48 @@ class UserBadgesRepository(UserBadge):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
-    def findByUserId(self, user_id: str) -> list[UserBadge]:
-        """Find all badges by user ID
-        
+    def findByUserId(self, user_id: str, params: Optional[PaginationParams] = None) -> list[UserBadge] | PaginatedResponse[UserBadge]:
+        """Find all badges by user ID, optionally paginated
+
         Args:
             user_id (str): User ID
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[UserBadge]: List of UserBadges
+            list[UserBadge] | PaginatedResponse[UserBadge]
         """
         try:
-            userBadges = self.session.query(UserBadgesModel).filter(UserBadgesModel.user_id == user_id).all()
-            return userBadges
+            query = self.session.query(UserBadgesModel).filter(UserBadgesModel.user_id == user_id)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
-    
-    def findByBadgeId(self, badge_id: str) -> list[UserBadge]:
-        """Find all badges by badge ID
-        
+
+
+    def findByBadgeId(self, badge_id: str, params: Optional[PaginationParams] = None) -> list[UserBadge] | PaginatedResponse[UserBadge]:
+        """Find all badges by badge ID, optionally paginated
+
         Args:
             badge_id (str): Badge ID
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[UserBadge]: List of UserBadges
+            list[UserBadge] | PaginatedResponse[UserBadge]
         """
         try:
-            userBadges = self.session.query(UserBadgesModel).filter(UserBadgesModel.badge_id == badge_id).all()
-            return userBadges
+            query = self.session.query(UserBadgesModel).filter(UserBadgesModel.badge_id == badge_id)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
@@ -235,46 +249,3 @@ class UserBadgesRepository(UserBadge):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
 
-
-    def findByUserIdPaginated(self, user_id: str, params: PaginationParams) -> PaginatedResponse[UserBadge]:
-        """Find all badges by user ID with pagination
-
-        Args:
-            user_id: User ID
-            params: Pagination parameters
-
-        Returns:
-            PaginatedResponse[UserBadge]: Paginated list of user badges
-        """
-        try:
-            query = self.session.query(UserBadgesModel).filter(UserBadgesModel.user_id == user_id)
-            total = query.count()
-            offset = (params.page - 1) * params.pageSize
-            items = query.offset(offset).limit(params.pageSize).all()
-            return createPaginatedResponse(items, total, params.page, params.pageSize)
-        except Exception as e:
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-
-
-    def findByBadgeIdPaginated(self, badge_id: str, params: PaginationParams) -> PaginatedResponse[UserBadge]:
-        """Find all user badges by badge ID with pagination
-
-        Args:
-            badge_id: Badge ID
-            params: Pagination parameters
-
-        Returns:
-            PaginatedResponse[UserBadge]: Paginated list of user badges
-        """
-        try:
-            query = self.session.query(UserBadgesModel).filter(UserBadgesModel.badge_id == badge_id)
-            total = query.count()
-            offset = (params.page - 1) * params.pageSize
-            items = query.offset(offset).limit(params.pageSize).all()
-            return createPaginatedResponse(items, total, params.page, params.pageSize)
-        except Exception as e:
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')

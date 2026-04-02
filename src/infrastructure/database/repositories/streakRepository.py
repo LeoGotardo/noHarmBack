@@ -8,6 +8,8 @@ from core.config import config
 
 from datetime import datetime
 
+from typing import Optional
+
 import sys
 
 
@@ -39,18 +41,24 @@ class StreakRepository(Streak):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
-    def findAllByOwnerId(self, owner_id: str) -> list[Streak]:
-        """Find all streaks by owner ID
-        
+    def findAllByOwnerId(self, owner_id: str, params: Optional[PaginationParams] = None) -> list[Streak] | PaginatedResponse[Streak]:
+        """Find all streaks by owner ID, optionally paginated
+
         Args:
             owner_id (str): Owner ID
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[Streak]: List of Streaks
+            list[Streak] | PaginatedResponse[Streak]
         """
         try:
-            streaks = self.session.query(StreakModel).filter(StreakModel.owner_id == owner_id).all()
-            return streaks
+            query = self.session.query(StreakModel).filter(StreakModel.owner_id == owner_id)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
@@ -247,24 +255,3 @@ class StreakRepository(Streak):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
 
-
-    def findAllByOwnerIdPaginated(self, owner_id: str, params: PaginationParams) -> PaginatedResponse[Streak]:
-        """Find all streaks by owner ID with pagination
-
-        Args:
-            owner_id: Owner user ID
-            params: Pagination parameters
-
-        Returns:
-            PaginatedResponse[Streak]: Paginated list of streaks
-        """
-        try:
-            query = self.session.query(StreakModel).filter(StreakModel.owner_id == owner_id)
-            total = query.count()
-            offset = (params.page - 1) * params.pageSize
-            items = query.offset(offset).limit(params.pageSize).all()
-            return createPaginatedResponse(items, total, params.page, params.pageSize)
-        except Exception as e:
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')

@@ -40,7 +40,7 @@ def getByUserId(
     service = UserBadgeService(db)
     
     if paginated:
-        userBadges = service.getByUserIdPaginated(userId, paginatedParams)
+        userBadges = service.findByUserId(userId, paginatedParams)
         
         return userBadges
     else:
@@ -77,7 +77,7 @@ def getByBadgeId(
     service = UserBadgeService(db)
     
     if paginated:
-        userBadges = service.getByBadgeIdPaginated(badgeId, paginatedParams)
+        userBadges = service.findByBadgeId(badgeId, paginatedParams)
         
         return userBadges
     else:

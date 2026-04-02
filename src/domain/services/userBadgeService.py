@@ -2,6 +2,7 @@ from infrastructure.database.repositories.userBadgesRepository import UserBadges
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from domain.entities.userBadge import UserBadge
 from core.database import Database
+from typing import Optional
 
 
 class UserBadgeService:
@@ -22,28 +23,30 @@ class UserBadgeService:
         return self.userBadgeRepository.findById(id)
     
     
-    def findByUserId(self, user_id: str) -> list[UserBadge]:
-        """Find all badges by user ID
-        
+    def findByUserId(self, user_id: str, params: Optional[PaginationParams] = None) -> list[UserBadge] | PaginatedResponse[UserBadge]:
+        """Find all badges by user ID, optionally paginated
+
         Args:
             user_id (str): User ID
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[UserBadge]: List of UserBadges
+            list[UserBadge] | PaginatedResponse[UserBadge]
         """
-        return self.userBadgeRepository.findByUserId(user_id)
+        return self.userBadgeRepository.findByUserId(user_id, params)
     
     
-    def findByBadgeId(self, badge_id: str) -> list[UserBadge]:
-        """Find all badges by badge ID
-        
+    def findByBadgeId(self, badge_id: str, params: Optional[PaginationParams] = None) -> list[UserBadge] | PaginatedResponse[UserBadge]:
+        """Find all badges by badge ID, optionally paginated
+
         Args:
             badge_id (str): Badge ID
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[UserBadge]: List of UserBadges
+            list[UserBadge] | PaginatedResponse[UserBadge]
         """
-        return self.userBadgeRepository.findByBadgeId(badge_id)
+        return self.userBadgeRepository.findByBadgeId(badge_id, params)
     
     
     def existsByUserAndBadge(self, user_id: str, badge_id: str) -> bool:
@@ -111,27 +114,3 @@ class UserBadgeService:
         return self.userBadgeRepository.softDelete(id)
     
     
-    def getByUserIdPaginated(self, user_id: str, params: PaginationParams) -> PaginatedResponse[UserBadge]:
-        """List all badges from a user with pagination
-
-        Args:
-            user_id: User ID
-            params: Pagination parameters
-
-        Returns:
-            PaginatedResponse[UserBadge]: Paginated list of user badges
-        """
-        return self.userBadgeRepository.findByUserIdPaginated(user_id, params)
-    
-    
-    def getByBadgeIdPaginated(self, badge_id: str, params: PaginationParams) -> PaginatedResponse[UserBadge]:
-        """List all user badges by badge ID with pagination
-
-        Args:
-            badge_id: Badge ID
-            params: Pagination parameters
-
-        Returns:
-            PaginatedResponse[UserBadge]: Paginated list of user badges
-        """
-        return self.userBadgeRepository.findByBadgeIdPaginated(badge_id, params)

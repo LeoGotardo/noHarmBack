@@ -2,6 +2,7 @@ from infrastructure.database.repositories.userRepository import UserRepository
 from domain.entities.user import User
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from core.database import Database
+from typing import Optional
 
 
 class UserService:
@@ -46,15 +47,18 @@ class UserService:
         return self.userRepository.findByUsername(username)
     
     
-    def findAll(self) -> list[User]:
-        """Find all users
-        
+    def findAll(self, params: Optional[PaginationParams] = None) -> list[User] | PaginatedResponse[User]:
+        """Find all users, optionally paginated
+
+        Args:
+            params: Optional pagination parameters
+
         Returns:
-            list[User]: List of Users
+            list[User] | PaginatedResponse[User]
         """
-        return self.userRepository.findAll()
-    
-    
+        return self.userRepository.findAll(params)
+
+
     def create(self, User: User) -> User:
         """Create a user
         
@@ -104,14 +108,3 @@ class UserService:
         """
         return self.userRepository.softDelete(id)
 
-
-    def getAllPaginated(self, params: PaginationParams) -> PaginatedResponse[User]:
-        """Get all users with pagination
-
-        Args:
-            params: Pagination parameters
-
-        Returns:
-            PaginatedResponse[User]: Paginated list of users
-        """
-        return self.userRepository.findAllPaginated(params)
