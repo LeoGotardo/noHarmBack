@@ -35,6 +35,19 @@ class BadgeService:
             Badge: badge
         """
         return self.badgeRepository.findById(badgeId)
+    
+    
+    def create(self, newBadge: Badge) -> Badge:
+        """
+        Create a new badge.
+        
+        Args:
+            newBadge: badge to create
+            
+        Returns:
+            Badge: created badge
+        """
+        return self.badgeRepository.create(newBadge)
         
     
     def update(self, newBadge: Badge) -> Badge:

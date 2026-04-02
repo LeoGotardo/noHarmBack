@@ -1,195 +1,77 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from api.dependencies.auth import getCurrentUser
-from api.dependencies.database import getDb, getDbWithRLS
+from pydantic import BaseModel, EmailStr, Field
+
+from api.dependencies.database import getDb
 from domain.services.authService import AuthService
-from schemas.authSchemas import AuthResponse, AuthRegisterRequest, AuthLoginRequest, AuthRefreshRequest, AuthLogoutRequest
 from exceptions.baseExceptions import NoHarmException
-from schemas.paginationSchemas import PaginationParams, PaginatedResponse
-from typing import Optional, Union
-from domain.entities.user import User
-from core.config import config
+from schemas.authSchemas import AuthLoginRequest, AuthRefreshRequest, AuthResponse, AuthRegisterRequest, AuthLogoutRequest
 
-import uuid
-
-router = APIRouter(prefix="/auth", tags=["Authentication"])
+router = APIRouter(prefix="/auth", tags=["Auth"])
+security = HTTPBearer()
 
 
 @router.post(
-    "",
-    response_model=Union[AuthResponse, User],
+    "/register",
+    response_model=AuthResponse,
     status_code=201,
     summary="Register a new user",
-    description="Creates a new user."
+    description="Creates a new account and returns a token pair."
 )
-def registerUser(
-    request: AuthRegisterRequest,
-    db: Session = Depends(getDbWithRLS),
-    currentUserId: str = Depends(getCurrentUser)
-):
-    """
-    Register a new user.
-
-    Args:
-        request: Auth registration data
-
-    Returns:
-        Union[AuthResponse, User]: The created user
-    """
+def register(request: AuthRegisterRequest, db: Session = Depends(getDb)):
     try:
         service = AuthService(db)
-
-        # Create the user entity
-        newUser = User(
-            id=str(uuid.uuid4()),
-            username=request.username,
-            email=request.email,
-            status=request.status,
-            profile_picture=request.profile_picture
-        )
-
-        createdUser = service.register(newUser)
-        return createdUser
+        service.register(request)
+        tokens = service.login(request)
+        return AuthResponse(**tokens)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
-    
-    
+
+
 @router.post(
     "/login",
-    response_model=Union[AuthResponse, User],
-    status_code=201,
-    summary="Login a user",
-    description="Logs in a user."
+    response_model=AuthResponse,
+    summary="Login",
+    description="Authenticates the user and returns a token pair."
 )
-def loginUser(
-    request: AuthLoginRequest,
-    db: Session = Depends(getDbWithRLS),
-    currentUserId: str = Depends(getCurrentUser)
-):
-    """
-    Login a user.
-
-    Args:
-        request: Auth login data
-
-    Returns:
-        Union[AuthResponse, User]: The logged in user
-    """
+def login(request: AuthLoginRequest, db: Session = Depends(getDb)):
     try:
         service = AuthService(db)
-
-        # Create the user entity
-        newUser = User(
-            id=str(uuid.uuid4()),
-            username=request.username,
-            email=request.email,
-            status=request.status,
-            profile_picture=request.profile_picture
-        )
-
-        createdUser = service.login(newUser)
-        return createdUser
+        tokens = service.login(request)
+        return AuthResponse(**tokens)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
-    
-    
+
+
 @router.post(
     "/refresh",
-    response_model=Union[AuthResponse, User],
-    status_code=201,
-    summary="Refresh a user's access token",
-    description="Refreshes a user's access token."
+    response_model=AuthResponse,
+    summary="Refresh tokens",
+    description="Issues a new token pair from a valid refresh token. The old refresh token is revoked."
 )
-def refreshToken(
-    request: AuthRefreshRequest,
-    db: Session = Depends(getDbWithRLS),
-    currentUserId: str = Depends(getCurrentUser)
-):
-    """
-    Refresh a user's access token.
-
-    Args:
-        request: Auth refresh data
-
-    Returns:
-        Union[AuthResponse, User]: The refreshed user
-    """
+def refresh(request: AuthRefreshRequest, db: Session = Depends(getDb)):
     try:
         service = AuthService(db)
-
-        # Create the user entity
-        newUser = User(
-            id=str(uuid.uuid4()),
-            username=request.username,
-            email=request.email,
-            status=request.status,
-            profile_picture=request.profile_picture
-        )
-
-        createdUser = service.refresh(newUser)
-        return createdUser
+        tokens = service.refresh(request.refreshToken)
+        return AuthResponse(**tokens)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
-    
-    
+
+
 @router.post(
     "/logout",
-    response_model=Union[AuthResponse, User],
-    status_code=201,
-    summary="Logout a user",
-    description="Logs out a user."
+    status_code=204,
+    summary="Logout",
+    description="Revokes both tokens. The user is logged out of this device only."
 )
-def logoutUser(
-    request: AuthLogoutRequest,
-    db: Session = Depends(getDbWithRLS),
-    currentUserId: str = Depends(getCurrentUser)
+def logout(
+    refreshCredentials: AuthRefreshRequest,
+    accessCredentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(getDb)
 ):
-    """
-    Logout a user.
-
-    Args:
-        request: Auth logout data
-
-    Returns:
-        Union[AuthResponse, User]: The logged out user
-    """
     try:
         service = AuthService(db)
-
-        # Create the user entity
-        newUser = User(
-            id=str(uuid.uuid4()),
-            username=request.username,
-            email=request.email,
-            status=request.status,
-            profile_picture=request.profile_picture
-        )
-
-        createdUser = service.logout(newUser)
-        return createdUser
-    except NoHarmException as e:
-        raise HTTPException(status_code=e.statusCode, detail=e.message)
-    
-    
-@router.get(
-    "/me",
-    response_model=Union[AuthResponse, User],
-    summary="Get current user",
-    description="Returns the current user."
-)
-def getCurrentUser(
-    db: Session = Depends(getDbWithRLS),
-    currentUserId: str = Depends(getCurrentUser)
-):
-    """
-    Get the current user.
-
-    Returns:
-        Union[AuthResponse, User]: The current user
-    """
-    try:
-        service = AuthService(db)
-        user = service.getCurrentUser()
-        return user
+        service.logout(accessCredentials.credentials, refreshCredentials.refreshToken)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

@@ -36,15 +36,14 @@ class AuthListResponse(BaseModel):
 
 
 class AuthRegisterRequest(AuthBase):
+    id: UUID = Field(default=None, description="User ID")
     username: str = Field(min_length=3, max_length=50)
     email: str = Field(min_length=3, max_length=50)
-    status: int = Field(default=1, description="User status (ex: 1 enabled, 0 disabled)")
     profile_picture: str = Field(default=None, description="Profile picture URL")
     
     
 class AuthLoginRequest(AuthBase):
     email: str = Field(min_length=3, max_length=50)
-    password: str = Field(min_length=8, max_length=50)
     
     
 class AuthRefreshRequest(AuthBase):
