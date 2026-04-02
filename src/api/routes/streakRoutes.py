@@ -147,7 +147,7 @@ def getStreakHistory(
         service = StreakService(db)
         
         if paginated:
-            streaks = service.getAllByUserIdPaginated(userId, paginatedParams)
+            streaks = service.getAllByUserId(userId, paginatedParams)
             
             return streaks
         else:

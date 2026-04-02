@@ -1,6 +1,8 @@
 from infrastructure.database.repositories.messageRepository import MessageRepository
 from domain.entities.message import Message
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from core.database import Database
+from typing import Optional
 
 from datetime import datetime
 
@@ -10,17 +12,18 @@ class MessageService:
         self.messageRepository = MessageRepository(self.database)
         
     
-    def getByChatId(self, chatId: str) -> list[Message]:
+    def getByChatId(self, chatId: str, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
         """
-        Return all chat messages.
-        
+        Return all chat messages, optionally paginated.
+
         Args:
             chatId: ID of the chat
-        
+            params: Optional pagination parameters
+
         Returns:
-            list[Message]: list of messages
+            list[Message] | PaginatedResponse[Message]
         """
-        return self.messageRepository.findByChatId(chatId)
+        return self.messageRepository.findByChatId(chatId, params)
     
     
     def get(self, messageId: str) -> Message:
@@ -36,17 +39,18 @@ class MessageService:
         return self.messageRepository.findById(messageId)
     
     
-    def getUnreadByChatId(self, chatId: str) -> list[Message]:
+    def getUnreadByChatId(self, chatId: str, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
         """
-        Return all unread chat messages.
-        
+        Return all unread chat messages, optionally paginated.
+
         Args:
             chatId: ID of the chat
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[Message]: list of messages
+            list[Message] | PaginatedResponse[Message]
         """
-        return self.messageRepository.findUnreadByChatId(chatId)
+        return self.messageRepository.findUnreadByChatId(chatId, params)
     
     
     def markAsRead(self, messageId: str) -> Message:

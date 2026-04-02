@@ -5,6 +5,8 @@ from schemas.paginationSchemas import PaginationParams, PaginatedResponse, creat
 from core.database import Database
 from core.config import config
 
+from typing import Optional
+
 import sys
 
 class UserRepository(User):
@@ -77,15 +79,23 @@ class UserRepository(User):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
-    def findAll(self) -> list[User]:
-        """Find all users
-        
+    def findAll(self, params: Optional[PaginationParams] = None) -> list[User] | PaginatedResponse[User]:
+        """Find all users, optionally paginated
+
+        Args:
+            params: Optional pagination parameters (page, pageSize)
+
         Returns:
-            list[User]: List of Users
+            list[User] | PaginatedResponse[User]: List of Users or paginated response
         """
         try:
-            users = self.session.query(UserModel).all()
-            return users
+            query = self.session.query(UserModel)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
@@ -198,27 +208,6 @@ class UserRepository(User):
             return True
         except Exception as e:
             self.session.rollback()
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-
-
-    def findAllPaginated(self, params: PaginationParams) -> PaginatedResponse[User]:
-        """Find all users with pagination
-
-        Args:
-            params: Pagination parameters (page, pageSize)
-
-        Returns:
-            PaginatedResponse[User]: Paginated list of users
-        """
-        try:
-            query = self.session.query(UserModel)
-            total = query.count()
-            offset = (params.page - 1) * params.pageSize
-            items = query.offset(offset).limit(params.pageSize).all()
-            return createPaginatedResponse(items, total, params.page, params.pageSize)
-        except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')

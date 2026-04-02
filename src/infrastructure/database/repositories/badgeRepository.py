@@ -6,6 +6,8 @@ from schemas.paginationSchemas import PaginationParams, PaginatedResponse, creat
 from core.database import Database
 from core.config import config
 
+from typing import Optional
+
 import sys
 
 
@@ -37,15 +39,23 @@ class BadgeRepository(Badge):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
-    def findAll(self) -> list[Badge]:
-        """Find all badges
-        
+    def findAll(self, params: Optional[PaginationParams] = None) -> list[Badge] | PaginatedResponse[Badge]:
+        """Find all badges, optionally paginated
+
+        Args:
+            params: Optional pagination parameters (page, pageSize)
+
         Returns:
-            list[Badge]: List of Badges
+            list[Badge] | PaginatedResponse[Badge]: List of Badges or paginated response
         """
         try:
-            badges = self.session.query(BadgeModel).all()
-            return badges
+            query = self.session.query(BadgeModel)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
@@ -156,27 +166,6 @@ class BadgeRepository(Badge):
             return True
         except Exception as e:
             self.session.rollback()
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-
-
-    def findAllPaginated(self, params: PaginationParams) -> PaginatedResponse[Badge]:
-        """Find all badges with pagination
-
-        Args:
-            params: Pagination parameters (page, pageSize)
-
-        Returns:
-            PaginatedResponse[Badge]: Paginated list of badges
-        """
-        try:
-            query = self.session.query(BadgeModel)
-            total = query.count()
-            offset = (params.page - 1) * params.pageSize
-            items = query.offset(offset).limit(params.pageSize).all()
-            return createPaginatedResponse(items, total, params.page, params.pageSize)
-        except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')

@@ -19,15 +19,23 @@ class AuditLogsRepository(AuditLogs):
         self.engine = self.db.engine
         
         
-    def findAll(self) -> list[AuditLogs]:
-        """Find all audit logs
-        
+    def findAll(self, params: Optional[PaginationParams] = None) -> list[AuditLogs] | PaginatedResponse[AuditLogs]:
+        """Find all audit logs, optionally paginated
+
+        Args:
+            params: Optional pagination parameters
+
         Returns:
-            list[AuditLogs]: List of AuditLogs
+            list[AuditLogs] | PaginatedResponse[AuditLogs]
         """
         try:
-            auditLogs = self.session.query(AuditLogsModel).all()
-            return auditLogs
+            query = self.session.query(AuditLogsModel)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
@@ -55,55 +63,76 @@ class AuditLogsRepository(AuditLogs):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
         
-    def findByType(self, type: int) -> list[AuditLogs]:
-        """Find all audit logs by type
-        
+    def findByType(self, type: int, params: Optional[PaginationParams] = None) -> list[AuditLogs] | PaginatedResponse[AuditLogs]:
+        """Find all audit logs by type, optionally paginated
+
         Args:
             type (int): AuditLogs type
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[AuditLogs]: List of AuditLogs
+            list[AuditLogs] | PaginatedResponse[AuditLogs]
         """
         try:
-            auditLogs = self.session.query(AuditLogsModel).filter(AuditLogsModel.type == type).all()
-            return auditLogs
+            query = self.session.query(AuditLogsModel).filter(AuditLogsModel.type == type)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
-    def findByCatalystId(self, catalyst_id: int) -> list[AuditLogs]:
-        """Find all audit logs by catalyst ID
-        
+    def findByCatalystId(self, catalyst_id: int, params: Optional[PaginationParams] = None) -> list[AuditLogs] | PaginatedResponse[AuditLogs]:
+        """Find all audit logs by catalyst ID, optionally paginated
+
         Args:
             catalyst_id (str): Catalyst ID
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[AuditLogs]: List of AuditLogs
+            list[AuditLogs] | PaginatedResponse[AuditLogs]
         """
         try:
-            auditLogs = self.session.query(AuditLogsModel).filter(AuditLogsModel.catalyst_id == catalyst_id).all()
-            return auditLogs
+            query = self.session.query(AuditLogsModel).filter(AuditLogsModel.catalyst_id == catalyst_id)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
-    def findByDateRange(self, start: datetime, end: datetime) -> list[AuditLogs]:
-        """Find all audit logs by date range
-        
+    def findByDateRange(self, start: datetime, end: datetime, params: Optional[PaginationParams] = None) -> list[AuditLogs] | PaginatedResponse[AuditLogs]:
+        """Find all audit logs by date range, optionally paginated
+
         Args:
             start (datetime): Start date
             end (datetime): End date
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[AuditLogs]: List of AuditLogs
+            list[AuditLogs] | PaginatedResponse[AuditLogs]
         """
         try:
-            auditLogs = self.session.query(AuditLogsModel).filter(AuditLogsModel.created_at >= start, AuditLogsModel.created_at <= end).all()
-            return auditLogs
+            query = self.session.query(AuditLogsModel).filter(
+                AuditLogsModel.created_at >= start,
+                AuditLogsModel.created_at <= end
+            )
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
@@ -151,133 +180,3 @@ class AuditLogsRepository(AuditLogs):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
 
-
-    def findAllPaginated(self, params: PaginationParams) -> PaginatedResponse[AuditLogs]:
-        """Find all audit logs with pagination
-
-        Args:
-            params: Pagination parameters (page, pageSize)
-
-        Returns:
-            PaginatedResponse[AuditLogs]: Paginated list of audit logs
-        """
-        try:
-            query = self.session.query(AuditLogsModel)
-
-            # Get total count
-            total = query.count()
-
-            # Apply pagination
-            offset = (params.page - 1) * params.pageSize
-            paginatedQuery = query.offset(offset).limit(params.pageSize)
-            logs = paginatedQuery.all()
-
-            return createPaginatedResponse(
-                items=logs,
-                total=total,
-                page=params.page,
-                pageSize=params.pageSize
-            )
-        except Exception as e:
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-
-
-    def findByTypePaginated(self, type: int, params: PaginationParams) -> PaginatedResponse[AuditLogs]:
-        """Find audit logs by type with pagination
-
-        Args:
-            type: Audit log type
-            params: Pagination parameters
-
-        Returns:
-            PaginatedResponse[AuditLogs]: Paginated list of matching audit logs
-        """
-        try:
-            query = self.session.query(AuditLogsModel).filter(AuditLogsModel.type == type)
-
-            total = query.count()
-            offset = (params.page - 1) * params.pageSize
-            paginatedQuery = query.offset(offset).limit(params.pageSize)
-            logs = paginatedQuery.all()
-
-            return createPaginatedResponse(
-                items=logs,
-                total=total,
-                page=params.page,
-                pageSize=params.pageSize
-            )
-        except Exception as e:
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-
-
-    def findByCatalystIdPaginated(self, catalyst_id: str, params: PaginationParams) -> PaginatedResponse[AuditLogs]:
-        """Find audit logs by catalyst ID with pagination
-
-        Args:
-            catalyst_id: Catalyst ID
-            params: Pagination parameters
-
-        Returns:
-            PaginatedResponse[AuditLogs]: Paginated list of matching audit logs
-        """
-        try:
-            query = self.session.query(AuditLogsModel).filter(AuditLogsModel.catalyst_id == catalyst_id)
-
-            total = query.count()
-            offset = (params.page - 1) * params.pageSize
-            paginatedQuery = query.offset(offset).limit(params.pageSize)
-            logs = paginatedQuery.all()
-
-            return createPaginatedResponse(
-                items=logs,
-                total=total,
-                page=params.page,
-                pageSize=params.pageSize
-            )
-        except Exception as e:
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-
-
-    def findByDateRangePaginated(
-        self,
-        start: datetime,
-        end: datetime,
-        params: PaginationParams
-    ) -> PaginatedResponse[AuditLogs]:
-        """Find audit logs by date range with pagination
-
-        Args:
-            start: Start date
-            end: End date
-            params: Pagination parameters
-
-        Returns:
-            PaginatedResponse[AuditLogs]: Paginated list of matching audit logs
-        """
-        try:
-            query = self.session.query(AuditLogsModel).filter(
-                AuditLogsModel.created_at >= start,
-                AuditLogsModel.created_at <= end
-            )
-
-            total = query.count()
-            offset = (params.page - 1) * params.pageSize
-            paginatedQuery = query.offset(offset).limit(params.pageSize)
-            logs = paginatedQuery.all()
-
-            return createPaginatedResponse(
-                items=logs,
-                total=total,
-                page=params.page,
-                pageSize=params.pageSize
-            )
-        except Exception as e:
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')

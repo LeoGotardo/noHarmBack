@@ -40,7 +40,7 @@ def getAllAuditLogs(
         service = AuditLogsService(db)
         
         if paginated:
-            logs = service.getAllPaginated(paginatedParams)
+            logs = service.getAll(paginatedParams)
             
             return logs
         else:
@@ -120,7 +120,7 @@ def getAuditLogsByType(
         service = AuditLogsService(db)
         
         if paginated:
-            logs = service.getByTypePaginated(logType, paginatedParams)
+            logs = service.getByType(logType, paginatedParams)
             
             return logs
         else:
@@ -163,7 +163,7 @@ def getAuditLogsByCatalyst(
         service = AuditLogsService(db)
         
         if paginated:
-            logs = service.getByCatalystPaginated(catalystId, paginatedParams)
+            logs = service.getByCatalyst(catalystId, paginatedParams)
         
             return logs
         else:
@@ -206,7 +206,7 @@ def getAuditLogsByDateRange(
         service = AuditLogsService(db)
         
         if paginated:
-            logs = service.getByDateRangePaginated(startDate, endDate, paginatedParams)
+            logs = service.getByDateRange(startDate, endDate, paginatedParams)
         
             return logs
         else:

@@ -2,36 +2,32 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
-from src.schemas.chatSchemas import ChatResponse
-from src.schemas.userSchemas import UserResponse
 
 
-class MessageBase(BaseModel):
-    chat: ChatResponse = Field(..., description="Chat ID")
-    sender: UserResponse = Field(..., description="User ID")
+class MessageCreate(BaseModel):
+    chat: UUID = Field(..., description="Chat ID")
+    sender: UUID = Field(..., description="Sender user ID")
     message: str = Field(..., description="Message content")
-    status: int = Field(default=1, description="Message status (ex: 1 active, 0 disabled)")
-    sendAt: datetime = Field(..., description="Start time")
-    recivedAt: datetime = Field(None, description="End time")
+    status: int = Field(default=7, description="Message status")
 
 
-class MessageCreate(MessageBase):
-    recivedAt: Optional[datetime] = Field(None, description="End time")
+class MessageUpdate(BaseModel):
+    message: Optional[str] = Field(None, description="Message content")
+    status: Optional[int] = Field(None, description="Message status")
 
 
-class MessageUpdate(MessageBase):
-    sendAt: Optional[datetime] = Field(None, description="Start time")
-    recivedAt: Optional[datetime] = Field(None, description="End time")
-    status: Optional[int] = Field(None, description="Message status (ex: 1 active, 0 disabled)")
-
-
-class MessageResponse(MessageBase):
+class MessageResponse(BaseModel):
     id: UUID
-    createdAt: datetime = Field(..., description="Start time")
-    updatedAt: datetime = Field(..., description="End time")
-    
+    chat: UUID = Field(..., description="Chat ID")
+    sender: UUID = Field(..., description="Sender user ID")
+    message: str = Field(..., description="Message content")
+    status: int = Field(..., description="Message status")
+    send_at: Optional[datetime] = Field(None, description="Sent time")
+    recived_at: Optional[datetime] = Field(None, description="Received time")
+    created_at: datetime = Field(..., description="Created time")
+    updated_at: datetime = Field(..., description="Updated time")
+
     class Config:
-        # Allow Pydantic to user ORM fields (como o UserModel do SQLAlchemy)
         from_attributes = True
 
 

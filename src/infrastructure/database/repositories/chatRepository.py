@@ -8,6 +8,8 @@ from core.config import config
 
 from datetime import datetime
 
+from typing import Optional
+
 import sys
 
 
@@ -57,36 +59,48 @@ class ChatRepository(Chat):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
-    def findAllBySenderId(self, user_id: str) -> list[Chat]:
-        """Find all chats by user ID
-        
+    def findAllBySenderId(self, user_id: str, params: Optional[PaginationParams] = None) -> list[Chat] | PaginatedResponse[Chat]:
+        """Find all chats by sender ID, optionally paginated
+
         Args:
             user_id (str): User ID
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[Chat]: List of Chats
+            list[Chat] | PaginatedResponse[Chat]
         """
         try:
-            chats = self.session.query(ChatModel).filter(ChatModel.sender == user_id).all()
-            return chats
+            query = self.session.query(ChatModel).filter(ChatModel.sender == user_id)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
-        
-    def findAllByReciverId(self, user_id: str) -> list[Chat]:
-        """Find all chats by user ID
-        
+
+
+    def findAllByReciverId(self, user_id: str, params: Optional[PaginationParams] = None) -> list[Chat] | PaginatedResponse[Chat]:
+        """Find all chats by receiver ID, optionally paginated
+
         Args:
             user_id (str): User ID
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[Chat]: List of Chats
+            list[Chat] | PaginatedResponse[Chat]
         """
         try:
-            chats = self.session.query(ChatModel).filter(ChatModel.reciver == user_id).all()
-            return chats
+            query = self.session.query(ChatModel).filter(ChatModel.reciver == user_id)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
@@ -223,46 +237,3 @@ class ChatRepository(Chat):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
 
-
-    def findAllBySenderIdPaginated(self, user_id: str, params: PaginationParams) -> PaginatedResponse[Chat]:
-        """Find all chats by sender ID with pagination
-
-        Args:
-            user_id: Sender user ID
-            params: Pagination parameters
-
-        Returns:
-            PaginatedResponse[Chat]: Paginated list of chats
-        """
-        try:
-            query = self.session.query(ChatModel).filter(ChatModel.sender == user_id)
-            total = query.count()
-            offset = (params.page - 1) * params.pageSize
-            items = query.offset(offset).limit(params.pageSize).all()
-            return createPaginatedResponse(items, total, params.page, params.pageSize)
-        except Exception as e:
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-
-
-    def findAllByReciverIdPaginated(self, user_id: str, params: PaginationParams) -> PaginatedResponse[Chat]:
-        """Find all chats by receiver ID with pagination
-
-        Args:
-            user_id: Receiver user ID
-            params: Pagination parameters
-
-        Returns:
-            PaginatedResponse[Chat]: Paginated list of chats
-        """
-        try:
-            query = self.session.query(ChatModel).filter(ChatModel.reciver == user_id)
-            total = query.count()
-            offset = (params.page - 1) * params.pageSize
-            items = query.offset(offset).limit(params.pageSize).all()
-            return createPaginatedResponse(items, total, params.page, params.pageSize)
-        except Exception as e:
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
