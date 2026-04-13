@@ -1,2 +1,6 @@
 venv
 __pycache__
+.secrets.toml
+.env
+.env.local
+CLAUDE.md
