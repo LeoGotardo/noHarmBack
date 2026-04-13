@@ -1,24 +1,30 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
+
 from api.dependencies.auth import getCurrentUser
 from api.dependencies.database import getDbWithRLS
 from domain.services.messageService import MessageService
-from schemas.messageSchemas import MessageCreate, MessageResponse, MessageListResponse
+from schemas.messageSchemas import MessageResponse, MessageListResponse
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
-from domain.entities.message import Message
 from typing import Union
-
-import uuid
 
 router = APIRouter(prefix="/messages", tags=["Messages"])
 
 
+class SendMessageRequest(BaseModel):
+    chatId: str
+    content: str = Field(..., min_length=1, max_length=2000)
+
+
+# ── list ──────────────────────────────────────────────────────────────────────
+
 @router.get(
     "/chat/{chatId}",
     response_model=Union[PaginatedResponse[MessageResponse], MessageListResponse],
-    summary="Get all messages by chat",
-    description="Returns all messages for a given chat, optionally paginated."
+    summary="Get messages in a chat",
+    description="Returns all messages for a chat. Only participants may access them (§5.2, RLS)."
 )
 def getMessagesByChatId(
     chatId: str,
@@ -40,8 +46,8 @@ def getMessagesByChatId(
 @router.get(
     "/chat/{chatId}/unread",
     response_model=Union[PaginatedResponse[MessageResponse], MessageListResponse],
-    summary="Get unread messages by chat",
-    description="Returns all unread messages for a given chat, optionally paginated."
+    summary="Get unread messages in a chat",
+    description="Returns all unread messages in the given chat."
 )
 def getUnreadMessagesByChatId(
     chatId: str,
@@ -64,7 +70,7 @@ def getUnreadMessagesByChatId(
     "/{messageId}",
     response_model=MessageResponse,
     summary="Get a message by ID",
-    description="Returns a specific message by its ID."
+    description="Returns a specific message."
 )
 def getMessageById(
     messageId: str,
@@ -78,42 +84,40 @@ def getMessageById(
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
 
+# ── send ──────────────────────────────────────────────────────────────────────
+
 @router.post(
     "",
     response_model=MessageResponse,
     status_code=201,
     summary="Send a message",
-    description="Creates a new message in a chat."
+    description=(
+        "Sends a message to a chat (§5.1). "
+        "The chat must be active (enabled or pending — pending chats auto-activate on first message). "
+        "Content is sanitised; empty content after sanitisation is rejected. "
+        "status = unread, sendAt = now."
+    )
 )
-def createMessage(
-    request: MessageCreate,
+def sendMessage(
+    request: SendMessageRequest,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = MessageService(db)
-        newMessage = Message(
-            id=str(uuid.uuid4()),
-            chat=str(request.chat),
-            sender=str(request.sender),
-            message=request.message,
-            status=request.status,
-            send_at=None,
-            recived_at=None,
-            created_at=None,
-            updated_at=None
-        )
-        return service.create(newMessage)
+        return service.sendMessage(request.chatId, currentUserId, request.content)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
+
+# ── read receipts ─────────────────────────────────────────────────────────────
 
 @router.put(
     "/{messageId}/read",
     response_model=MessageResponse,
     status_code=200,
-    summary="Mark message as read",
-    description="Marks a specific message as read."
+    summary="Mark a message as read",
+    description="Marks a specific message as read (§5.3). Idempotent — already-read messages are not updated."
 )
 def markMessageAsRead(
     messageId: str,
@@ -122,7 +126,7 @@ def markMessageAsRead(
 ):
     try:
         service = MessageService(db)
-        return service.markAsRead(messageId)
+        return service.markAsRead(messageId, currentUserId)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -131,7 +135,7 @@ def markMessageAsRead(
     "/chat/{chatId}/read",
     status_code=200,
     summary="Mark all messages as read",
-    description="Marks all messages in a chat as read."
+    description="Marks all unread messages in a chat as read (§5.3)."
 )
 def markAllMessagesAsRead(
     chatId: str,
@@ -140,26 +144,6 @@ def markAllMessagesAsRead(
 ):
     try:
         service = MessageService(db)
-        return service.markAllAsRead(chatId)
-    except NoHarmException as e:
-        raise HTTPException(status_code=e.statusCode, detail=e.message)
-
-
-@router.put(
-    "/{messageId}/status/{status}",
-    response_model=MessageResponse,
-    status_code=200,
-    summary="Update message status",
-    description="Updates the status of a specific message."
-)
-def updateMessageStatus(
-    messageId: str,
-    status: int,
-    db: Session = Depends(getDbWithRLS),
-    currentUserId: str = Depends(getCurrentUser)
-):
-    try:
-        service = MessageService(db)
-        return service.updateStatus(messageId, status)
+        return service.markAllAsRead(chatId, currentUserId)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

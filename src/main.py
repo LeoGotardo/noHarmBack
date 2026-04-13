@@ -21,6 +21,7 @@ from api.routes.streakRoutes import router as streakRouter
 from api.routes.badgesRoutes import router as badgesRouter
 from api.routes.userBadgesRoutes import router as userBadgesRouter
 from api.routes.auditLogsRoutes import router as auditLogsRouter
+from api.routes.friendshipRoutes import router as friendshipRouter
 
 
 app = FastAPI(
@@ -48,6 +49,7 @@ app.include_router(streakRouter)
 app.include_router(badgesRouter)
 app.include_router(userBadgesRouter)
 app.include_router(auditLogsRouter)
+app.include_router(friendshipRouter)
 
 
 @app.exception_handler(NoHarmException)

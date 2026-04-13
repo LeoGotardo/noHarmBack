@@ -1,24 +1,30 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
 from api.dependencies.auth import getCurrentUser
 from api.dependencies.database import getDbWithRLS
 from domain.services.chatService import ChatService
-from schemas.chatSchemas import ChatCreate, ChatUpdate, ChatResponse, ChatListResponse
+from schemas.chatSchemas import ChatResponse, ChatListResponse
 from exceptions.baseExceptions import NoHarmException
-from domain.entities.chat import Chat
+from pydantic import BaseModel
 
-import uuid
 
 router = APIRouter(prefix="/chats", tags=["Chats"])
 
 
+class ChatCreateRequest(BaseModel):
+    receiverId: str
+
+
+# ── list ──────────────────────────────────────────────────────────────────────
+
 @router.get(
     "",
     response_model=ChatListResponse,
-    summary="Get all chats for current user",
-    description="Returns all chats where the current user is a participant."
+    summary="Get my chats",
+    description="Returns all chats where the authenticated user is a participant."
 )
-def getAllChats(
+def getMyChats(
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -34,7 +40,7 @@ def getAllChats(
     "/{chatId}",
     response_model=ChatResponse,
     summary="Get a chat by ID",
-    description="Returns a specific chat by its ID."
+    description="Returns a specific chat. Only participants may access it (§4.3)."
 )
 def getChatById(
     chatId: str,
@@ -43,99 +49,95 @@ def getChatById(
 ):
     try:
         service = ChatService(db)
-        chat = service.get(chatId)
+        chat = service.get(chatId, currentUserId)
         return chat
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
 
+# ── create ────────────────────────────────────────────────────────────────────
+
 @router.post(
     "",
     response_model=ChatResponse,
     status_code=201,
-    summary="Create a chat",
-    description="Creates a new chat between two users."
+    summary="Start or retrieve a chat",
+    description=(
+        "Opens a chat with another user (§4.1). "
+        "Users must be accepted friends (§3.4). "
+        "If an active chat already exists between the two users, it is returned instead of creating a duplicate. "
+        "New chats start with status = pending."
+    )
 )
-def createChat(
-    request: ChatCreate,
+def getOrCreateChat(
+    request: ChatCreateRequest,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = ChatService(db)
-        newChat = Chat(
-            id=str(uuid.uuid4()),
-            sender=str(request.sender),
-            reciver=str(request.reciver),
-            started_at=request.startedAt,
-            ended_at=request.endedAt,
-            status=request.status,
-            messages=[],
-            created_at=None,
-            updated_at=None
-        )
-        createdChat = service.create(newChat)
-        return createdChat
+        chat = service.getOrCreate(currentUserId, request.receiverId)
+        return chat
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
 
-@router.put(
-    "/{chatId}",
+# ── activate ──────────────────────────────────────────────────────────────────
+
+@router.post(
+    "/{chatId}/accept",
     response_model=ChatResponse,
     status_code=200,
-    summary="Update a chat",
-    description="Updates an existing chat."
+    summary="Accept a chat invitation",
+    description=(
+        "Activates a pending chat (pending → enabled). "
+        "Either participant may accept. Once enabled, messages can be sent (§4.1, §5.1)."
+    )
 )
-def updateChat(
+def acceptChat(
     chatId: str,
-    request: ChatUpdate,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = ChatService(db)
-        updatedChat = Chat(
-            id=chatId,
-            sender=None,
-            reciver=None,
-            started_at=None,
-            ended_at=request.endedAt,
-            status=request.status,
-            messages=[],
-            created_at=None,
-            updated_at=None
-        )
-        return service.update(chatId, updatedChat)
+        return service.activate(chatId, currentUserId)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
 
-@router.put(
-    "/{chatId}/status/{status}",
+# ── end ───────────────────────────────────────────────────────────────────────
+
+@router.post(
+    "/{chatId}/end",
     response_model=ChatResponse,
     status_code=200,
-    summary="Update chat status",
-    description="Updates the status of an existing chat."
+    summary="End a chat",
+    description=(
+        "Closes the chat (§4.2). Either participant may end it. "
+        "Sets endedAt = now and status = disabled. "
+        "No new messages can be sent afterwards."
+    )
 )
-def updateChatStatus(
+def endChat(
     chatId: str,
-    status: int,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = ChatService(db)
-        return service.updateStatus(chatId, status)
+        return service.endChat(chatId, currentUserId)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
+
+# ── delete ────────────────────────────────────────────────────────────────────
 
 @router.delete(
     "/{chatId}",
     status_code=200,
     summary="Delete a chat",
-    description="Soft deletes an existing chat."
+    description="Soft-deletes an existing chat."
 )
 def deleteChat(
     chatId: str,
@@ -144,6 +146,6 @@ def deleteChat(
 ):
     try:
         service = ChatService(db)
-        return service.delete(chatId)
+        return service.delete(chatId, currentUserId)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

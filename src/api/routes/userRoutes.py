@@ -1,5 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from typing import Optional
+
 from api.dependencies.auth import getCurrentUser
 from api.dependencies.database import getDb, getDbWithRLS
 from domain.services.userService import UserService
@@ -15,205 +18,157 @@ import uuid
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
+class ProfileUpdateRequest(BaseModel):
+    username: Optional[str] = None
+    profilePicture: Optional[bytes] = None
+
+
+# ── /me ──────────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    summary="Get my profile",
+    description="Returns the full private profile of the authenticated user."
+)
+def getMyProfile(
+    db: Session = Depends(getDbWithRLS),
+    currentUserId: str = Depends(getCurrentUser)
+):
+    try:
+        service = UserService(db)
+        user = service.getProfile(currentUserId)
+        return UserResponse(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            status=user.status,
+            created_at=user.created_at,
+            updated_at=user.updated_at
+        )
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+
+
+@router.put(
+    "/me",
+    response_model=UserResponse,
+    summary="Update my profile",
+    description=(
+        "Updates allowed fields for the authenticated user. "
+        "Only `username` and `profilePicture` can be changed here. "
+        "Email changes require a separate verification flow. "
+        "Status can never be changed via this endpoint."
+    )
+)
+def updateMyProfile(
+    request: ProfileUpdateRequest,
+    db: Session = Depends(getDbWithRLS),
+    currentUserId: str = Depends(getCurrentUser)
+):
+    try:
+        service = UserService(db)
+        user = service.updateProfile(currentUserId, request.username, request.profilePicture)
+        return UserResponse(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            status=user.status,
+            created_at=user.created_at,
+            updated_at=user.updated_at
+        )
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+
+
+# ── public profile ────────────────────────────────────────────────────────────
+
+@router.get(
+    "/{userId}",
+    response_model=UserResponse,
+    summary="Get a user's public profile",
+    description=(
+        "Returns a user's public profile. "
+        "Blocked users cannot view the profile of their blocker (§3.3)."
+    )
+)
+def getPublicProfile(
+    userId: str,
+    db: Session = Depends(getDbWithRLS),
+    currentUserId: str = Depends(getCurrentUser)
+):
+    try:
+        service = UserService(db)
+        user = service.getPublicProfile(currentUserId, userId)
+        return UserResponse(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            status=user.status,
+            created_at=user.created_at,
+            updated_at=user.updated_at
+        )
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+
+
+# ── admin / internal ──────────────────────────────────────────────────────────
+
 @router.get(
     "",
     response_model=Union[PaginatedResponse[User], UserListResponse],
     summary="Get all users",
-    description="Returns all users.")
+    description="Returns all users (admin use)."
+)
 def getAllUsers(
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
-    """
-    Get all users.
-
-    Returns:
-        UserListResponse: List of users
-    """
     try:
         service = UserService(db)
-        
         if paginated:
-            users = service.findAll(paginatedParams)
-            
-            return users
-        else:
-            users = service.findAll()
-            
-            return UserListResponse(
-                users=users,
-                total=len(users)
-            )
-
+            return service.findAll(paginatedParams)
+        users = service.findAll()
+        return UserListResponse(users=users, total=len(users))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
-    
-    
-@router.get(
-    "/{userId}",
+
+
+@router.put(
+    "/{userId}/status/{status}",
     response_model=UserResponse,
-    summary="Get a user by ID",
-    description="Returns a specific user by its ID.")
-def getUserById(
-    userId: str,
-    db: Session = Depends(getDbWithRLS),
-    currentUserId: str = Depends(getCurrentUser)
-):
-    """
-    Get a specific user by ID.
-
-    Args:
-        userId: UUID of the user
-
-    Returns:
-        UserResponse: The user details
-    """
-    try:
-        service = UserService(db)
-        user = service.findById(userId)
-        
-        return UserResponse(
-            id=user.id,
-            username=user.username,
-            email=user.email,
-            status=user.status,
-            createdAt=user.created_at,
-            updatedAt=user.updated_at
-        )
-    except NoHarmException as e:
-        raise HTTPException(status_code=e.statusCode, detail=e.message)
-    
-    
-@router.post("",
-             response_model=UserResponse,
-             status_code=201,
-             summary="Create a user",
-             description="Creates a new user.")
-def createUser(
-    request: UserCreate,
-    db: Session = Depends(getDbWithRLS),
-    currentUserId: str = Depends(getCurrentUser)
-):
-    """
-    Create a new user.
-
-    Args:
-        request: User creation data
-
-    Returns:
-        UserResponse: The created user
-    """
-    try:
-        service = UserService(db)
-
-        # Create the user entity
-        newUser = User(
-            id=str(uuid.uuid4()),
-            username=request.username,
-            email=request.email,
-            status=request.status,
-            profile_picture=request.profile_picture
-        )
-
-        createdUser = service.create(newUser)
-        return createdUser
-    except NoHarmException as e:
-        raise HTTPException(status_code=e.statusCode, detail=e.message)
-    
-    
-@router.put("/{userId}",
-            response_model=UserResponse,
-            status_code=200,
-            summary="Update a user",
-            description="Updates an existing user.")
-def updateUser(
-    userId: str,
-    request: UserUpdate,
-    db: Session = Depends(getDbWithRLS),
-    currentUserId: str = Depends(getCurrentUser)
-):
-    """
-    Update an existing user.
-
-    Args:
-        userId: UUID of the user
-        request: User update data
-
-    Returns:
-        UserResponse: The updated user
-    """
-    try:
-        service = UserService(db)
-        
-        # Update the user entity
-        updatedUser = User(
-            id=userId,
-            username=request.username,
-            email=request.email,
-            status=request.status,
-            profile_picture=request.profile_picture
-        )
-
-        updatedUser = service.update(userId, updatedUser)
-        return updatedUser
-    except NoHarmException as e:
-        raise HTTPException(status_code=e.statusCode, detail=e.message)
-    
-    
-@router.put("/{userId}/status/{status}",
-            response_model=UserResponse,
-            status_code=200,
-            summary="Update a user status",
-            description="Updates the status of an existing user.")
+    status_code=200,
+    summary="Update a user status (admin)",
+    description="Updates the status of an existing user. Admin action — creates audit log type=5."
+)
 def updateUserStatus(
-    status: str,
+    status: int,
     userId: str,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
-    """
-    Update the status of an existing user.
-
-    Args:
-        status: New status (ex: enabled, disabled)
-        userId: UUID of the user
-
-    Returns:
-        UserResponse: The updated user
-    """
     try:
         service = UserService(db)
-
-        updatedUser = service.updateStatus(userId, status)
+        updatedUser = service.updateStatus(userId, status, requestingUserId=currentUserId)
         return updatedUser
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
-    
-    
-@router.delete("/{userId}",
-            response_model=UserResponse,
-            status_code=200,
-            summary="Delete a user",
-            description="Soft deletes an existing user.")
+
+
+@router.delete(
+    "/me",
+    status_code=200,
+    summary="Delete my account",
+    description="Soft-deletes the authenticated user's own account (sets status = deleted). Only a user can delete their own account (§1.4)."
+)
 def deleteUser(
-    userId: str,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
-    """
-    Delete an existing user.
-
-    Args:
-        userId: UUID of the user
-
-    Returns:
-        UserResponse: The deleted user
-    """
     try:
         service = UserService(db)
-        deletedUser = service.delete(userId)
-        return deletedUser
+        return service.delete(currentUserId, currentUserId)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
