@@ -22,6 +22,7 @@ from api.routes.badgesRoutes import router as badgesRouter
 from api.routes.userBadgesRoutes import router as userBadgesRouter
 from api.routes.auditLogsRoutes import router as auditLogsRouter
 from api.routes.friendshipRoutes import router as friendshipRouter
+from websocket.socketManager import socketApp
 
 
 app = FastAPI(
@@ -60,6 +61,9 @@ def noHarmExceptionHandler(request: Request, exc: NoHarmException):
 @app.get("/")
 def __redirect_to_docs():
     return RedirectResponse(url="/docs")
+
+
+app.mount("/ws", socketApp)
 
 
 @app.get("/health",

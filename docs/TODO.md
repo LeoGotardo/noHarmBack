@@ -31,14 +31,13 @@ This document tracks the current state of the backend, architectural decisions, 
 | `main.py` (FastAPI app, CORS, middlewares, health check) | ✅ Complete |
 | All Pydantic schemas (`userSchemas`, `streakSchemas`, `chatSchemas`, `badgeSchemas`) | ✅ Complete |
 | All services (`userService`, `streakService`, `chatsService`, `badgeService`) | ✅ Complete |
+| All routes (`authRoutes`, `userRoutes`, `streakRoutes`, `chatRoutes`, `badgesRoutes`) | ✅ Complete |
 
 ### What is missing
 
 | Layer | Status |
 |-------|--------|
-| All routes (`authRoutes`, `userRoutes`, `streakRoutes`, `chatRoutes`, `badgesRoutes`) | ⬜ Empty |
 | WebSocket (`socketManager`, `chatHandlers`, `presenceHandlers`) | ⬜ Empty |
-| Email service | ⬜ Empty |
 | Storage service (file uploads) | ⬜ Empty |
 
 ---
