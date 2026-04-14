@@ -202,6 +202,21 @@ Defined in `.secrets.toml` under `STATUS_CODES`:
 
 ---
 
+## Unimplementable Rules Summary
+
+Rules requiring infrastructure changes (new tables, models, external services):
+
+| Rule | Description | Blocked By |
+|------|-------------|------------|
+| 1.1 — Email Verification | Backend-initiated verification flow | `emailService.py` empty; needs token storage table |
+| 2.2 — Refresh Token DB Storage | Hashed tokens in DB with device hints | Needs `tb_8` model, migration, repository |
+| 7.2 — Badge Milestones | Auto-grant at streak milestones | Badge seed data missing in `tb_5` |
+| 8.1 — Audit Log Password/Email | Type=3 (password), Type=4 (email) logs | Auth delegated to Firebase — no backend endpoints |
+
+See `docs/UNIMPLEMENTABLE_RULES.md` for full details.
+
+---
+
 ## Quick Start
 
 ```bash

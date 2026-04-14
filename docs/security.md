@@ -569,6 +569,41 @@ pip-audit -r requirements.txt
 | Input sanitisation | HTML stripping via `bleach` |
 | Error handling | Centralised `NoHarmException` — no stack traces leaked to clients |
 | API | Generic pagination system with `PaginatedResponse[T]` |
+| API | Pagination respects RLS policies — `total` reflects filtered count |
+
+### Pagination with RLS
+
+When paginating with `getDbWithRLS`, the `total` count reflects only rows the user can see per RLS policies:
+
+| Table | RLS Policy | Effect on Pagination |
+|-------|------------|---------------------|
+| `tb_0` (users) | users_own_data | Returns 1 row (self) |
+| `tb_1` (streaks) | streaks_own_data | Counts user's streaks only |
+| `tb_2` (friendships) | friendships_participant_data | Counts where user is sender/receiver |
+| `tb_3` (chats) | chats_participant_data | Counts user's conversations |
+| `tb_4` (messages) | messages_sender_data | Counts messages sent by user |
+| `tb_5` (badges) | badges_read_all | Global count (read-only) |
+| `tb_6` (user_badges) | user_badges_own_data | Counts user's earned badges |
+| `tb_7` (audit_logs) | audit_logs_own_data | Counts user's audit events |
+
+RLS policies use `current_setting('app.current_user_id')` set by `getDbWithRLS`.
+
+---
+
+### Unimplementable Rules (Require Infrastructure Changes)
+
+Rules requiring changes outside routes/services (new tables, models, external services):
+
+| Rule | Requirement | Why Blocked |
+|------|-------------|-------------|
+| 1.1 — Email Verification | Send verification email, middleware guard for `status=pending` | `emailService.py` is empty; needs new table for tokens |
+| 2.2 — Refresh Token DB Storage | Store hashed refresh tokens in `tb_8` with device hints | Needs new model, migration, repository; requires `JwtHandler` coordination |
+| 7.2 — Badge Milestones | Grant badges at 1w/1m/3m/6m/1y/comeback streaks | Badge seed data must exist in `tb_5` first (FK constraint) |
+| 8.1 — Password/Email Change Audit | Log type=3 (password), type=4 (email) changes | Auth delegated to Firebase; no backend endpoints to instrument |
+
+See `docs/UNIMPLEMENTABLE_RULES.md` for full details.
+
+---
 
 ### Pending ⬜
 
