@@ -29,16 +29,15 @@ This document tracks the current state of the backend, architectural decisions, 
 | `getDb` dependency (session injection) | ✅ Complete |
 | `NoHarmException` hierarchy | ✅ Complete |
 | `main.py` (FastAPI app, CORS, middlewares, health check) | ✅ Complete |
+| All Pydantic schemas (`userSchemas`, `streakSchemas`, `chatSchemas`, `badgeSchemas`) | ✅ Complete |
+| All services (`userService`, `streakService`, `chatsService`, `badgeService`) | ✅ Complete |
+| All routes (`authRoutes`, `userRoutes`, `streakRoutes`, `chatRoutes`, `badgesRoutes`) | ✅ Complete |
 
 ### What is missing
 
 | Layer | Status |
 |-------|--------|
-| All Pydantic schemas (`userSchemas`, `streakSchemas`, `chatSchemas`, `badgeSchemas`) | ⬜ Empty |
-| All services (`userService`, `streakService`, `chatsService`, `badgeService`) | ⬜ Empty |
-| All routes (`authRoutes`, `userRoutes`, `streakRoutes`, `chatRoutes`, `badgesRoutes`) | ⬜ Empty |
 | WebSocket (`socketManager`, `chatHandlers`, `presenceHandlers`) | ⬜ Empty |
-| Email service | ⬜ Empty |
 | Storage service (file uploads) | ⬜ Empty |
 
 ---

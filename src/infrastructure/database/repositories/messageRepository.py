@@ -1,9 +1,12 @@
 from infrastructure.database.models.messageModel import MessageModel
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.message import Message
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse, createPaginatedResponse
 
 from core.database import Database
 from core.config import config
+
+from typing import Optional
 
 import sys
 
@@ -35,36 +38,51 @@ class MessageRepository(Message):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
-    def findByChatId(self, chat_id: str) -> list[Message]:
-        """Find all messages by chat ID
-        
+    def findByChatId(self, chat_id: str, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
+        """Find all messages by chat ID, optionally paginated
+
         Args:
             chat_id (str): Chat ID
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[Message]: List of Messages
+            list[Message] | PaginatedResponse[Message]
         """
         try:
-            messages = self.session.query(MessageModel).filter(MessageModel.chat == chat_id).all()
-            return messages
+            query = self.session.query(MessageModel).filter(MessageModel.chat == chat_id)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
-    
-    def findUnreadByChatId(self, chat_id: str) -> list[Message]:
-        """Find all unread messages by chat ID
-        
+
+
+    def findUnreadByChatId(self, chat_id: str, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
+        """Find all unread messages by chat ID, optionally paginated
+
         Args:
             chat_id (str): Chat ID
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[Message]: List of Messages
+            list[Message] | PaginatedResponse[Message]
         """
         try:
-            messages = self.session.query(MessageModel).filter(MessageModel.chat == chat_id, MessageModel.status == config.STATUS_CODES["pending"]).all()
-            return messages
+            query = self.session.query(MessageModel).filter(
+                MessageModel.chat == chat_id,
+                MessageModel.status == config.STATUS_CODES["unread"]
+            )
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
@@ -154,7 +172,30 @@ class MessageRepository(Message):
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
+    
+    
+    def update(self, id: str, updatedMessage: Message) -> Message:
+        """Update a message
+
+        Args:
+            id (str): Message ID
+            updatedMessage (Message): Message with updated data
+
+        Returns:
+            Message: Message with his full data
+        """
+        try:
+            message = self.findById(id)
+            message.sender = updatedMessage.sender if updatedMessage.sender else message.sender
+            message.status = updatedMessage.status if updatedMessage.status else message.status
+            
+            self.session.commit()
+            return message
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+    
         
     def delete(self, id: str) -> bool:
         """Delete a message
@@ -179,10 +220,10 @@ class MessageRepository(Message):
         
     def softDelete(self, id: str) -> bool:
         """Soft delete a message
-        
+
         Args:
             id (str): Message ID
-            
+
         Returns:
             bool: True if message was soft deleted, False if not
         """
@@ -196,3 +237,4 @@ class MessageRepository(Message):
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+

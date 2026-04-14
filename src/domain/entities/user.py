@@ -1,5 +1,7 @@
+from dataclasses import dataclass
 import datetime
 
+@dataclass
 class User:
     id: str
     username: str

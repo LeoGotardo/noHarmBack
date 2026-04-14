@@ -1,11 +1,14 @@
 from infrastructure.database.models.chatModel import ChatModel
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.chat import Chat
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse, createPaginatedResponse
 
 from core.database import Database
 from core.config import config
 
 from datetime import datetime
+
+from typing import Optional
 
 import sys
 
@@ -38,7 +41,7 @@ class ChatRepository(Chat):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
-    def findByParticipants(self, participant_id: str) -> list[Chat]:
+    def findByParticipant(self, participant_id: str) -> list[Chat]:
         """Find all chats by participant ID
         
         Args:
@@ -56,18 +59,48 @@ class ChatRepository(Chat):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
-    def findAllByUserId(self, user_id: str) -> list[Chat]:
-        """Find all chats by user ID
-        
+    def findAllBySenderId(self, user_id: str, params: Optional[PaginationParams] = None) -> list[Chat] | PaginatedResponse[Chat]:
+        """Find all chats by sender ID, optionally paginated
+
         Args:
             user_id (str): User ID
-            
+            params: Optional pagination parameters
+
         Returns:
-            list[Chat]: List of Chats
+            list[Chat] | PaginatedResponse[Chat]
         """
         try:
-            chats = self.session.query(ChatModel).filter(ChatModel.sender == user_id).all()
-            return chats
+            query = self.session.query(ChatModel).filter(ChatModel.sender == user_id)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+
+
+    def findAllByReciverId(self, user_id: str, params: Optional[PaginationParams] = None) -> list[Chat] | PaginatedResponse[Chat]:
+        """Find all chats by receiver ID, optionally paginated
+
+        Args:
+            user_id (str): User ID
+            params: Optional pagination parameters
+
+        Returns:
+            list[Chat] | PaginatedResponse[Chat]
+        """
+        try:
+            query = self.session.query(ChatModel).filter(ChatModel.reciver == user_id)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
@@ -115,6 +148,31 @@ class ChatRepository(Chat):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
+    
+    def update(self, id: str, updatedChat: Chat) -> Chat:
+        """Update a chat    
+        
+        Args:
+            id (str): Chat ID
+            updatedChat (Chat): Chat with updated data
+            
+        Returns:
+            Chat: Chat with his full data
+        """
+        try:
+            chat = self.findById(id)
+            chat.sender = updatedChat.sender if updatedChat.sender else chat.sender
+            chat.reciver = updatedChat.reciver if updatedChat.reciver else chat.reciver
+            chat.status = updatedChat.status if updatedChat.status else chat.status
+            chat.ended_at = updatedChat.ended_at if updatedChat.ended_at else chat.ended_at
+            self.session.commit()
+            return chat
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+    
         
     def updateEndedAt(self, id: str, ended_at: datetime) -> Chat:
         """Update a chat ended at
@@ -161,10 +219,10 @@ class ChatRepository(Chat):
         
     def softDelete(self, id: str) -> bool:
         """Soft delete a chat
-        
+
         Args:
             id (str): Chat ID
-            
+
         Returns:
             bool: True if chat was soft deleted, False if not
         """
@@ -178,3 +236,4 @@ class ChatRepository(Chat):
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+

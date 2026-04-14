@@ -2,36 +2,37 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
-from src.schemas.userSchemas import UserResponse
 
-class StreakBase(BaseModel):
-    owner: UserResponse = Field(..., description="User ID")
-    start: datetime = Field(..., description="Start time")
-    end: datetime = Field(None, description="End time")
-    status: int = Field(default=1, description="Streak status (ex: 1 active, 0 disabled)")
-    isRecord: bool = Field(default=False, description="Record status (ex: True, False)")
-    
-    
-class StreakCreate(StreakBase):
-    pass
 
-class StreakUpdate(StreakBase):
+class StreakResponse(BaseModel):
+    id: UUID
+    owner: UUID = Field(..., description="Owner user ID")
     start: Optional[datetime] = Field(None, description="Start time")
     end: Optional[datetime] = Field(None, description="End time")
-    status: Optional[int] = Field(None, description="Streak status (ex: 1 active, 0 disabled)")
-    isRecord: Optional[bool] = Field(None, description="Record status (ex: True, False)")
-    
-    
-class StreakResponse(StreakBase):
-    id: UUID
-    createdAt: datetime = Field(..., description="Start time")
-    updatedAt: datetime = Field(..., description="End time")
-    
+    status: int = Field(..., description="Streak status")
+    isRecord: bool = Field(..., description="Whether this is the user's personal record")
+    createdAt: Optional[datetime] = Field(None, description="Created at")
+
     class Config:
-        # Allow Pydantic to user ORM fields (como o UserModel do SQLAlchemy)
         from_attributes = True
-        
-        
+
+
 class StreakListResponse(BaseModel):
-    streaks: list[StreakResponse]    
+    streaks: list[StreakResponse]
     total: int
+
+
+# Kept for backward compatibility with any internal callers
+class StreakCreate(BaseModel):
+    owner: UUID
+    start: Optional[datetime] = None
+    end: Optional[datetime] = None
+    status: int = 1
+    isRecord: bool = False
+
+
+class StreakUpdate(BaseModel):
+    start: Optional[datetime] = None
+    end: Optional[datetime] = None
+    status: Optional[int] = None
+    isRecord: Optional[bool] = None
