@@ -13,6 +13,17 @@ from security.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.status import HTTP_200_OK
 
+from api.routes.authRoutes import router as authRouter
+from api.routes.userRoutes import router as userRouter
+from api.routes.chatRoutes import router as chatRouter
+from api.routes.messageRoutes import router as messageRouter
+from api.routes.streakRoutes import router as streakRouter
+from api.routes.badgesRoutes import router as badgesRouter
+from api.routes.userBadgesRoutes import router as userBadgesRouter
+from api.routes.auditLogsRoutes import router as auditLogsRouter
+from api.routes.friendshipRoutes import router as friendshipRouter
+from websocket.socketManager import socketApp
+
 
 app = FastAPI(
     title="NoHarm API",
@@ -31,6 +42,17 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+app.include_router(authRouter)
+app.include_router(userRouter)
+app.include_router(chatRouter)
+app.include_router(messageRouter)
+app.include_router(streakRouter)
+app.include_router(badgesRouter)
+app.include_router(userBadgesRouter)
+app.include_router(auditLogsRouter)
+app.include_router(friendshipRouter)
+
+
 @app.exception_handler(NoHarmException)
 def noHarmExceptionHandler(request: Request, exc: NoHarmException):
     return JSONResponse(status_code=exc.statusCode, content=exc.toDict())
@@ -39,6 +61,9 @@ def noHarmExceptionHandler(request: Request, exc: NoHarmException):
 @app.get("/")
 def __redirect_to_docs():
     return RedirectResponse(url="/docs")
+
+
+app.mount("/ws", socketApp)
 
 
 @app.get("/health",

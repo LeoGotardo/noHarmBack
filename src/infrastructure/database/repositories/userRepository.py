@@ -1,8 +1,11 @@
 from infrastructure.database.models.userModel import UserModel
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.user import User
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse, createPaginatedResponse
 from core.database import Database
 from core.config import config
+
+from typing import Optional
 
 import sys
 
@@ -76,15 +79,23 @@ class UserRepository(User):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
-    def findAll(self) -> list[User]:
-        """Find all users
-        
+    def findAll(self, params: Optional[PaginationParams] = None) -> list[User] | PaginatedResponse[User]:
+        """Find all users, optionally paginated
+
+        Args:
+            params: Optional pagination parameters (page, pageSize)
+
         Returns:
-            list[User]: List of Users
+            list[User] | PaginatedResponse[User]: List of Users or paginated response
         """
         try:
-            users = self.session.query(UserModel).all()
-            return users
+            query = self.session.query(UserModel)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
@@ -122,9 +133,13 @@ class UserRepository(User):
             User: User with his full data
         """
         try:
-            self.findById(user_id)
+            user = self.findById(user_id)
             
-            user = updatedUser # TODO: Review if this will work properly
+            user.username = updatedUser.username if updatedUser.username else user.username
+            user.email = updatedUser.email if updatedUser.email else user.email
+            user.status = updatedUser.status if updatedUser.status else user.status
+            user.profile_picture = updatedUser.profile_picture if updatedUser.profile_picture else user.profile_picture
+            
             self.session.commit()
             return user
         except Exception as e:
@@ -179,10 +194,10 @@ class UserRepository(User):
     
     def softDelete(self, id: str) -> bool:
         """Soft delete a user
-        
+
         Args:
             id (str): User ID
-            
+
         Returns:
             bool: True if user was soft deleted, False if not
         """

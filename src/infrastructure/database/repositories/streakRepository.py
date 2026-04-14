@@ -1,11 +1,14 @@
 from infrastructure.database.models.streakModel import StreakModel
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.streak import Streak
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse, createPaginatedResponse
 
 from core.database import Database
 from core.config import config
 
 from datetime import datetime
+
+from typing import Optional
 
 import sys
 
@@ -38,39 +41,24 @@ class StreakRepository(Streak):
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
-    def findByOwnerId(self, owner_id: str) -> Streak:
-        """Find a streak by owner ID
-        
+    def findAllByOwnerId(self, owner_id: str, params: Optional[PaginationParams] = None) -> list[Streak] | PaginatedResponse[Streak]:
+        """Find all streaks by owner ID, optionally paginated
+
         Args:
             owner_id (str): Owner ID
-            
+            params: Optional pagination parameters
+
         Returns:
-            Streak: Streak with his full data
+            list[Streak] | PaginatedResponse[Streak]
         """
         try:
-            streak = self.session.query(StreakModel).filter(StreakModel.owner_id == owner_id).first()
-            if streak:
-                return streak
-            else:
-                raise NoHarmException(status_code=404, message="Streak not found")
-        except Exception as e:
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
-    
-    def findAllByOwnerId(self, owner_id: str) -> list[Streak]:
-        """Find all streaks by owner ID
-        
-        Args:
-            owner_id (str): Owner ID
-            
-        Returns:
-            list[Streak]: List of Streaks
-        """
-        try:
-            streaks = self.session.query(StreakModel).filter(StreakModel.owner_id == owner_id).all()
-            return streaks
+            query = self.session.query(StreakModel).filter(StreakModel.owner_id == owner_id)
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = query.offset(offset).limit(params.pageSize).all()
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+            return query.all()
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
@@ -149,9 +137,9 @@ class StreakRepository(Streak):
         """
         try:
             streak = self.findById(streak_id)
-            streak.start = updatedStreak.start
-            streak.end = updatedStreak.end
-            streak.status = updatedStreak.status
+            streak.start = updatedStreak.start if updatedStreak.start else streak.start
+            streak.end = updatedStreak.end if updatedStreak.end else streak.end
+            streak.status = updatedStreak.status if updatedStreak.status else streak.status
             self.session.commit()
             return streak
         except Exception as e:
@@ -180,29 +168,7 @@ class StreakRepository(Streak):
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
-        
-    def updateStart(self, id: str, start: datetime) -> Streak:
-        """Update a streak start
-        
-        Args:
-            id (str): Streak ID
-            start (datetime): New start
-            
-        Returns:
-            Streak: Streak with his full data
-        """
-        try:
-            streak = self.findById(id)
-            streak.start = start
-            self.session.commit()
-            return streak
-        except Exception as e:
-            self.session.rollback()
-            if isinstance(e, NoHarmException):
-                raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-        
+    
     
     def updateEnd(self, id: str, end: datetime) -> Streak:
         """Update a streak end
@@ -271,10 +237,10 @@ class StreakRepository(Streak):
     
     def softDelete(self, id: str) -> bool:
         """Soft delete a streak
-        
+
         Args:
             id (str): Streak ID
-            
+
         Returns:
             bool: True if streak was soft deleted, False if not
         """
@@ -288,3 +254,4 @@ class StreakRepository(Streak):
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+

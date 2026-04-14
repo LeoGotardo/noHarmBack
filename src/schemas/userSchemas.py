@@ -30,7 +30,7 @@ class UserUpdate(BaseModel):
 
 class UserResponse(UserBase):
     """
-    Schema for the client response. 
+    Schema for the client response.
     Has the fields created by the database (ID and timestamps).
     """
     id: UUID
@@ -40,3 +40,8 @@ class UserResponse(UserBase):
     class Config:
         # Allow Pydantic to user ORM fields (como o UserModel do SQLAlchemy)
         from_attributes = True
+
+
+class UserListResponse(BaseModel):
+    users: list[UserResponse]
+    total: int
