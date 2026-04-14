@@ -1,11 +1,10 @@
-# src/core/config.py
 from dynaconf import Dynaconf, Validator
 
 class Config:
     def __init__(self):
         self._settings = Dynaconf(
             envar_prefix=False,
-            environments=True,
+            environments=False,
             load_dotenv=True,
             validators=[
                 Validator("ENCRYPTION_KEY", must_exist=True, is_type_of=str),
