@@ -32,12 +32,12 @@ This document tracks the current state of the backend, architectural decisions, 
 | All Pydantic schemas (`userSchemas`, `streakSchemas`, `chatSchemas`, `badgeSchemas`) | ✅ Complete |
 | All services (`userService`, `streakService`, `chatsService`, `badgeService`) | ✅ Complete |
 | All routes (`authRoutes`, `userRoutes`, `streakRoutes`, `chatRoutes`, `badgesRoutes`) | ✅ Complete |
+| WebSocket (`socketManager`, `chatHandlers`, `presenceHandlers`) | ✅ Complete  |
 
 ### What is missing
 
 | Layer | Status |
 |-------|--------|
-| WebSocket (`socketManager`, `chatHandlers`, `presenceHandlers`) | ⬜ Empty |
 | Storage service (file uploads) | ⬜ Empty |
 
 ---
