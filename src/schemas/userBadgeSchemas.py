@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
-from src.schemas.userSchemas import UserResponse
+from schemas.userSchemas import UserResponse
 
 
 class UserBadgeBase(BaseModel):
