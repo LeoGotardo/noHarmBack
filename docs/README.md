@@ -384,6 +384,23 @@ def getItems(
 - `schemas/paginationSchemas.py` — `PaginationParams`, `PaginatedResponse[T]`
 - `infrastructure/database/paginationUtils.py` — `paginateQuery()`, `PaginatedRepository` mixin
 
+### Pagination with RLS
+
+When using `getDbWithRLS`, pagination automatically respects Row Level Security policies:
+
+| Table | RLS Policy | Pagination Behavior |
+|-------|------------|---------------------|
+| `tb_0` (users) | users_own_data | Users see only their own record |
+| `tb_1` (streaks) | streaks_own_data | Paginated to user's streaks only |
+| `tb_2` (friendships) | friendships_participant_data | Paginated to user's friendships |
+| `tb_3` (chats) | chats_participant_data | Paginated to user's conversations |
+| `tb_4` (messages) | messages_sender_data | Paginated to messages sent by user |
+| `tb_5` (badges) | badges_read_all | Global read, paginated |
+| `tb_6` (user_badges) | user_badges_own_data | Paginated to user's earned badges |
+| `tb_7` (audit_logs) | audit_logs_own_data | Paginated to user's audit trail |
+
+**Key point**: `total` in paginated responses reflects the RLS-filtered count, not the full table count.
+
 ---
 
 ## Getting Started
@@ -457,9 +474,9 @@ See `docs/security.md` for the complete security guide covering:
 
 | Document | Description |
 |----------|-------------|
-| `docs/TODO.md` | Current implementation status |
-| `docs/security.md` | Security guide and audit checklist |
+| `docs/TODO.md` | Current implementation status (includes unimplementable rules summary) |
+| `docs/security.md` | Security guide, audit checklist, and RLS pagination details |
 | `docs/RLS_SETUP.md` | Row Level Security setup and usage |
 | `docs/PAGINATION_GUIDE.md` | Pagination system documentation |
 | `docs/rules.md` | Project rules and conventions |
-| `docs/UNIMPLEMENTABLE_RULES.md` | Rules that cannot be implemented |
+| `docs/UNIMPLEMENTABLE_RULES.md` | Full details on rules requiring infrastructure changes |
