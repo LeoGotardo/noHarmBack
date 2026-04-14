@@ -4,8 +4,7 @@ from dynaconf import Dynaconf, Validator
 class Config:
     def __init__(self):
         self._settings = Dynaconf(
-            envar_prefix="NOHARMBACK",
-            settings_files=["config.toml", ".secrets.toml"],
+            envar_prefix=False,
             environments=True,
             load_dotenv=True,
             validators=[

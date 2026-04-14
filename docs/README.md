@@ -16,31 +16,34 @@ noHarmBack/
 │   └── script.py.mako
 ├── docs/
 │   ├── README.md               # This file
-│   ├── TODO.md                 # Architecture context and implementation plan
-│   ├── security.md             # Security guide — covered attacks and countermeasures
+│   ├── TODO.md                 # Implementation status
+│   ├── security.md             # Security guide
+│   ├── RLS_SETUP.md           # Row Level Security documentation
+│   ├── PAGINATION_GUIDE.md    # Pagination system documentation
 │   └── requirements.txt        # Python dependencies
 ├── src/
 │   ├── api/
-│   │   ├── dependencies/
-│   │   └── routes/
-│   ├── core/
+│   │   ├── dependencies/       # FastAPI dependencies (auth, database)
+│   │   └── routes/             # HTTP endpoints
+│   ├── core/                   # Configuration, database engine
 │   ├── domain/
-│   │   ├── entities/
-│   │   └── services/
+│   │   ├── entities/           # Pure domain objects
+│   │   └── services/           # Business logic
 │   ├── infrastructure/
 │   │   ├── database/
-│   │   │   ├── models/
-│   │   │   └── repositories/
-│   │   └── external/
-│   ├── schemas/
-│   ├── security/
-│   ├── websocket/
+│   │   │   ├── models/         # SQLAlchemy ORM models
+│   │   │   └── repositories/   # Data access layer
+│   │   └── external/           # External services (email, storage)
+│   ├── schemas/                # Pydantic DTOs
+│   ├── security/               # JWT, encryption, rate limiting
+│   ├── websocket/              # Socket.IO real-time handlers
 │   │   └── handlers/
-│   ├── main.py
-│   └── run.py
+│   ├── exceptions/             # Custom exceptions
+│   ├── main.py                 # FastAPI entry point
+│   └── run.py                  # Uvicorn startup script
 ├── .secrets.toml               # Environment secrets (never commit)
 ├── alembic.ini
-├── migrate.sh
+├── migrate.sh                  # Vercel migration script
 ├── requirements.txt
 └── vercel.json
 ```
@@ -83,7 +86,7 @@ Reusable FastAPI dependencies injected into routes.
 | File | Description |
 |------|-------------|
 | `auth.py` | Extracts and validates the authenticated user from the JWT (`getCurrentUser`) |
-| `database.py` | Provides the database session (`getDb`) to routes |
+| `database.py` | Provides database sessions: `getDb` (no RLS) and `getDbWithRLS` (with Row Level Security) |
 
 #### `src/api/routes/`
 
@@ -91,11 +94,15 @@ HTTP endpoints. Each file groups routes for one domain. Routes contain **no busi
 
 | File | Description |
 |------|-------------|
-| `authRoutes.py` | Authentication routes: login, logout, token refresh |
-| `userRoutes.py` | User routes: registration, profile, data update |
-| `streakRoutes.py` | Streak routes: query, increment, and reset clean days |
-| `chatRoutes.py` | Message routes: conversation history |
-| `badgesRoutes.py` | Achievement routes: list and query user badges |
+| `authRoutes.py` | Authentication: login, logout, token refresh, registration |
+| `userRoutes.py` | User profile: registration, profile, data update |
+| `streakRoutes.py` | Streaks: query, increment, and reset clean days |
+| `friendshipRoutes.py` | Friendships: send/accept/reject/block friend requests |
+| `chatRoutes.py` | Chats: conversation creation and history |
+| `messageRoutes.py` | Messages: per-message CRUD and read status |
+| `badgesRoutes.py` | Badges: global badge list |
+| `userBadgesRoutes.py` | User badges: per-user badge records |
+| `auditLogsRoutes.py` | Audit logs: audit trail query with pagination |
 
 ---
 
@@ -122,12 +129,12 @@ Pure domain concept representations, with no ORM or framework coupling.
 |------|--------|------------|
 | `user.py` | User | id, username, email, profilePicture, status, timestamps |
 | `streak.py` | Streak | id, ownerId, start, end, status, isRecord |
-| `chat.py` | Chat | id, sender, reciver, startedAt, endedAt, status, messages |
-| `message.py` | Message | id, chat, sender, message, status, sendAt, recivedAt |
+| `friendship.py` | Friendship | id, sender, receiver, sendAt, receivedAt, status |
+| `chat.py` | Chat | id, sender, receiver, startedAt, endedAt, status, messages |
+| `message.py` | Message | id, chat, sender, message, status, sendAt, receivedAt |
 | `badge.py` | Badge | id, name, description, milestone, icon, status |
 | `userBadge.py` | UserBadge | id, userId, badgeId, givenAt, status |
-| `friendship.py` | Friendship | id, sender, reciver, sendAt, recivedAt, status |
-| `auditLogs.py` | AuditLogs | id, type, catalistId, catalist, description, timestamps |
+| `auditLogs.py` | AuditLogs | id, type, catalystId, catalyst, description, timestamps |
 
 #### `src/domain/services/`
 
@@ -135,10 +142,15 @@ Orchestrate business rules. Call `Repositories` to access data and apply rules b
 
 | File | Responsibility |
 |------|----------------|
-| `userService.py` | Registration, profile update, user search |
+| `authService.py` | Login, logout, token refresh, Firebase authentication |
+| `userService.py` | Registration, profile update, user search, password changes |
 | `streakService.py` | Daily increment, expiry check, reset with history |
-| `chatsService.py` | Sending and retrieving messages, recipient validation |
+| `friendshipService.py` | Friend request lifecycle, blocking, friend lists |
+| `chatService.py` | Chat creation, conversation retrieval |
+| `messageService.py` | Message CRUD and read-status transitions |
 | `badgeService.py` | Granting and listing achievements |
+| `userBadgeService.py` | User-badge association management |
+| `auditLogsService.py` | Audit trail operations with pagination |
 
 ---
 
@@ -156,12 +168,13 @@ All sensitive fields (username, email, message content, timestamps, etc.) are st
 |------|-------|-----------------|
 | `userModel.py` | `tb_0` | username, email, profilePicture |
 | `streakModel.py` | `tb_1` | start, end |
-| `friendshipModel.py` | `tb_2` | sendAt, recivedAt |
+| `friendshipModel.py` | `tb_2` | sendAt, receivedAt |
 | `chatModel.py` | `tb_3` | startedAt, endedAt |
-| `messageModel.py` | `tb_4` | message, sendAt, recivedAt |
+| `messageModel.py` | `tb_4` | message, sendAt, receivedAt |
 | `badgeModel.py` | `tb_5` | name, description, milestone, icon |
 | `userBedgesModel.py` | `tb_6` | givenAt |
 | `auditLogsModel.py` | `tb_7` | description |
+| `refreshTokenModel.py` | `tb_8` | tokenHash |
 | `baseModel.py` | — | TimestampMixin (createdAt, updatedAt) |
 
 #### `src/infrastructure/database/repositories/`
@@ -172,12 +185,13 @@ Data access layer. Each file encapsulates queries for a specific model. **Servic
 |------|-------------|
 | `userRepository.py` | `findById`, `findByEmail`, `findByUsername`, `findAll`, `create`, `update`, `updateStatus`, `softDelete` |
 | `streakRepository.py` | `findById`, `findByOwnerId`, `findAllByOwnerId`, `findCurrentStreak`, `findCurrentRecord`, `create`, `update`, `markAsRecord`, `updateStatus` |
+| `friendshipRepository.py` | `findById`, `findByPair`, `findAllByReceiverPending`, `findAllBySenderId`, `create`, `updateStatus` |
 | `chatRepository.py` | `findById`, `findByParticipants`, `findAllByUserId`, `create`, `updateStatus`, `updateEndedAt` |
 | `messageRepository.py` | `findById`, `findByChatId`, `findUnreadByChatId`, `create`, `markAsRead`, `markAllAsRead`, `updateStatus` |
-| `friendshipRepository.py` | `findById`, `findByPair`, `findAllByReciverPending`, `findAllBySenderId`, `create`, `updateStatus` |
 | `badgeRepository.py` | `findById`, `findAll`, `create`, `update`, `updateStatus`, `softDelete` |
 | `userBadgesRepository.py` | `findByUserId`, `findByBadgeId`, `existsByUserAndBadge`, `grant`, `revoke`, `listAll` |
-| `auditLogsRepository.py` | `findById`, `findByType`, `findByCatalystId`, `findByDateRange`, `create` |
+| `auditLogsRepository.py` | `findById`, `findByType`, `findByCatalystId`, `findByDateRange`, `findAllPaginated`, `create` |
+| `refreshTokenRepository.py` | `findByTokenHash`, `create`, `deleteByUserId`, `deleteExpired` |
 
 #### `src/infrastructure/external/`
 
@@ -185,8 +199,8 @@ Integrations with external services.
 
 | File | Description |
 |------|-------------|
-| `emailService.py` | Email sending (verification, password recovery) |
-| `storageService.py` | Declares `Base` (SQLAlchemy DeclarativeBase) — file/photo uploads planned |
+| `emailService.py` | Email sending (verification, password recovery) — **empty** |
+| `storageService.py` | Declares `Base` (SQLAlchemy DeclarativeBase) — file uploads planned |
 
 ---
 
@@ -196,10 +210,16 @@ DTOs defined with **Pydantic**. Responsible for validating input data and filter
 
 | File | Purpose |
 |------|---------|
-| `userSchemas.py` | `UserRegisterRequest`, `UserResponse`, `UserUpdateRequest` |
+| `authSchemas.py` | `AuthRegisterRequest`, `AuthLoginRequest`, `TokenResponse` |
+| `userSchemas.py` | `UserRegisterRequest`, `UserPrivateResponse`, `UserPublicResponse`, `UserUpdateRequest` |
 | `streakSchemas.py` | `StreakResponse`, `StreakResetRequest` |
-| `chatSchemas.py` | `MessageRequest`, `MessageResponse`, `ConversationResponse` |
+| `friendshipSchemas.py` | `FriendshipRequest`, `FriendshipResponse`, `FriendshipListResponse` |
+| `chatSchemas.py` | `ChatResponse`, `ConversationResponse` |
+| `messageSchemas.py` | `MessageRequest`, `MessageResponse`, `MessageListResponse` |
 | `badgeSchemas.py` | `BadgeResponse`, `BadgeListResponse` |
+| `userBadgeSchemas.py` | `UserBadgeResponse`, `UserBadgeCreate`, `UserBadgeUpdate`, `UserBadgeListResponse` |
+| `auditLogsSchemas.py` | `AuditLogsResponse`, `AuditLogsCreate`, `AuditLogsListResponse` |
+| `paginationSchemas.py` | `PaginationParams`, `PaginatedResponse[T]` |
 
 ---
 
@@ -219,12 +239,12 @@ Reusable security modules shared across the application.
 
 **JWT flow:**
 - Access token: 15-minute lifetime, signed with `JWT_SECRET_KEY`
-- Refresh token: 7-day lifetime, signed with `JWT_REFRESH_SECRET_KEY`
+- Refresh token: 7-day lifetime, signed with `JWT_REFRESH_SECRET_KEY`, stored hashed in database
 - Each token carries a unique `jti` claim that enables individual revocation
 - Revoked JTIs are stored hashed (SHA-256) in a persistent JSONL blacklist
 
 **Token blacklist:**
-The blacklist uses `PersistentHashTable` — an append-only JSONL file that survives server restarts. On startup, state is rebuilt by replaying log events. Expired entries are removed via `cleanup()`.
+The blacklist uses `PersistentHashTable` — an append-only JSONL file that survives server restarts. On startup, state is rebuilt by replaying log events. Expired entries are removed via `cleanup()`. JTIs are stored as SHA-256 hashes — plaintext JTIs are never written to disk.
 
 ---
 
@@ -234,7 +254,7 @@ Real-time communication via Socket.IO.
 
 | File | Description |
 |------|-------------|
-| `socketManager.py` | Manages WebSocket connections: JWT auth, message rate limiting, payload validation, event routing |
+| `socketManager.py` | Manages WebSocket connections: JWT auth at connection time, message rate limiting, payload validation, event routing |
 
 #### `src/websocket/handlers/`
 
@@ -243,7 +263,13 @@ Handlers isolated by responsibility, called by `socketManager`.
 | File | Description |
 |------|-------------|
 | `chatHandlers.py` | Real-time chat message processing |
-| `presenceHandlers.py` | User online/offline status |
+| `presenceHandlers.py` | User online/offline status, typing indicators |
+
+**WebSocket Features:**
+- **JWT Authentication**: Mandatory token validation on every `connect` event
+- **Rate Limiting**: Message throttling (configurable per-user limits)
+- **Connection Limits**: Maximum simultaneous connections per user
+- **Rooms**: User-specific rooms (`user_{userId}`) and chat rooms (`chat_{chatId}`)
 
 ---
 
@@ -293,6 +319,7 @@ STORAGE_PATH            = "data"
 ALLOWED_ORIGINS         = ["*"]
 DEBUG                   = true
 PORT                    = 8080
+STATUS_CODES            = { disabled = 0, enabled = 1, deleted = 2, blocked = 3, pending = 4, accepted = 5, ignored = 6, unread = 7, read = 8, banned = 9 }
 ```
 
 Generate secure secrets with:
@@ -300,6 +327,62 @@ Generate secure secrets with:
 import secrets
 print(secrets.token_urlsafe(32))  # run three times for the three keys
 ```
+
+---
+
+## Row Level Security (RLS)
+
+PostgreSQL RLS policies enforce data access control at the database level:
+
+| Table | Code | Policy | Access Rule |
+|-------|------|--------|-------------|
+| users | `tb_0` | users_own_data | Can only see own row |
+| streaks | `tb_1` | streaks_own_data | Can only see own streaks |
+| friendships | `tb_2` | friendships_participant_data | Can see if sender OR receiver |
+| chats | `tb_3` | chats_participant_data | Can see if sender OR receiver |
+| messages | `tb_4` | messages_sender_data | Can see messages they sent |
+| badges | `tb_5` | badges_read_all | Global read-only table |
+| user_badges | `tb_6` | user_badges_own_data | Can only see own badges |
+| audit_logs | `tb_7` | audit_logs_own_data | Can only see own audit logs |
+
+Use `getDbWithRLS` in routes to automatically filter queries to the authenticated user's data. See `docs/RLS_SETUP.md` for full details.
+
+---
+
+## Pagination
+
+Generic pagination for list endpoints.
+
+**Defaults**: `page=1`, `pageSize=20` (max 100)
+
+**Usage in routes:**
+```python
+from schemas.paginationSchemas import PaginationParams, PaginatedResponse
+
+@router.get("/items", response_model=PaginatedResponse[ItemResponse])
+def getItems(
+    db: Session = Depends(getDbWithRLS),
+    pagination: PaginationParams = Depends(),
+):
+    return service.getAllPaginated(pagination)
+```
+
+**Response format:**
+```json
+{
+  "items": [...],
+  "total": 100,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 5,
+  "hasNext": true,
+  "hasPrevious": false
+}
+```
+
+**Files:**
+- `schemas/paginationSchemas.py` — `PaginationParams`, `PaginatedResponse[T]`
+- `infrastructure/database/paginationUtils.py` — `paginateQuery()`, `PaginatedRepository` mixin
 
 ---
 
@@ -352,3 +435,31 @@ def get_user_by_id(user_id: str): ...
 ```
 
 Class names and file names follow PascalCase and camelCase respectively, consistent with the rest of the codebase.
+
+---
+
+## Security
+
+See `docs/security.md` for the complete security guide covering:
+- Authentication attacks (JWT theft, brute force)
+- Injection attacks (SQL injection, XSS, mass assignment)
+- Session attacks (CSRF, CORS)
+- Denial of Service protections
+- Data attacks (encryption, IDOR prevention)
+- WebSocket security
+- Account & identity attacks
+- Infrastructure risks
+- Supply chain security
+
+---
+
+## Additional Documentation
+
+| Document | Description |
+|----------|-------------|
+| `docs/TODO.md` | Current implementation status |
+| `docs/security.md` | Security guide and audit checklist |
+| `docs/RLS_SETUP.md` | Row Level Security setup and usage |
+| `docs/PAGINATION_GUIDE.md` | Pagination system documentation |
+| `docs/rules.md` | Project rules and conventions |
+| `docs/UNIMPLEMENTABLE_RULES.md` | Rules that cannot be implemented |
