@@ -601,7 +601,128 @@ Rules requiring changes outside routes/services (new tables, models, external se
 | 7.2 — Badge Milestones | Grant badges at 1w/1m/3m/6m/1y/comeback streaks | Badge seed data must exist in `tb_5` first (FK constraint) |
 | 8.1 — Password/Email Change Audit | Log type=3 (password), type=4 (email) changes | Auth delegated to Firebase; no backend endpoints to instrument |
 
-See `docs/UNIMPLEMENTABLE_RULES.md` for full details.
+---
+
+## 11. Business Rules Reference
+
+### 11.1 Users
+- Username: 3-50 chars, `^[a-zA-Z0-9_-]+$`, globally unique
+- Email: valid RFC-5321, globally unique, error messages must not reveal which field duplicated
+- Password: min 8 chars, hashed with Argon2id
+- On registration: `status = pending` (if email unverified) or `enabled`
+- Profile updates: only `username`, `profilePicture` allowed; `status` changes via admin only
+
+### 11.2 Authentication & Tokens
+- Access token: 15 min, `JWT_SECRET_KEY`, claims: `sub`, `type:access`, `exp`, `iat`, `jti`
+- Refresh token: 7 days, `JWT_REFRESH_SECRET_KEY`, stored hashed in `tb_8`
+- Login rate limit: 5 attempts / 15 min, 30-min lockout
+- IP rate limit: 60 req / 60 sec, 60-min block
+
+### 11.3 Friendships
+- Cannot send request to self
+- Cannot send if any active friendship exists (unless `deleted`)
+- Only receiver may accept/reject
+- Either may block; blocked users cannot send requests or view profiles
+- Chat pre-condition: must be `accepted` friends
+
+### 11.4 Chats
+- Creation requires `accepted` friendship
+- No duplicate active chats between same users
+- Either participant may end (sets `endedAt`, `status=disabled`)
+
+### 11.5 Messages
+- Only to `enabled` chats
+- Content sanitized with `Sanitizer.cleanHtml()`
+- `markAsRead`: sets `status=read`, `recivedAt`
+
+### 11.6 Streaks
+- One active streak per user
+- On reset: sets `end`, creates new streak, updates `isRecord` if longest
+- Auto-expiry: >24h without activity triggers reset on next `getCurrentStreak`
+
+### 11.7 Badges
+- Granted via `BadgeService.checkAndGrantBadges()` after streak updates
+- One per user only; `givenAt` set on grant
+
+### 11.8 Audit Logs
+| Action | Type Code |
+|--------|-----------|
+| Successful login | 1 |
+| Failed login | 2 |
+| Password change | 3 |
+| Email change | 4 |
+| Account status change | 5 |
+| Token revocation | 6 |
+| Streak reset | 7 |
+| Badge granted | 8 |
+| Admin action | 9 |
+
+### 11.9 Cross-Cutting Rules
+- **Soft Delete**: All entities use `status=deleted`, never hard delete
+- **Ownership Checks**: Service layer verifies ownership before repository calls
+- **Input Sanitization**: All free-text passes through `Sanitizer.cleanHtml()`
+- **UUID Keys**: All primary keys are UUID v4 (no sequential integers)
+- **Status Codes**: `disabled=0`, `enabled=1`, `deleted=2`, `blocked=3`, `pending=4`, `accepted=5`, `ignored=6`, `unread=7`, `read=8`, `banned=9`
+
+---
+
+## 12. RLS Setup and Usage
+
+### 12.1 Overview
+RLS ensures queries only return rows the authenticated user can see. Enforced at database level — defense-in-depth even if application code vulnerable.
+
+### 12.2 How It Works
+1. JWT validated, `userId` extracted
+2. `getDbWithRLS` sets `app.current_user_id` in PostgreSQL session
+3. All queries automatically filter based on RLS policies
+4. If no user set, RLS returns no rows (fail-closed)
+
+### 12.3 Usage in Routes
+
+**Recommended**: Use `getDbWithRLS` for authenticated endpoints:
+```python
+@router.get("/streaks")
+def getMyStreaks(db: Session = Depends(getDbWithRLS)):
+    # RLS automatically filters to current user's rows
+    return db.query(StreakModel).all()
+```
+
+**Public endpoints**: Use `getDb` without RLS:
+```python
+@router.get("/public/health")
+def healthCheck(db: Session = Depends(getDb)):
+    pass  # No RLS context for public endpoints
+```
+
+### 12.4 Bypassing RLS (Admin Operations)
+```python
+# Use getDb (without RLS) and apply filters manually
+@router.get("/admin/users")
+def adminGetAllUsers(db: Session = Depends(getDb)):
+    return db.query(UserModel).all()
+```
+
+### 12.5 Testing RLS
+```python
+from infrastructure.database.rlsContext import RLSContext
+
+def testRLS():
+    db = next(getDb())
+    # Without RLS context - should return empty
+    count = db.query(StreakModel).count()
+    assert count == 0
+
+    # Set RLS context for specific user
+    RLSContext.setUserId(db, "user-uuid")
+    count = db.query(StreakModel).count()  # Returns user's streaks
+```
+
+### 12.6 Troubleshooting
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| "permission denied" | RLS blocking | Use `getDbWithRLS`, ensure user authenticated |
+| Empty results | RLS context not set | Check `RLSContext.setUserId()` called |
+| Performance issues | Missing indexes | Ensure indexes on: `cl_1b`, `cl_2b`, `cl_2c`, `cl_3b`, `cl_3c`, `cl_4c`, `cl_6b`, `cl_7c` |
 
 ---
 

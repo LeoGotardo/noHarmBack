@@ -474,9 +474,5 @@ See `docs/security.md` for the complete security guide covering:
 
 | Document | Description |
 |----------|-------------|
-| `docs/TODO.md` | Current implementation status (includes unimplementable rules summary) |
-| `docs/security.md` | Security guide, audit checklist, and RLS pagination details |
-| `docs/RLS_SETUP.md` | Row Level Security setup and usage |
-| `docs/PAGINATION_GUIDE.md` | Pagination system documentation |
-| `docs/rules.md` | Project rules and conventions |
-| `docs/UNIMPLEMENTABLE_RULES.md` | Full details on rules requiring infrastructure changes |
+| `docs/TODO.md` | Current implementation status |
+| `docs/security.md` | Security guide, audit checklist, RLS, pagination, and business rules |
