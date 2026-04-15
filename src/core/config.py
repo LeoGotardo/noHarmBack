@@ -8,8 +8,8 @@ class Config:
             environments=False,
             load_dotenv=True,
             validators=[
-                Validator("ENCRYPTION_KEY", must_exist=True, is_type_of=str),
                 Validator("DATABASE_URL", must_exist=True, is_type_of=str),
+                Validator("ENCRYPTION_KEY", must_exist=True, is_type_of=str),
                 Validator("DATABASE_HOST", must_exist=True, is_type_of=str),
                 Validator("DATABASE_NAME", must_exist=True, is_type_of=str),
                 Validator("DATABASE_USER", must_exist=True, is_type_of=str),
