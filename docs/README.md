@@ -445,7 +445,7 @@ The project uses **camelCase** for all Python variables, functions, and attribut
 # ✅ Project standard
 def getUserById(userId: str): ...
 passwordHash = encryption.encryptPass(...)
-createdAt = datetime.utcnow()
+createdAt = datetime.now(datetime.UTC)
 
 # ❌ Not used (PEP 8 default)
 def get_user_by_id(user_id: str): ...

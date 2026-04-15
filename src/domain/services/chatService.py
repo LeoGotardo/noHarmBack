@@ -6,7 +6,7 @@ from exceptions.baseExceptions import NoHarmException
 from core.config import config
 from core.database import Database
 
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import or_
 
 
@@ -65,7 +65,7 @@ class ChatService:
         newChat = ChatModel(
             sender=senderId,
             reciver=receiverId,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
             ended_at=None,
             status=config.STATUS_CODES["pending"]
         )
@@ -100,7 +100,7 @@ class ChatService:
         chat = self.chatRepository.findById(chatId)
         self._assertParticipant(chat, requestingUserId)
 
-        self.chatRepository.updateEndedAt(chatId, datetime.utcnow())
+        self.chatRepository.updateEndedAt(chatId, datetime.now(timezone.utc))
         self.chatRepository.updateStatus(chatId, config.STATUS_CODES["disabled"])
         return self.chatRepository.findById(chatId)
 

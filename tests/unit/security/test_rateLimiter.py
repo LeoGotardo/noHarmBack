@@ -1,7 +1,7 @@
 """Unit tests for LoginRateLimiter and IpRateLimiter."""
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from security.rateLimiter import LoginRateLimiter, IpRateLimiter
 
 
@@ -65,7 +65,7 @@ def test_login_attempts_remaining_decrements(login_limiter):
 def test_login_window_cleanup_removes_old_attempts(login_limiter):
     uid = "user-uid-window"
     # Inject old timestamps directly
-    cutoff = datetime.utcnow() - timedelta(minutes=LoginRateLimiter._WINDOW_MINUTES + 1)
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=LoginRateLimiter._WINDOW_MINUTES + 1)
     login_limiter._attempts[uid] = [cutoff, cutoff, cutoff]
     # After cleanup, those attempts vanish
     login_limiter._cleanWindow(uid)
@@ -75,7 +75,7 @@ def test_login_window_cleanup_removes_old_attempts(login_limiter):
 def test_login_lock_expires_after_window(login_limiter):
     uid = "user-uid-expired-lock"
     # Manually set expired lock
-    login_limiter._locked[uid] = datetime.utcnow() - timedelta(seconds=1)
+    login_limiter._locked[uid] = datetime.now(timezone.utc) - timedelta(seconds=1)
     # isLocked should auto-clear expired lock
     allowed, _ = login_limiter.check(uid)
     assert allowed is True
@@ -112,7 +112,7 @@ def test_ip_over_limit_blocked(ip_limiter):
 def test_ip_blocked_returns_message(ip_limiter):
     ip = "10.0.1.1"
     # Force block
-    ip_limiter._blocked[ip] = datetime.utcnow() + timedelta(minutes=60)
+    ip_limiter._blocked[ip] = datetime.now(timezone.utc) + timedelta(minutes=60)
     allowed, reason = ip_limiter.check(ip)
     assert allowed is False
     assert "blocked" in reason.lower()
@@ -120,7 +120,7 @@ def test_ip_blocked_returns_message(ip_limiter):
 
 def test_ip_block_expires(ip_limiter):
     ip = "10.0.2.1"
-    ip_limiter._blocked[ip] = datetime.utcnow() - timedelta(seconds=1)
+    ip_limiter._blocked[ip] = datetime.now(timezone.utc) - timedelta(seconds=1)
     # Expired block → allowed
     allowed, _ = ip_limiter.check(ip)
     assert allowed is True
@@ -128,7 +128,7 @@ def test_ip_block_expires(ip_limiter):
 
 def test_ip_window_cleanup(ip_limiter):
     ip = "10.0.3.1"
-    cutoff = datetime.utcnow() - timedelta(seconds=IpRateLimiter._WINDOW_SECONDS + 5)
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=IpRateLimiter._WINDOW_SECONDS + 5)
     ip_limiter._windows[ip] = [cutoff] * 10
     ip_limiter._cleanWindow(ip)
     assert len(ip_limiter._windows[ip]) == 0

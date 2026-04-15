@@ -3,7 +3,7 @@
 import time
 import pytest
 from unittest.mock import MagicMock, patch
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import jwt as pyjwt
 
@@ -105,8 +105,8 @@ def test_verifyToken_expired_returns_none(mock_blacklist):
     expired_payload = {
         "sub": "user-1",
         "type": "access",
-        "exp": datetime.utcnow() - timedelta(seconds=1),
-        "iat": datetime.utcnow() - timedelta(minutes=16),
+        "exp": datetime.now(timezone.utc) - timedelta(seconds=1),
+        "iat": datetime.now(timezone.utc) - timedelta(minutes=16),
         "jti": "expired-jti",
     }
     expired_token = pyjwt.encode(expired_payload, config.JWT_SECRET_KEY, algorithm="HS256")

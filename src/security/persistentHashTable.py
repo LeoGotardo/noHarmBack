@@ -59,7 +59,7 @@ class PersistentHashTable:
 
         Args:
             isExpired: A callable that receives a value and returns True if expired.
-                       Example: lambda exp: datetime.fromisoformat(exp) < datetime.utcnow()
+                       Example: lambda exp: datetime.fromisoformat(exp) < datetime.now(datetime.UTC)
         """
         self._table = {
             key: value

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
@@ -27,8 +27,7 @@ class MessageResponse(BaseModel):
     created_at: datetime = Field(..., description="Created time")
     updated_at: datetime = Field(..., description="Updated time")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MessageListResponse(BaseModel):

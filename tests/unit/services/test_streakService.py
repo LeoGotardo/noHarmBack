@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import MagicMock, call
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from exceptions.baseExceptions import NoHarmException
 
@@ -20,8 +20,8 @@ def _mock_streak(owner_id="uid-001", updated_at=None, start=None, end=None, stat
     s = MagicMock()
     s.id = "streak-001"
     s.owner_id = owner_id
-    s.updated_at = updated_at or datetime.utcnow()
-    s.start = start or (datetime.utcnow() - timedelta(days=2))
+    s.updated_at = updated_at or datetime.now(timezone.utc)
+    s.start = start or (datetime.now(timezone.utc) - timedelta(days=2))
     s.end = end
     s.status = status
     s.is_record = is_record
@@ -32,7 +32,7 @@ def _mock_streak(owner_id="uid-001", updated_at=None, start=None, end=None, stat
 
 def test_getCurrentByUserId_active_streak_returned(mock_db):
     service = _make_service(mock_db)
-    streak = _mock_streak(updated_at=datetime.utcnow() - timedelta(hours=1))
+    streak = _mock_streak(updated_at=datetime.now(timezone.utc) - timedelta(hours=1))
     service.streakRepository.findCurrentStreak.return_value = streak
 
     result = service.getCurrentByUserId("uid-001")
@@ -42,8 +42,8 @@ def test_getCurrentByUserId_active_streak_returned(mock_db):
 def test_getCurrentByUserId_expired_calls_expireAndReset(mock_db):
     """Streak inactive >24h triggers close-and-reset, returns new streak."""
     service = _make_service(mock_db)
-    old_streak = _mock_streak(updated_at=datetime.utcnow() - timedelta(hours=25))
-    new_streak = _mock_streak(start=datetime.utcnow())
+    old_streak = _mock_streak(updated_at=datetime.now(timezone.utc) - timedelta(hours=25))
+    new_streak = _mock_streak(start=datetime.now(timezone.utc))
 
     service.streakRepository.findCurrentStreak.return_value = old_streak
     # findCurrentRecord called inside _closeAndReset
@@ -94,8 +94,8 @@ def test_startStreak_already_active_raises_409(mock_db):
 
 def test_endStreak_closes_and_returns_new_streak(mock_db):
     service = _make_service(mock_db)
-    old = _mock_streak(start=datetime.utcnow() - timedelta(days=3))
-    new = _mock_streak(start=datetime.utcnow())
+    old = _mock_streak(start=datetime.now(timezone.utc) - timedelta(days=3))
+    new = _mock_streak(start=datetime.now(timezone.utc))
 
     service.streakRepository.findCurrentStreak.return_value = old
     service.streakRepository.findCurrentRecord.side_effect = NoHarmException(statusCode=404)
@@ -118,11 +118,11 @@ def test_endStreak_no_active_streak_raises_404(mock_db):
 
 def test_endStreak_beats_record_marks_as_record(mock_db):
     service = _make_service(mock_db)
-    old = _mock_streak(start=datetime.utcnow() - timedelta(days=10))
+    old = _mock_streak(start=datetime.now(timezone.utc) - timedelta(days=10))
     old.id = "old-streak"
-    record = _mock_streak(start=datetime.utcnow() - timedelta(days=3))
+    record = _mock_streak(start=datetime.now(timezone.utc) - timedelta(days=3))
     record.id = "record-streak"
-    record.end = datetime.utcnow() - timedelta(days=1)
+    record.end = datetime.now(timezone.utc) - timedelta(days=1)
     new = _mock_streak()
 
     service.streakRepository.findCurrentStreak.return_value = old
@@ -200,7 +200,7 @@ def test_durationDays_no_start_returns_zero(mock_db):
 def test_durationDays_no_end_uses_now(mock_db):
     service = _make_service(mock_db)
     streak = MagicMock()
-    streak.start = datetime.utcnow() - timedelta(days=5)
+    streak.start = datetime.now(timezone.utc) - timedelta(days=5)
     streak.end = None
     duration = service._durationDays(streak)
     assert 4.9 < duration < 5.1
