@@ -1,5 +1,5 @@
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from uuid import UUID
 
@@ -29,9 +29,7 @@ class BadgeResponse(BadgeBase):
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        # Allow Pydantic to user ORM fields (como o UserModel do SQLAlchemy)
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BadgeListResponse(BaseModel):

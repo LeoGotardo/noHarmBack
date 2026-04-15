@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from security.persistentHashTable import PersistentHashTable
 from security.encryption import Encryption
 from core.config import config
@@ -62,7 +62,7 @@ class TokenBlacklist:
         Called automatically on startup and can be scheduled periodically
         to keep the file compact.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
 
         self._storage.cleanup(
             isExpired=lambda exp: datetime.fromisoformat(exp) < now
