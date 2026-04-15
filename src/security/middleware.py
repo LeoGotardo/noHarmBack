@@ -59,6 +59,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         app.add_middleware(SecurityHeadersMiddleware)
     """
 
+    _DOCS_PATHS = {"/docs", "/redoc", "/openapi.json"}
+
     async def dispatch(self, request: Request, callNext):
         response = await callNext(request)
 
@@ -71,14 +73,27 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "max-age=31536000; includeSubDomains"
         )
 
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self'; "
-            "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: https:; "
-            "connect-src 'self'; "
-            "object-src 'none'; "
-            "frame-ancestors 'none';"
-        )
+        if request.url.path in self._DOCS_PATHS:
+            csp = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "img-src 'self' data: https:; "
+                "connect-src 'self'; "
+                "object-src 'none'; "
+                "frame-ancestors 'none';"
+            )
+        else:
+            csp = (
+                "default-src 'self'; "
+                "script-src 'self'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: https:; "
+                "connect-src 'self'; "
+                "object-src 'none'; "
+                "frame-ancestors 'none';"
+            )
+
+        response.headers["Content-Security-Policy"] = csp
 
         return response

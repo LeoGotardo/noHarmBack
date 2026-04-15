@@ -44,8 +44,8 @@ class JwtHandler:
 
     def __init__(self, blacklist: TokenBlacklist):
         self._blacklist    = blacklist
-        self._accessKey    = config.JWT_ACCESS_KEY
-        self._refreshKey   = config.JWT_REFRESH_KEY
+        self._accessKey    = config.JWT_SECRET_KEY
+        self._refreshKey   = config.JWT_REFRESH_SECRET_KEY
 
 
     # ── Generation ────────────────────────────────────────────────────────────

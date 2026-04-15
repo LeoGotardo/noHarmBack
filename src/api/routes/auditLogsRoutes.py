@@ -80,7 +80,6 @@ def getAuditLogById(
         log = service.get(logId)
         
         return AuditLogsResponse(
-            catalist=log.catalist,
             catalist=log.catalist_id,
             timestamps=log.created_at,
             description=log.description,
