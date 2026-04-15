@@ -35,7 +35,8 @@ class Config:
             load_dotenv()
             self._settings.validators.validate_all()
         except Exception as e:
-            raise Exception(f"Error loading configuration: {e} | {[f'{k}={v}' for k, v in self._settings.items()]}")
+            missing = [k for k in ["ENCRYPTION_KEY","DATABASE_URL","DATABASE_HOST","DATABASE_NAME","DATABASE_USER","DATABASE_PASSWORD","DATABASE_URL_UNPOOLED","STORAGE_SERVICE_URI","STORAGE_SERVICE_KEY","EXEC_MODE","DEBUG","PORT","STATUS_CODES","JWT_SECRET_KEY","JWT_REFRESH_SECRET_KEY","JWT_ALGORITHM","ACCESS_TOKEN_EXPIRE_MINUTES","REFRESH_TOKEN_EXPIRE_DAYS","STORAGE_PATH","ALLOWED_ORIGINS"] if not self._settings.get(k)]
+            raise Exception(f"Error loading configuration: {e} | Missing or invalid keys: {missing}")
         
         # Atributos tipados e acessíveis diretamente
         self.ENCRYPTION_KEY: str = self._settings.ENCRYPTION_KEY
