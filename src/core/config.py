@@ -30,7 +30,12 @@ class Config:
                 Validator("ALLOWED_ORIGINS", must_exist=True, is_type_of=list),
             ],
         )
-        self._settings.validators.validate_all()
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            self._settings.validators.validate_all()
+        except Exception as e:
+            raise Exception(f"Error loading configuration: {e} | {[f'{k}={v}' for k, v in self._settings.items()]}")
         
         # Atributos tipados e acessíveis diretamente
         self.ENCRYPTION_KEY: str = self._settings.ENCRYPTION_KEY
