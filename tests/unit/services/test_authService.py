@@ -8,6 +8,7 @@ exercised without a real JWT stack or rate limiter state.
 import pytest
 from unittest.mock import MagicMock, patch
 
+from core.config import config
 from exceptions.baseExceptions import NoHarmException
 from schemas.authSchemas import AuthLoginRequest, AuthRegisterRequest
 
@@ -46,7 +47,7 @@ def test_login_success(mock_db):
         service = _make_service(mock_db)
         mock_user = MagicMock()
         mock_user.id = "uid-001"
-        mock_user.status = 1  # enabled
+        mock_user.status = config.STATUS_CODES["enabled"]
         service.userRepository.findById.return_value = mock_user
 
         result = service.login(_login_request())
@@ -93,7 +94,7 @@ def test_login_banned_user_raises_403(mock_db):
         service = _make_service(mock_db)
         mock_user = MagicMock()
         mock_user.id = "uid-banned"
-        mock_user.status = 9  # banned
+        mock_user.status = config.STATUS_CODES["banned"]
         service.userRepository.findById.return_value = mock_user
 
         with pytest.raises(NoHarmException) as exc:
@@ -110,7 +111,7 @@ def test_login_blocked_user_raises_403(mock_db):
         service = _make_service(mock_db)
         mock_user = MagicMock()
         mock_user.id = "uid-blocked"
-        mock_user.status = 3  # blocked
+        mock_user.status = config.STATUS_CODES["blocked"]
         service.userRepository.findById.return_value = mock_user
 
         with pytest.raises(NoHarmException) as exc:
@@ -127,7 +128,7 @@ def test_login_deleted_user_raises_403(mock_db):
         service = _make_service(mock_db)
         mock_user = MagicMock()
         mock_user.id = "uid-deleted"
-        mock_user.status = 2  # deleted
+        mock_user.status = config.STATUS_CODES["deleted"]
         service.userRepository.findById.return_value = mock_user
 
         with pytest.raises(NoHarmException) as exc:
@@ -146,7 +147,7 @@ def test_login_creates_audit_log_on_success(mock_db):
         service = _make_service(mock_db)
         mock_user = MagicMock()
         mock_user.id = "uid-001"
-        mock_user.status = 1
+        mock_user.status = config.STATUS_CODES["enabled"]
         service.userRepository.findById.return_value = mock_user
 
         service.login(_login_request())

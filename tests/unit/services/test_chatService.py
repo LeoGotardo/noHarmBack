@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import MagicMock
 
+from core.config import config
 from exceptions.baseExceptions import NoHarmException
 
 
@@ -14,18 +15,18 @@ def _make_service(mock_db):
     return service
 
 
-def _mock_chat(sender="uid-sender", reciver="uid-receiver", status=4):
+def _mock_chat(sender="uid-sender", reciver="uid-receiver", status=None):
     c = MagicMock()
     c.id = "chat-001"
     c.sender = sender
     c.reciver = reciver
-    c.status = status
+    c.status = config.STATUS_CODES["pending"] if status is None else status
     return c
 
 
-def _mock_friendship(status=5):
+def _mock_friendship(status=None):
     f = MagicMock()
-    f.status = status
+    f.status = config.STATUS_CODES["accepted"] if status is None else status
     return f
 
 
@@ -67,7 +68,7 @@ def test_get_as_non_participant_raises_403(mock_db):
 
 def test_getOrCreate_creates_new_chat_when_none_exists(mock_db):
     service = _make_service(mock_db)
-    friendship = _mock_friendship(status=5)  # accepted
+    friendship = _mock_friendship(status=config.STATUS_CODES["accepted"])
     service.friendshipRepository.findByUsers.return_value = friendship
 
     # No active chat between users
@@ -84,10 +85,10 @@ def test_getOrCreate_creates_new_chat_when_none_exists(mock_db):
 
 def test_getOrCreate_returns_existing_active_chat(mock_db):
     service = _make_service(mock_db)
-    friendship = _mock_friendship(status=5)
+    friendship = _mock_friendship(status=config.STATUS_CODES["accepted"])
     service.friendshipRepository.findByUsers.return_value = friendship
 
-    existing = _mock_chat(sender="uid-sender", reciver="uid-receiver", status=4)
+    existing = _mock_chat(sender="uid-sender", reciver="uid-receiver", status=config.STATUS_CODES["pending"])
     service.chatRepository.findAllBySenderId.return_value = [existing]
 
     result = service.getOrCreate("uid-sender", "uid-receiver")
@@ -106,7 +107,7 @@ def test_getOrCreate_no_friendship_raises_403(mock_db):
 
 def test_getOrCreate_pending_friendship_raises_403(mock_db):
     service = _make_service(mock_db)
-    friendship = _mock_friendship(status=4)  # pending, not accepted
+    friendship = _mock_friendship(status=config.STATUS_CODES["pending"])
     service.friendshipRepository.findByUsers.return_value = friendship
 
     with pytest.raises(NoHarmException) as exc:
@@ -118,8 +119,8 @@ def test_getOrCreate_pending_friendship_raises_403(mock_db):
 
 def test_activate_pending_chat_succeeds(mock_db):
     service = _make_service(mock_db)
-    pending_chat = _mock_chat(sender="uid-sender", status=4)
-    active_chat = _mock_chat(sender="uid-sender", status=1)
+    pending_chat = _mock_chat(sender="uid-sender", status=config.STATUS_CODES["pending"])
+    active_chat = _mock_chat(sender="uid-sender", status=config.STATUS_CODES["enabled"])
     service.chatRepository.findById.side_effect = [pending_chat, active_chat]
 
     result = service.activate("chat-001", "uid-sender")
@@ -129,7 +130,7 @@ def test_activate_pending_chat_succeeds(mock_db):
 
 def test_activate_already_active_raises_400(mock_db):
     service = _make_service(mock_db)
-    active_chat = _mock_chat(sender="uid-sender", status=1)  # enabled
+    active_chat = _mock_chat(sender="uid-sender", status=config.STATUS_CODES["enabled"])
     service.chatRepository.findById.return_value = active_chat
 
     with pytest.raises(NoHarmException) as exc:
@@ -139,7 +140,7 @@ def test_activate_already_active_raises_400(mock_db):
 
 def test_activate_non_participant_raises_403(mock_db):
     service = _make_service(mock_db)
-    chat = _mock_chat(sender="uid-sender", reciver="uid-receiver", status=4)
+    chat = _mock_chat(sender="uid-sender", reciver="uid-receiver", status=config.STATUS_CODES["pending"])
     service.chatRepository.findById.return_value = chat
 
     with pytest.raises(NoHarmException) as exc:
@@ -151,8 +152,8 @@ def test_activate_non_participant_raises_403(mock_db):
 
 def test_endChat_by_participant_closes_chat(mock_db):
     service = _make_service(mock_db)
-    chat = _mock_chat(sender="uid-sender", status=1)
-    ended_chat = _mock_chat(sender="uid-sender", status=0)
+    chat = _mock_chat(sender="uid-sender", status=config.STATUS_CODES["enabled"])
+    ended_chat = _mock_chat(sender="uid-sender", status=config.STATUS_CODES["disabled"])
     service.chatRepository.findById.side_effect = [chat, ended_chat]
 
     result = service.endChat("chat-001", "uid-sender")
