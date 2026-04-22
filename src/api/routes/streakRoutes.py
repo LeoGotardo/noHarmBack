@@ -8,9 +8,6 @@ from schemas.streakSchemas import StreakResponse, StreakListResponse
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
 from typing import Union
-from domain.entities.streak import Streak
-
-
 router = APIRouter(prefix="/streaks", tags=["Streaks"])
 
 
@@ -71,7 +68,7 @@ def getRecordStreak(
 
 @router.get(
     "/history",
-    response_model=Union[PaginatedResponse[Streak], StreakListResponse],
+    response_model=Union[PaginatedResponse[StreakResponse], StreakListResponse],
     summary="Get my streak history",
     description="Returns all past and current streaks for the authenticated user."
 )
@@ -84,9 +81,21 @@ def getStreakHistory(
     try:
         service = StreakService(db)
         if paginated:
-            return service.getAllByUserId(currentUserId, paginatedParams)
+            result = service.getAllByUserId(currentUserId, paginatedParams)
+            return PaginatedResponse(
+                items=[StreakResponse(id=s.id, owner=s.owner_id, start=s.start, end=s.end, status=s.status, isRecord=s.is_record, createdAt=s.created_at) for s in result.items],
+                total=result.total,
+                page=result.page,
+                pageSize=result.pageSize,
+                totalPages=result.totalPages,
+                hasNext=result.hasNext,
+                hasPrevious=result.hasPrevious,
+            )
         streaks = service.getAllByUserId(currentUserId)
-        return StreakListResponse(streaks=streaks, total=len(streaks))
+        return StreakListResponse(
+            streaks=[StreakResponse(id=s.id, owner=s.owner_id, start=s.start, end=s.end, status=s.status, isRecord=s.is_record, createdAt=s.created_at) for s in streaks],
+            total=len(streaks),
+        )
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
