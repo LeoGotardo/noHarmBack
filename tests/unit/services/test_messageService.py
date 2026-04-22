@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import MagicMock
 
+from core.config import config
 from exceptions.baseExceptions import NoHarmException
 
 
@@ -14,21 +15,21 @@ def _make_service(mock_db):
     return service
 
 
-def _mock_chat(sender="uid-sender", reciver="uid-receiver", status=1):
+def _mock_chat(sender="uid-sender", reciver="uid-receiver", status=None):
     c = MagicMock()
     c.id = "chat-001"
     c.sender = sender
     c.reciver = reciver
-    c.status = status
+    c.status = config.STATUS_CODES["enabled"] if status is None else status
     return c
 
 
-def _mock_message(chat_id="chat-001", sender="uid-sender", status=7):
+def _mock_message(chat_id="chat-001", sender="uid-sender", status=None):
     m = MagicMock()
     m.id = "msg-001"
     m.chat = chat_id
     m.sender = sender
-    m.status = status
+    m.status = config.STATUS_CODES["unread"] if status is None else status
     return m
 
 
@@ -36,7 +37,7 @@ def _mock_message(chat_id="chat-001", sender="uid-sender", status=7):
 
 def test_sendMessage_success_creates_message(mock_db):
     service = _make_service(mock_db)
-    chat = _mock_chat(sender="uid-sender", status=1)  # enabled
+    chat = _mock_chat(sender="uid-sender", status=config.STATUS_CODES["enabled"])
     service.chatRepository.findById.return_value = chat
     new_msg = _mock_message()
     service.messageRepository.create.return_value = new_msg
@@ -48,7 +49,7 @@ def test_sendMessage_success_creates_message(mock_db):
 
 def test_sendMessage_non_participant_raises_403(mock_db):
     service = _make_service(mock_db)
-    chat = _mock_chat(sender="uid-sender", reciver="uid-receiver", status=1)
+    chat = _mock_chat(sender="uid-sender", reciver="uid-receiver", status=config.STATUS_CODES["enabled"])
     service.chatRepository.findById.return_value = chat
 
     with pytest.raises(NoHarmException) as exc:
@@ -58,7 +59,7 @@ def test_sendMessage_non_participant_raises_403(mock_db):
 
 def test_sendMessage_pending_chat_auto_activates(mock_db):
     service = _make_service(mock_db)
-    chat = _mock_chat(sender="uid-sender", status=4)  # pending
+    chat = _mock_chat(sender="uid-sender", status=config.STATUS_CODES["pending"])
     service.chatRepository.findById.return_value = chat
     service.messageRepository.create.return_value = _mock_message()
 
@@ -68,7 +69,7 @@ def test_sendMessage_pending_chat_auto_activates(mock_db):
 
 def test_sendMessage_disabled_chat_raises_400(mock_db):
     service = _make_service(mock_db)
-    chat = _mock_chat(sender="uid-sender", status=0)  # disabled
+    chat = _mock_chat(sender="uid-sender", status=config.STATUS_CODES["disabled"])
     service.chatRepository.findById.return_value = chat
 
     with pytest.raises(NoHarmException) as exc:
@@ -78,7 +79,7 @@ def test_sendMessage_disabled_chat_raises_400(mock_db):
 
 def test_sendMessage_empty_content_raises_400(mock_db):
     service = _make_service(mock_db)
-    chat = _mock_chat(sender="uid-sender", status=1)
+    chat = _mock_chat(sender="uid-sender", status=config.STATUS_CODES["enabled"])
     service.chatRepository.findById.return_value = chat
 
     with pytest.raises(NoHarmException) as exc:
@@ -91,7 +92,7 @@ def test_sendMessage_html_content_is_sanitized(mock_db):
     from unittest.mock import patch as _patch
 
     service = _make_service(mock_db)
-    chat = _mock_chat(sender="uid-sender", status=1)
+    chat = _mock_chat(sender="uid-sender", status=config.STATUS_CODES["enabled"])
     service.chatRepository.findById.return_value = chat
 
     # Patch MessageModel at the service level so we can inspect the kwargs
@@ -110,7 +111,7 @@ def test_sendMessage_html_content_is_sanitized(mock_db):
 def test_sendMessage_xss_only_content_raises_400(mock_db):
     """After sanitization, if nothing remains → 400. Empty-body tags sanitize to ''."""
     service = _make_service(mock_db)
-    chat = _mock_chat(sender="uid-sender", status=1)
+    chat = _mock_chat(sender="uid-sender", status=config.STATUS_CODES["enabled"])
     service.chatRepository.findById.return_value = chat
 
     # bleach strips tags + content for empty-body tags: "<b></b>" → ""
@@ -123,11 +124,11 @@ def test_sendMessage_xss_only_content_raises_400(mock_db):
 
 def test_markAsRead_unread_message_marks_it(mock_db):
     service = _make_service(mock_db)
-    msg = _mock_message(status=7)  # unread
+    msg = _mock_message(status=config.STATUS_CODES["unread"])
     chat = _mock_chat(sender="uid-sender", reciver="uid-receiver")
     service.messageRepository.findById.return_value = msg
     service.chatRepository.findById.return_value = chat
-    read_msg = _mock_message(status=8)
+    read_msg = _mock_message(status=config.STATUS_CODES["read"])
     service.messageRepository.markAsRead.return_value = read_msg
 
     result = service.markAsRead("msg-001", "uid-receiver")
@@ -137,7 +138,7 @@ def test_markAsRead_unread_message_marks_it(mock_db):
 
 def test_markAsRead_already_read_is_idempotent(mock_db):
     service = _make_service(mock_db)
-    msg = _mock_message(status=8)  # already read
+    msg = _mock_message(status=config.STATUS_CODES["read"])
     service.messageRepository.findById.return_value = msg
 
     result = service.markAsRead("msg-001", "uid-receiver")
@@ -148,7 +149,7 @@ def test_markAsRead_already_read_is_idempotent(mock_db):
 
 def test_markAsRead_non_participant_raises_403(mock_db):
     service = _make_service(mock_db)
-    msg = _mock_message(status=7)
+    msg = _mock_message(status=config.STATUS_CODES["unread"])
     chat = _mock_chat(sender="uid-sender", reciver="uid-receiver")
     service.messageRepository.findById.return_value = msg
     service.chatRepository.findById.return_value = chat

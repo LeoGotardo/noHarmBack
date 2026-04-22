@@ -60,6 +60,7 @@ sys.modules["core.database"] = _mock_db_module
 # ── Shared fixtures ───────────────────────────────────────────────────────────
 import pytest
 from unittest.mock import patch
+from core.config import config
 
 
 @pytest.fixture
@@ -77,7 +78,7 @@ def mock_user():
     user.id = "user-uid-001"
     user.username = "testuser"
     user.email = "test@example.com"
-    user.status = 1  # enabled
+    user.status = config.STATUS_CODES["enabled"]
     user.profile_picture = b""
     return user
 

@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import MagicMock
 
+from core.config import config
 from exceptions.baseExceptions import NoHarmException
 
 
@@ -13,12 +14,12 @@ def _make_service(mock_db):
     return service
 
 
-def _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=4):
+def _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=None):
     f = MagicMock()
     f.id = "friendship-001"
     f.sender = sender
     f.reciver = reciver
-    f.status = status
+    f.status = config.STATUS_CODES["pending"] if status is None else status
     return f
 
 
@@ -45,7 +46,7 @@ def test_sendRequest_self_raises_400(mock_db):
 
 def test_sendRequest_duplicate_active_raises_409(mock_db):
     service = _make_service(mock_db)
-    existing = _mock_friendship(status=4)  # pending
+    existing = _mock_friendship(status=config.STATUS_CODES["pending"])
     service.friendshipRepository.findByUsers.return_value = existing
 
     with pytest.raises(NoHarmException) as exc:
@@ -55,7 +56,7 @@ def test_sendRequest_duplicate_active_raises_409(mock_db):
 
 def test_sendRequest_blocked_relationship_raises_403(mock_db):
     service = _make_service(mock_db)
-    existing = _mock_friendship(status=3)  # blocked
+    existing = _mock_friendship(status=config.STATUS_CODES["blocked"])
     service.friendshipRepository.findByUsers.return_value = existing
 
     with pytest.raises(NoHarmException) as exc:
@@ -65,7 +66,7 @@ def test_sendRequest_blocked_relationship_raises_403(mock_db):
 
 def test_sendRequest_accepted_friendship_raises_409(mock_db):
     service = _make_service(mock_db)
-    existing = _mock_friendship(status=5)  # accepted
+    existing = _mock_friendship(status=config.STATUS_CODES["accepted"])
     service.friendshipRepository.findByUsers.return_value = existing
 
     with pytest.raises(NoHarmException) as exc:
@@ -77,17 +78,17 @@ def test_sendRequest_accepted_friendship_raises_409(mock_db):
 
 def test_accept_by_receiver_succeeds(mock_db):
     service = _make_service(mock_db)
-    friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=4)
+    friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=config.STATUS_CODES["pending"])
     service.friendshipRepository.findById.return_value = friendship
 
     result = service.accept("friendship-001", "uid-receiver")
-    assert friendship.status == 5  # accepted
+    assert friendship.status == config.STATUS_CODES["accepted"]
     service.friendshipRepository.session.commit.assert_called_once()
 
 
 def test_accept_by_sender_raises_403(mock_db):
     service = _make_service(mock_db)
-    friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=4)
+    friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=config.STATUS_CODES["pending"])
     service.friendshipRepository.findById.return_value = friendship
 
     with pytest.raises(NoHarmException) as exc:
@@ -97,7 +98,7 @@ def test_accept_by_sender_raises_403(mock_db):
 
 def test_accept_non_pending_raises_400(mock_db):
     service = _make_service(mock_db)
-    friendship = _mock_friendship(status=5)  # already accepted
+    friendship = _mock_friendship(status=config.STATUS_CODES["accepted"])
     service.friendshipRepository.findById.return_value = friendship
 
     with pytest.raises(NoHarmException) as exc:
@@ -109,7 +110,7 @@ def test_accept_non_pending_raises_400(mock_db):
 
 def test_reject_by_receiver_calls_update(mock_db):
     service = _make_service(mock_db)
-    friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=4)
+    friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=config.STATUS_CODES["pending"])
     service.friendshipRepository.findById.return_value = friendship
     service.friendshipRepository.updateStatus.return_value = MagicMock()
 
@@ -119,7 +120,7 @@ def test_reject_by_receiver_calls_update(mock_db):
 
 def test_reject_by_sender_raises_403(mock_db):
     service = _make_service(mock_db)
-    friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=4)
+    friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=config.STATUS_CODES["pending"])
     service.friendshipRepository.findById.return_value = friendship
 
     with pytest.raises(NoHarmException) as exc:
@@ -129,7 +130,7 @@ def test_reject_by_sender_raises_403(mock_db):
 
 def test_reject_non_pending_raises_400(mock_db):
     service = _make_service(mock_db)
-    friendship = _mock_friendship(status=5)  # accepted
+    friendship = _mock_friendship(status=config.STATUS_CODES["accepted"])
     service.friendshipRepository.findById.return_value = friendship
 
     with pytest.raises(NoHarmException) as exc:
@@ -173,7 +174,7 @@ def test_block_by_non_participant_raises_403(mock_db):
 
 def test_unblock_by_participant_restores_disabled(mock_db):
     service = _make_service(mock_db)
-    friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=3)
+    friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=config.STATUS_CODES["blocked"])
     service.friendshipRepository.findById.return_value = friendship
     service.friendshipRepository.updateStatus.return_value = MagicMock()
 

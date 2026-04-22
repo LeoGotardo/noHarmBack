@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import MagicMock
 
+from core.config import config
 from exceptions.baseExceptions import NoHarmException
 
 
@@ -69,7 +70,7 @@ def test_getPublicProfile_own_profile_always_accessible(mock_db, mock_user):
 def test_getPublicProfile_blocked_raises_403(mock_db, mock_user):
     service = _make_service(mock_db)
     mock_friendship = MagicMock()
-    mock_friendship.status = 3  # blocked
+    mock_friendship.status = config.STATUS_CODES["blocked"]
     service.friendshipRepository.findByUsers.return_value = mock_friendship
 
     with pytest.raises(NoHarmException) as exc:
@@ -89,7 +90,7 @@ def test_getPublicProfile_no_friendship_allows_access(mock_db, mock_user):
 def test_getPublicProfile_accepted_friendship_allows_access(mock_db, mock_user):
     service = _make_service(mock_db)
     mock_friendship = MagicMock()
-    mock_friendship.status = 5  # accepted
+    mock_friendship.status = config.STATUS_CODES["accepted"]
     service.friendshipRepository.findByUsers.return_value = mock_friendship
     service.userRepository.findById.return_value = mock_user
 
@@ -160,6 +161,6 @@ def test_updateStatus_calls_repo_and_returns_user(mock_db, mock_user):
     service = _make_service(mock_db)
     service.userRepository.updateStatus.return_value = mock_user
 
-    result = service.updateStatus("uid-001", status=0)
+    result = service.updateStatus("uid-001", status=config.STATUS_CODES["disabled"])
     assert result is mock_user
-    service.userRepository.updateStatus.assert_called_once_with("uid-001", 0)
+    service.userRepository.updateStatus.assert_called_once_with("uid-001", config.STATUS_CODES["disabled"])

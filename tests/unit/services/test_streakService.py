@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock, call
 from datetime import datetime, timedelta, timezone
 
+from core.config import config
 from exceptions.baseExceptions import NoHarmException
 
 
@@ -16,14 +17,14 @@ def _make_service(mock_db):
     return service
 
 
-def _mock_streak(owner_id="uid-001", updated_at=None, start=None, end=None, status=1, is_record=False):
+def _mock_streak(owner_id="uid-001", updated_at=None, start=None, end=None, status=None, is_record=False):
     s = MagicMock()
     s.id = "streak-001"
     s.owner_id = owner_id
     s.updated_at = updated_at or datetime.now(timezone.utc)
     s.start = start or (datetime.now(timezone.utc) - timedelta(days=2))
     s.end = end
-    s.status = status
+    s.status = config.STATUS_CODES["enabled"] if status is None else status
     s.is_record = is_record
     return s
 
