@@ -1,7 +1,7 @@
 import secrets
 import os
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
@@ -60,7 +60,7 @@ class JwtHandler:
         Returns:
             Signed JWT as a string
         """
-        expiresAt = datetime.utcnow() + timedelta(minutes=self._ACCESS_EXPIRE_MINUTES)
+        expiresAt = datetime.now(timezone.utc) + timedelta(minutes=self._ACCESS_EXPIRE_MINUTES)
 
         return self._buildToken(
             userId    = userId,
@@ -80,7 +80,7 @@ class JwtHandler:
         Returns:
             Signed JWT as a string
         """
-        expiresAt = datetime.utcnow() + timedelta(days=self._REFRESH_EXPIRE_DAYS)
+        expiresAt = datetime.now(timezone.utc) + timedelta(days=self._REFRESH_EXPIRE_DAYS)
 
         return self._buildToken(
             userId    = userId,
@@ -149,7 +149,7 @@ class JwtHandler:
             jti: 'jti' claim from the token payload
             exp: 'exp' claim from the token payload (Unix timestamp)
         """
-        expiresAt = datetime.utcfromtimestamp(exp)
+        expiresAt = datetime.fromtimestamp(exp, tz=timezone.utc).replace(tzinfo=None)
         self._blacklist.add(jti, expiresAt)
 
 
@@ -166,7 +166,7 @@ class JwtHandler:
             "sub":  userId,
             "type": tokenType,
             "exp":  expiresAt,
-            "iat":  datetime.utcnow(),
+            "iat":  datetime.now(timezone.utc),
             "jti":  secrets.token_urlsafe(16)
         }
 

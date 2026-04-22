@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from typing import Optional
 
 
@@ -24,5 +24,4 @@ class AuthResponse(BaseModel):
     refreshToken: str
     tokenType: str = "Bearer"
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

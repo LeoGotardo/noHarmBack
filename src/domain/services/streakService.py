@@ -10,7 +10,7 @@ from core.config import config
 from core.database import Database
 from typing import Optional
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 class StreakService:
@@ -36,7 +36,7 @@ class StreakService:
 
     def _durationDays(self, streak) -> float:
         """Return the length of a streak in days."""
-        end = streak.end if streak.end else datetime.utcnow()
+        end = streak.end if streak.end else datetime.now(timezone.utc)
         start = streak.start
         if not start:
             return 0
@@ -73,7 +73,7 @@ class StreakService:
 
         # §6.3 — auto-expiry: check updated_at (TimestampMixin)
         lastActivity = streak.updated_at
-        if lastActivity and (datetime.utcnow() - lastActivity) > timedelta(hours=24):
+        if lastActivity and (datetime.now(timezone.utc) - lastActivity) > timedelta(hours=24):
             # Expire and start fresh
             return self._expireAndReset(streak, userId)
 
@@ -106,7 +106,7 @@ class StreakService:
 
         newStreak = StreakModel(
             owner_id=userId,
-            start=datetime.utcnow(),
+            start=datetime.now(timezone.utc),
             end=None,
             status=config.STATUS_CODES["enabled"],
             is_record=False
@@ -148,7 +148,7 @@ class StreakService:
         if str(streak.owner_id) != str(userId):
             raise NoHarmException(statusCode=403, errorCode="FORBIDDEN", message="Access denied.")
 
-        streak.updated_at = datetime.utcnow()
+        streak.updated_at = datetime.now(timezone.utc)
         self.streakRepository.session.commit()
         return streak
 
@@ -171,7 +171,7 @@ class StreakService:
 
     def _closeAndReset(self, streak, userId: str) -> Streak:
         """End a streak, check record, create new streak, audit. Returns new streak."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         endedDuration = self._durationDays(streak)
 
         # Close the streak

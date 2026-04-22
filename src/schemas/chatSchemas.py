@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
@@ -26,9 +26,7 @@ class ChatResponse(ChatBase):
     createdAt: datetime = Field(..., description="Start time")
     updatedAt: datetime = Field(..., description="End time")
     
-    class Config:
-        # Allow Pydantic to user ORM fields (como o UserModel do SQLAlchemy)
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
         
         
 class ChatListResponse(BaseModel):
