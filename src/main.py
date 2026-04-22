@@ -83,5 +83,5 @@ def healthCheck():
     return {
         "status": "ok",
         "database": dbStatus,
-        "env": config.EXEC_MODE
+        "env": config.EXEC_MODE,
     }

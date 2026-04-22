@@ -36,9 +36,18 @@ def getMessagesByChatId(
     try:
         service = MessageService(db)
         if paginated:
-            return service.getByChatId(chatId, paginatedParams)
+            result = service.getByChatId(chatId, paginatedParams)
+            return PaginatedResponse(
+                items=[MessageResponse.model_validate(m) for m in result.items],
+                total=result.total,
+                page=result.page,
+                pageSize=result.pageSize,
+                totalPages=result.totalPages,
+                hasNext=result.hasNext,
+                hasPrevious=result.hasPrevious,
+            )
         messages = service.getByChatId(chatId)
-        return MessageListResponse(messages=messages, total=len(messages))
+        return MessageListResponse(messages=[MessageResponse.model_validate(m) for m in messages], total=len(messages))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -59,9 +68,18 @@ def getUnreadMessagesByChatId(
     try:
         service = MessageService(db)
         if paginated:
-            return service.getUnreadByChatId(chatId, paginatedParams)
+            result = service.getUnreadByChatId(chatId, paginatedParams)
+            return PaginatedResponse(
+                items=[MessageResponse.model_validate(m) for m in result.items],
+                total=result.total,
+                page=result.page,
+                pageSize=result.pageSize,
+                totalPages=result.totalPages,
+                hasNext=result.hasNext,
+                hasPrevious=result.hasPrevious,
+            )
         messages = service.getUnreadByChatId(chatId)
-        return MessageListResponse(messages=messages, total=len(messages))
+        return MessageListResponse(messages=[MessageResponse.model_validate(m) for m in messages], total=len(messages))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -79,7 +97,7 @@ def getMessageById(
 ):
     try:
         service = MessageService(db)
-        return service.get(messageId)
+        return MessageResponse.model_validate(service.get(messageId))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -105,7 +123,7 @@ def sendMessage(
 ):
     try:
         service = MessageService(db)
-        return service.sendMessage(request.chatId, currentUserId, request.content)
+        return MessageResponse.model_validate(service.sendMessage(request.chatId, currentUserId, request.content))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -126,7 +144,7 @@ def markMessageAsRead(
 ):
     try:
         service = MessageService(db)
-        return service.markAsRead(messageId, currentUserId)
+        return MessageResponse.model_validate(service.markAsRead(messageId, currentUserId))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
