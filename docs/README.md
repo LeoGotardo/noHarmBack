@@ -4,6 +4,8 @@ Backend of the **NoHarm** application — a mobile app for addiction recovery su
 
 **Stack:** Python · FastAPI · PostgreSQL · WebSocket (Socket.IO) · SQLAlchemy · JWT · Dynaconf
 
+**API Docs:** https://noharmapi.vercel.app/docs
+
 ---
 
 ## Project Structure
