@@ -30,11 +30,11 @@ class UserRepository(User):
             if user:
                 return user
             else:
-                raise NoHarmException(status_code=404, message="User not found")
+                raise NoHarmException(statusCode=404, message="User not found")
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
     def findByEmail(self, email: str) -> User:
@@ -51,11 +51,11 @@ class UserRepository(User):
             if user:
                 return user
             else:
-                raise NoHarmException(status_code=404, message="User not found")
+                raise NoHarmException(statusCode=404, message="User not found")
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
     def findByUsername(self, username: str) -> User:
@@ -72,11 +72,11 @@ class UserRepository(User):
             if user:
                 return user
             else:
-                raise NoHarmException(status_code=404, message="User not found")
+                raise NoHarmException(statusCode=404, message="User not found")
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
     def findAll(self, params: Optional[PaginationParams] = None) -> list[User] | PaginatedResponse[User]:
@@ -99,7 +99,7 @@ class UserRepository(User):
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
     def create(self, User: User) -> User:
@@ -119,7 +119,7 @@ class UserRepository(User):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def update(self, user_id: str, updatedUser: User) -> User: 
@@ -146,7 +146,7 @@ class UserRepository(User):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def updateStatus(self, id: str, status: int) -> User:
@@ -168,7 +168,7 @@ class UserRepository(User):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
 
     def delete(self, id: str) -> bool:
@@ -189,7 +189,7 @@ class UserRepository(User):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def softDelete(self, id: str) -> bool:
@@ -210,4 +210,4 @@ class UserRepository(User):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')

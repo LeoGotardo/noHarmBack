@@ -31,11 +31,11 @@ class MessageRepository(Message):
             if message:
                 return message
             else:
-                raise NoHarmException(status_code=404, message="Message not found")
+                raise NoHarmException(statusCode=404, message="Message not found")
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def findByChatId(self, chat_id: str, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
@@ -59,7 +59,7 @@ class MessageRepository(Message):
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
 
 
     def findUnreadByChatId(self, chat_id: str, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
@@ -86,7 +86,7 @@ class MessageRepository(Message):
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def create(self, Message: Message) -> Message:
@@ -106,7 +106,7 @@ class MessageRepository(Message):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
         
     def markAsRead(self, id: str) -> Message:
@@ -127,7 +127,7 @@ class MessageRepository(Message):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def markAllAsRead(self, chat_id: str) -> bool:
@@ -149,7 +149,7 @@ class MessageRepository(Message):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
         
     def updateStatus(self, id: str, status: int) -> Message:
@@ -171,7 +171,7 @@ class MessageRepository(Message):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
     def update(self, id: str, updatedMessage: Message) -> Message:
@@ -215,7 +215,7 @@ class MessageRepository(Message):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
         
     def softDelete(self, id: str) -> bool:
@@ -236,5 +236,5 @@ class MessageRepository(Message):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
 

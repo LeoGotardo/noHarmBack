@@ -34,11 +34,11 @@ class StreakRepository(Streak):
             if streak:
                 return streak
             else:
-                raise NoHarmException(status_code=404, message="Streak not found")
+                raise NoHarmException(statusCode=404, message="Streak not found")
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
     def findAllByOwnerId(self, owner_id: str, params: Optional[PaginationParams] = None) -> list[Streak] | PaginatedResponse[Streak]:
@@ -62,7 +62,7 @@ class StreakRepository(Streak):
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
         
     def findCurrentRecord(self, owner_id: str) -> Streak:
@@ -79,11 +79,11 @@ class StreakRepository(Streak):
             if streak:
                 return streak
             else:
-                raise NoHarmException(status_code=404, message="Streak not found")
+                raise NoHarmException(statusCode=404, message="Streak not found")
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def findCurrentStreak(self, owner_id: str) -> Streak:
@@ -100,11 +100,11 @@ class StreakRepository(Streak):
             if streak:
                 return streak
             else:
-                raise NoHarmException(status_code=404, message="Streak not found")
+                raise NoHarmException(statusCode=404, message="Streak not found")
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
     def create(self, Streak: Streak) -> Streak:
@@ -146,7 +146,7 @@ class StreakRepository(Streak):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
         
     def markAsRecord(self, id: str) -> Streak:
@@ -167,7 +167,7 @@ class StreakRepository(Streak):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
     def updateEnd(self, id: str, end: datetime) -> Streak:
@@ -189,7 +189,7 @@ class StreakRepository(Streak):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def updateStatus(self, id: str, status: int) -> Streak:
@@ -211,7 +211,7 @@ class StreakRepository(Streak):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def delete(self, id: str) -> bool:
@@ -232,7 +232,7 @@ class StreakRepository(Streak):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def softDelete(self, id: str) -> bool:
@@ -253,5 +253,5 @@ class StreakRepository(Streak):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
 

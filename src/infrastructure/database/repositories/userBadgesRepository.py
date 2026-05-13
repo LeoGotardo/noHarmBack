@@ -33,11 +33,11 @@ class UserBadgesRepository(UserBadge):
             if userBadge:
                 return userBadge
             else:
-                raise NoHarmException(status_code=404, message="UserBadge not found")
+                raise NoHarmException(statusCode=404, message="UserBadge not found")
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def findByUserId(self, user_id: str, params: Optional[PaginationParams] = None) -> list[UserBadge] | PaginatedResponse[UserBadge]:
@@ -61,7 +61,7 @@ class UserBadgesRepository(UserBadge):
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
 
 
     def findByBadgeId(self, badge_id: str, params: Optional[PaginationParams] = None) -> list[UserBadge] | PaginatedResponse[UserBadge]:
@@ -85,7 +85,7 @@ class UserBadgesRepository(UserBadge):
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def existsByUserAndBadge(self, user_id: str, badge_id: str) -> bool:
@@ -107,7 +107,7 @@ class UserBadgesRepository(UserBadge):
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
         
     def grant(self, user_id: str, badge_id: str, given_at: datetime) -> bool:
@@ -135,7 +135,7 @@ class UserBadgesRepository(UserBadge):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def revoke(self, user_id: str, badge_id: str) -> bool:
@@ -160,7 +160,7 @@ class UserBadgesRepository(UserBadge):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
 
 
     def updateStatus(self, id: str, status: int) -> UserBadge:
@@ -182,7 +182,7 @@ class UserBadgesRepository(UserBadge):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
     def update(self, id: str, updatedUserBadge: UserBadge) -> UserBadge:
@@ -205,7 +205,7 @@ class UserBadgesRepository(UserBadge):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
     
     
     def delete(self, id: str) -> bool:
@@ -226,7 +226,7 @@ class UserBadgesRepository(UserBadge):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
         
     def softDelete(self, id: str) -> bool:
@@ -247,5 +247,5 @@ class UserBadgesRepository(UserBadge):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
 
