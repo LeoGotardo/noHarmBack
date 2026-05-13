@@ -7,7 +7,7 @@ from core.config import config
 from core.database import Database
 
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class FriendshipService:
@@ -78,7 +78,7 @@ class FriendshipService:
         newFriendship = FriendshipModel(
             sender=senderId,
             reciver=receiverId,
-            send_at=datetime.utcnow(),
+            send_at=datetime.now(timezone.utc),
             recived_at=None,
             status=config.STATUS_CODES["pending"]
         )
@@ -108,7 +108,7 @@ class FriendshipService:
             )
 
         friendship.status = config.STATUS_CODES["accepted"]
-        friendship.recived_at = datetime.utcnow()
+        friendship.recived_at = datetime.now(timezone.utc)
         self.friendshipRepository.session.commit()
         return friendship
 

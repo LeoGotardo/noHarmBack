@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
@@ -13,8 +13,7 @@ class StreakResponse(BaseModel):
     isRecord: bool = Field(..., description="Whether this is the user's personal record")
     createdAt: Optional[datetime] = Field(None, description="Created at")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class StreakListResponse(BaseModel):

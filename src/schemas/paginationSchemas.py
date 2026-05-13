@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Generic, TypeVar, Optional
 from uuid import UUID
 from datetime import datetime
@@ -14,13 +14,12 @@ class PaginationParams(BaseModel):
     page: int = Field(1, ge=1, description="Page number (1-indexed)")
     pageSize: int = Field(20, ge=1, le=100, description="Number of items per page")
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "page": 1,
-                "pageSize": 20
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "page": 1,
+            "pageSize": 20
         }
+    })
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
@@ -36,18 +35,17 @@ class PaginatedResponse(BaseModel, Generic[T]):
     hasNext: bool = Field(..., description="Whether there is a next page")
     hasPrevious: bool = Field(..., description="Whether there is a previous page")
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "items": [],
-                "total": 100,
-                "page": 1,
-                "pageSize": 20,
-                "totalPages": 5,
-                "hasNext": True,
-                "hasPrevious": False
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "items": [],
+            "total": 100,
+            "page": 1,
+            "pageSize": 20,
+            "totalPages": 5,
+            "hasNext": True,
+            "hasPrevious": False
         }
+    })
 
 
 class PaginationMetadata(BaseModel):

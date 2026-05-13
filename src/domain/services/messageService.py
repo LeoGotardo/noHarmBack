@@ -9,7 +9,7 @@ from core.config import config
 from core.database import Database
 from typing import Optional
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class MessageService:
@@ -74,7 +74,7 @@ class MessageService:
             sender=senderId,
             message=sanitised.strip(),
             status=config.STATUS_CODES["unread"],
-            send_at=datetime.utcnow(),
+            send_at=datetime.now(timezone.utc),
             recived_at=None
         )
         return self.messageRepository.create(newMessage)

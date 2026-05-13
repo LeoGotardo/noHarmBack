@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, Union
-from datetime import datetime
+from datetime import datetime, timezone
 from api.dependencies.auth import getCurrentUser
 from api.dependencies.database import getDb, getDbWithRLS
 from domain.services.auditLogsService import AuditLogsService
@@ -80,7 +80,6 @@ def getAuditLogById(
         log = service.get(logId)
         
         return AuditLogsResponse(
-            catalist=log.catalist,
             catalist=log.catalist_id,
             timestamps=log.created_at,
             description=log.description,
@@ -252,8 +251,8 @@ def createAuditLog(
             catalist_id=str(request.catalist),
             catalist=request.catalist,
             description=request.description,
-            created_at=datetime.utcnow().isoformat(),
-            updated_at=datetime.utcnow().isoformat()
+            created_at=datetime.now(timezone.utc).isoformat(),
+            updated_at=datetime.now(timezone.utc).isoformat()
         )
 
         createdLog = service.create(newLog)

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 
@@ -46,7 +46,7 @@ class IpRateLimiter:
             return False, f"IP blocked. Try again in {remaining}s"
 
         self._cleanWindow(ip)
-        self._windows.setdefault(ip, []).append(datetime.utcnow())
+        self._windows.setdefault(ip, []).append(datetime.now(timezone.utc))
 
         if len(self._windows[ip]) > self._MAX_REQUESTS:
             self._block(ip)
@@ -61,7 +61,7 @@ class IpRateLimiter:
         if ip not in self._blocked:
             return False
 
-        if datetime.utcnow() >= self._blocked[ip]:
+        if datetime.now(timezone.utc) >= self._blocked[ip]:
             del self._blocked[ip]
             return False
 
@@ -69,11 +69,11 @@ class IpRateLimiter:
 
 
     def _blockedSecondsRemaining(self, ip: str) -> int:
-        return int((self._blocked[ip] - datetime.utcnow()).total_seconds())
+        return int((self._blocked[ip] - datetime.now(timezone.utc)).total_seconds())
 
 
     def _block(self, ip: str) -> None:
-        self._blocked[ip] = datetime.utcnow() + timedelta(minutes=self._BLOCK_MINUTES)
+        self._blocked[ip] = datetime.now(timezone.utc) + timedelta(minutes=self._BLOCK_MINUTES)
         self._windows.pop(ip, None)
 
 
@@ -82,7 +82,7 @@ class IpRateLimiter:
         if ip not in self._windows:
             return
 
-        cutoff = datetime.utcnow() - timedelta(seconds=self._WINDOW_SECONDS)
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=self._WINDOW_SECONDS)
         self._windows[ip] = [ts for ts in self._windows[ip] if ts > cutoff]
 
 
@@ -133,7 +133,7 @@ class LoginRateLimiter:
             return False, f"Account locked. Try again in {remaining}s"
 
         self._cleanWindow(username)
-        self._attempts.setdefault(username, []).append(datetime.utcnow())
+        self._attempts.setdefault(username, []).append(datetime.now(timezone.utc))
 
         attempts = len(self._attempts[username])
 
@@ -174,7 +174,7 @@ class LoginRateLimiter:
         if username not in self._locked:
             return False
 
-        if datetime.utcnow() >= self._locked[username]:
+        if datetime.now(timezone.utc) >= self._locked[username]:
             del self._locked[username]
             self._attempts.pop(username, None)
             return False
@@ -183,11 +183,11 @@ class LoginRateLimiter:
 
 
     def _lockedSecondsRemaining(self, username: str) -> int:
-        return int((self._locked[username] - datetime.utcnow()).total_seconds())
+        return int((self._locked[username] - datetime.now(timezone.utc)).total_seconds())
 
 
     def _lock(self, username: str) -> None:
-        self._locked[username] = datetime.utcnow() + timedelta(minutes=self._LOCKOUT_MINUTES)
+        self._locked[username] = datetime.now(timezone.utc) + timedelta(minutes=self._LOCKOUT_MINUTES)
         self._attempts.pop(username, None)
 
 
@@ -196,5 +196,5 @@ class LoginRateLimiter:
         if username not in self._attempts:
             return
 
-        cutoff = datetime.utcnow() - timedelta(minutes=self._WINDOW_MINUTES)
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=self._WINDOW_MINUTES)
         self._attempts[username] = [ts for ts in self._attempts[username] if ts > cutoff]
