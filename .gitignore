@@ -6,3 +6,4 @@ CLAUDE.md
 .env.local
 .vscode
 tmp
+.vercel
