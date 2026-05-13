@@ -77,6 +77,8 @@ def _extractToken(environ: dict, auth: dict | None) -> str | None:
 
 from websocket.handlers.chatHandlers import register as _registerChat        # noqa: E402
 from websocket.handlers.presenceHandlers import register as _registerPresence  # noqa: E402
+from websocket.handlers.friendHandlers import register as _registerFriend     # noqa: E402
 
 _registerChat(sio, connectedUsers)
 _registerPresence(sio, connectedUsers)
+_registerFriend(sio, connectedUsers)

@@ -11,7 +11,7 @@ Server → Client:
     new_message       {message}
     messages_read     {chatId}
     typing_indicator  {chatId, userId, isTyping}
-    error             {code, message}
+    chat_error             {code, message}
 """
 
 import dataclasses
@@ -27,7 +27,7 @@ from exceptions.baseExceptions import NoHarmException
 def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
 
     async def _err(sid: str, code: str, msg: str) -> None:
-        await sio.emit("error", {"code": code, "message": msg}, to=sid)
+        await sio.emit("chat_error", {"code": code, "message": msg}, to=sid)
 
     # ── join_chat ─────────────────────────────────────────────────────────────
 
