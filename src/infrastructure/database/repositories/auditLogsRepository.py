@@ -39,7 +39,7 @@ class AuditLogsRepository(AuditLogs):
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def findById(self, id: str) -> AuditLogs:
@@ -56,11 +56,11 @@ class AuditLogsRepository(AuditLogs):
             if auditLogs:
                 return auditLogs
             else:
-                raise NoHarmException(status_code=404, message="AuditLogs not found")
+                raise NoHarmException(statusCode=404, message="AuditLogs not found")
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
         
     def findByType(self, type: int, params: Optional[PaginationParams] = None) -> list[AuditLogs] | PaginatedResponse[AuditLogs]:
@@ -84,7 +84,7 @@ class AuditLogsRepository(AuditLogs):
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def findByCatalystId(self, catalyst_id: int, params: Optional[PaginationParams] = None) -> list[AuditLogs] | PaginatedResponse[AuditLogs]:
@@ -108,7 +108,7 @@ class AuditLogsRepository(AuditLogs):
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
     
     def findByDateRange(self, start: datetime, end: datetime, params: Optional[PaginationParams] = None) -> list[AuditLogs] | PaginatedResponse[AuditLogs]:
@@ -136,7 +136,7 @@ class AuditLogsRepository(AuditLogs):
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
         
         
     def create(self, AuditLogs: AuditLogs) -> AuditLogs:
@@ -156,7 +156,7 @@ class AuditLogsRepository(AuditLogs):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
 
 
     def updateStatus(self, id: str, status: int) -> AuditLogs:
@@ -178,5 +178,5 @@ class AuditLogsRepository(AuditLogs):
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(status_code=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
 
