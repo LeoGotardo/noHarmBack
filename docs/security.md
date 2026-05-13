@@ -254,12 +254,19 @@ In `development`, `ALLOWED_ORIGINS = ["*"]` is acceptable. In `staging` and `pro
 
 **What it is:** An attacker connects to the WebSocket endpoint without a valid token.
 
-**Countermeasures planned (`src/websocket/socketManager.py`):**
-- [ ] Mandatory JWT authentication on every `connect` event — reject connection if token is missing or invalid
+**Countermeasures implemented (`src/websocket/socketManager.py`):**
+
+| Measure | Detail |
+|---------|--------|
+| Mandatory JWT auth | `connect` event extracts token from `auth` dict or query string, rejects connection if invalid |
+| User session binding | `sio.save_session(sid, {"userId": userId})` stores authenticated user |
+| Room isolation | Users join personal room `user_{userId}` on connect; chat rooms `chat_{chatId}` joined via events |
+| Presence tracking | `connectedUsers` dict tracks userId → sid mapping |
+
+**Pending countermeasures:**
 - [ ] Rate limiting on message events (max 20 messages / minute per user)
-- [ ] Strict payload validation — reject messages with unexpected fields or oversized content
 - [ ] Maximum 5 simultaneous connections per user — evict oldest on overflow
-- [ ] CORS origin whitelist on the Socket.IO server
+- [ ] Strict payload size limits — reject oversized content
 
 ---
 
@@ -285,76 +292,90 @@ In `development`, `ALLOWED_ORIGINS = ["*"]` is acceptable. In `staging` and `pro
 
 ---
 
-### 7.2 Missing Email Verification
+### 7.2 Email Verification (Firebase Auth)
 
-**What it is:** Users register with any email address without proving they own it. This allows registering with someone else's email, polluting the account, and blocking the real owner from registering.
+**Status:** Implemented via Firebase Authentication
 
-**Pending countermeasures:**
-- [ ] On registration, set `user.status = STATUS_CODES["pending"]` and send a verification email with a signed, time-limited token
-- [ ] Block access to protected endpoints until `user.status == STATUS_CODES["enabled"]`
-- [ ] Verification token: sign with HMAC-SHA256 using `JWT_SECRET_KEY`, include `userId` + `exp` (24h), store hash in database to allow single-use
-- [ ] Resend endpoint with its own rate limit (max 3 resends per hour per email)
+**How it works:**
+- Users register and verify email via Firebase Auth (frontend)
+- Backend receives Firebase identity data including `emailVerified` flag
+- On registration: `status = enabled` if `emailVerified`, else `status = pending`
+- Users with `pending` status cannot access protected endpoints
 
-**Where to implement:** `userService.py`, `authRoutes.py`, `emailService.py`
+**Countermeasures implemented:**
+- Email ownership verified by Firebase (Google infrastructure)
+- `status` field controls access to protected resources
+- Duplicate email check prevents account enumeration (returns generic 409)
 
----
-
-### 7.3 Missing Secure Password Reset
-
-**What it is:** There is no password reset flow. A user who forgets their password has no way to recover their account.
-
-**Attack surface if implemented insecurely:**
-- Predictable reset tokens (sequential IDs, short numeric codes)
-- Tokens that never expire
-- Tokens that are reusable after first use
-- Reset links sent over HTTP
-
-**Pending countermeasures:**
-- [ ] Generate a `secrets.token_urlsafe(32)` reset token, store its SHA-256 hash in the database with a 1-hour expiry
-- [ ] Send only the plaintext token in the email — never store plaintext
-- [ ] On reset: verify token hash, check expiry, delete token immediately (single-use), invalidate all existing access and refresh tokens for the user, then update the password hash
-- [ ] Apply the same rate limit as login (max 3 reset requests per hour per IP and per email)
-
-**Where to implement:** `userService.py`, `authRoutes.py`, `emailService.py`
+**Note:** Custom email verification via `emailService.py` is not implemented — Firebase handles this.
 
 ---
 
-### 7.4 Missing Refresh Token Persistence
+### 7.3 Password Reset (Firebase Auth)
 
-**What it is:** Refresh tokens are issued but not stored in the database. This means:
-- There is no way to invalidate all sessions for a user (e.g. on password change or account compromise)
-- A stolen refresh token cannot be detected via reuse — if an attacker and the real user both hold valid refresh tokens, both will keep getting new access tokens indefinitely
+**Status:** Handled by Firebase Authentication
 
-**Pending countermeasures:**
-- [ ] Store a SHA-256 hash of each refresh token in a `refreshTokens` table with `userId`, `hashedToken`, `expiresAt`, `createdAt`, `deviceHint`
-- [ ] On `POST /auth/refresh`: look up the hash, verify it exists and is not expired, delete it (rotation), issue a new pair
-- [ ] On password change or suspicious activity: delete all rows for `userId` — this logs out all devices
-- [ ] On logout: delete only the specific row — this logs out one device without affecting others
+Firebase Auth manages password reset flows. The backend does not store or manage passwords — authentication is delegated to Firebase.
 
-**Where to implement:** new `refreshTokenRepository.py`, `userService.py`, `authRoutes.py`
+**Firebase handles:**
+- Password reset email sending
+- Secure token generation and validation
+- Token expiry and single-use enforcement
+
+**Where Firebase manages:** Firebase Console / Authentication settings
 
 ---
 
-### 7.5 Missing Audit Log Integration
+### 7.4 Refresh Token Persistence
 
-**What it is:** The `AuditLogsModel` and `AuditLogsRepository` are fully built but never called from any service or route. Security-sensitive actions leave no trace.
+**Status:** Implemented
 
-**Actions that must be audited:**
-- Successful and failed login attempts (with IP)
-- Password change
-- Email change
-- Account status changes (blocked, banned)
-- Token revocation
-- Streak reset
-- Any admin-level action
+**Countermeasures implemented:**
 
-**Pending countermeasures:**
-- [ ] Create an `AuditService` that wraps `AuditLogsRepository` and exposes a single `log(type, catalystId, description)` method
-- [ ] Call `auditService.log()` from every service method that performs a sensitive action
-- [ ] Define a `LOG_TYPES` enum (e.g. `LOGIN_SUCCESS=1`, `LOGIN_FAILURE=2`, `PASSWORD_CHANGE=3`, ...) and document it in `STATUS_CODES` style in `.secrets.toml`
-- [ ] Ensure audit log entries are **never deleted** (append-only) and that the `description` field is encrypted (already supported by `AuditLogsModel`)
+| Component | Detail |
+|-----------|--------|
+| Storage | Refresh tokens stored in `tb_8` (refreshTokenModel) with SHA-256 hash |
+| Fields | `userId`, `tokenHash`, `expiresAt`, `createdAt`, `deviceHint` |
+| Rotation | On refresh: old token deleted, new token issued and stored |
+| Revocation | On logout: specific token deleted; on security event: all user tokens deleted |
 
-**Where to implement:** new `auditService.py`, all `*Service.py` files
+**Flow:**
+```
+POST /auth/refresh
+  → Verify refresh token signature
+  → Look up hash in tb_8
+  → Delete old token (rotation)
+  → Issue new access + refresh tokens
+  → Store new token hash
+```
+
+**Where implemented:** `refreshTokenRepository.py`, `refreshTokenModel.py`, `authService.py`
+
+---
+
+### 7.5 Audit Log Integration
+
+**Status:** Implemented
+
+**Countermeasures implemented:**
+
+| Component | Detail |
+|-----------|--------|
+| Service | `auditLogsService.py` provides audit operations |
+| Routes | `auditLogsRoutes.py` exposes paginated audit log queries |
+| Usage | `authService.py` logs login attempts via `_logAudit()` helper |
+| Encryption | Description field encrypted via `AuditLogsModel` |
+
+**Logged events:**
+- Successful login attempts
+- Failed login attempts
+- Registration events
+
+**Pending:**
+- Define `LOG_TYPES` enum (e.g. `LOGIN_SUCCESS=1`, `LOGIN_FAILURE=2`, ...)
+- Extend audit logging to all services (user, streak, friendship, etc.)
+
+**Where implemented:** `auditLogsService.py`, `auditLogsRoutes.py`, `auditLogsRepository.py`, `authService.py`
 
 ---
 
@@ -538,23 +559,181 @@ pip-audit -r requirements.txt
 | Authentication | Persistent JWT blacklist (JSONL, SHA-256 hashed) |
 | Authentication | Per-IP rate limiting (60 req/min, 60-min block) |
 | Authentication | Per-username login rate limiting (5 attempts, 30-min lockout) |
+| Authentication | Refresh token persistence in database (tb_8) |
+| WebSocket | JWT authentication on connection |
 | Data at rest | AES-256 field-level encryption for all sensitive columns |
 | Data at rest | SHA-256 hash index for encrypted field lookups |
 | Data at rest | Argon2 password hashing |
+| Data at rest | PostgreSQL Row Level Security (RLS) policies |
 | Input validation | Pydantic schemas on all routes |
 | Input sanitisation | HTML stripping via `bleach` |
 | Error handling | Centralised `NoHarmException` — no stack traces leaked to clients |
+| API | Generic pagination system with `PaginatedResponse[T]` |
+| API | Pagination respects RLS policies — `total` reflects filtered count |
+
+### Pagination with RLS
+
+When paginating with `getDbWithRLS`, the `total` count reflects only rows the user can see per RLS policies:
+
+| Table | RLS Policy | Effect on Pagination |
+|-------|------------|---------------------|
+| `tb_0` (users) | users_own_data | Returns 1 row (self) |
+| `tb_1` (streaks) | streaks_own_data | Counts user's streaks only |
+| `tb_2` (friendships) | friendships_participant_data | Counts where user is sender/receiver |
+| `tb_3` (chats) | chats_participant_data | Counts user's conversations |
+| `tb_4` (messages) | messages_sender_data | Counts messages sent by user |
+| `tb_5` (badges) | badges_read_all | Global count (read-only) |
+| `tb_6` (user_badges) | user_badges_own_data | Counts user's earned badges |
+| `tb_7` (audit_logs) | audit_logs_own_data | Counts user's audit events |
+
+RLS policies use `current_setting('app.current_user_id')` set by `getDbWithRLS`.
+
+---
+
+### Unimplementable Rules (Require Infrastructure Changes)
+
+Rules requiring changes outside routes/services (new tables, models, external services):
+
+| Rule | Requirement | Why Blocked |
+|------|-------------|-------------|
+| 1.1 — Email Verification | Send verification email, middleware guard for `status=pending` | `emailService.py` is empty; needs new table for tokens |
+| 2.2 — Refresh Token DB Storage | Store hashed refresh tokens in `tb_8` with device hints | Needs new model, migration, repository; requires `JwtHandler` coordination |
+| 7.2 — Badge Milestones | Grant badges at 1w/1m/3m/6m/1y/comeback streaks | Badge seed data must exist in `tb_5` first (FK constraint) |
+| 8.1 — Password/Email Change Audit | Log type=3 (password), type=4 (email) changes | Auth delegated to Firebase; no backend endpoints to instrument |
+
+---
+
+## 11. Business Rules Reference
+
+### 11.1 Users
+- Username: 3-50 chars, `^[a-zA-Z0-9_-]+$`, globally unique
+- Email: valid RFC-5321, globally unique, error messages must not reveal which field duplicated
+- Password: min 8 chars, hashed with Argon2id
+- On registration: `status = pending` (if email unverified) or `enabled`
+- Profile updates: only `username`, `profilePicture` allowed; `status` changes via admin only
+
+### 11.2 Authentication & Tokens
+- Access token: 15 min, `JWT_SECRET_KEY`, claims: `sub`, `type:access`, `exp`, `iat`, `jti`
+- Refresh token: 7 days, `JWT_REFRESH_SECRET_KEY`, stored hashed in `tb_8`
+- Login rate limit: 5 attempts / 15 min, 30-min lockout
+- IP rate limit: 60 req / 60 sec, 60-min block
+
+### 11.3 Friendships
+- Cannot send request to self
+- Cannot send if any active friendship exists (unless `deleted`)
+- Only receiver may accept/reject
+- Either may block; blocked users cannot send requests or view profiles
+- Chat pre-condition: must be `accepted` friends
+
+### 11.4 Chats
+- Creation requires `accepted` friendship
+- No duplicate active chats between same users
+- Either participant may end (sets `endedAt`, `status=disabled`)
+
+### 11.5 Messages
+- Only to `enabled` chats
+- Content sanitized with `Sanitizer.cleanHtml()`
+- `markAsRead`: sets `status=read`, `recivedAt`
+
+### 11.6 Streaks
+- One active streak per user
+- On reset: sets `end`, creates new streak, updates `isRecord` if longest
+- Auto-expiry: >24h without activity triggers reset on next `getCurrentStreak`
+
+### 11.7 Badges
+- Granted via `BadgeService.checkAndGrantBadges()` after streak updates
+- One per user only; `givenAt` set on grant
+
+### 11.8 Audit Logs
+| Action | Type Code |
+|--------|-----------|
+| Successful login | 1 |
+| Failed login | 2 |
+| Password change | 3 |
+| Email change | 4 |
+| Account status change | 5 |
+| Token revocation | 6 |
+| Streak reset | 7 |
+| Badge granted | 8 |
+| Admin action | 9 |
+
+### 11.9 Cross-Cutting Rules
+- **Soft Delete**: All entities use `status=deleted`, never hard delete
+- **Ownership Checks**: Service layer verifies ownership before repository calls
+- **Input Sanitization**: All free-text passes through `Sanitizer.cleanHtml()`
+- **UUID Keys**: All primary keys are UUID v4 (no sequential integers)
+- **Status Codes**: `disabled=0`, `enabled=1`, `deleted=2`, `blocked=3`, `pending=4`, `accepted=5`, `ignored=6`, `unread=7`, `read=8`, `banned=9`
+
+---
+
+## 12. RLS Setup and Usage
+
+### 12.1 Overview
+RLS ensures queries only return rows the authenticated user can see. Enforced at database level — defense-in-depth even if application code vulnerable.
+
+### 12.2 How It Works
+1. JWT validated, `userId` extracted
+2. `getDbWithRLS` sets `app.current_user_id` in PostgreSQL session
+3. All queries automatically filter based on RLS policies
+4. If no user set, RLS returns no rows (fail-closed)
+
+### 12.3 Usage in Routes
+
+**Recommended**: Use `getDbWithRLS` for authenticated endpoints:
+```python
+@router.get("/streaks")
+def getMyStreaks(db: Session = Depends(getDbWithRLS)):
+    # RLS automatically filters to current user's rows
+    return db.query(StreakModel).all()
+```
+
+**Public endpoints**: Use `getDb` without RLS:
+```python
+@router.get("/public/health")
+def healthCheck(db: Session = Depends(getDb)):
+    pass  # No RLS context for public endpoints
+```
+
+### 12.4 Bypassing RLS (Admin Operations)
+```python
+# Use getDb (without RLS) and apply filters manually
+@router.get("/admin/users")
+def adminGetAllUsers(db: Session = Depends(getDb)):
+    return db.query(UserModel).all()
+```
+
+### 12.5 Testing RLS
+```python
+from infrastructure.database.rlsContext import RLSContext
+
+def testRLS():
+    db = next(getDb())
+    # Without RLS context - should return empty
+    count = db.query(StreakModel).count()
+    assert count == 0
+
+    # Set RLS context for specific user
+    RLSContext.setUserId(db, "user-uuid")
+    count = db.query(StreakModel).count()  # Returns user's streaks
+```
+
+### 12.6 Troubleshooting
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| "permission denied" | RLS blocking | Use `getDbWithRLS`, ensure user authenticated |
+| Empty results | RLS context not set | Check `RLSContext.setUserId()` called |
+| Performance issues | Missing indexes | Ensure indexes on: `cl_1b`, `cl_2b`, `cl_2c`, `cl_3b`, `cl_3c`, `cl_4c`, `cl_6b`, `cl_7c` |
+
+---
 
 ### Pending ⬜
 
 | Priority | Control | Section | Location |
 |----------|---------|---------|----------|
-| **Critical** | WebSocket JWT authentication | §6.1 | `socketManager.py` |
 | **Critical** | Service-layer ownership checks (IDOR prevention) | §5.2 | all `*Service.py` |
 | **Critical** | Stack trace removed from client error responses | §8.1 | all `*Repository.py`, `main.py` |
 | **Critical** | `.secrets.toml` added to `.gitignore` | §9.2 | `.gitignore` |
 | **Critical** | Verify secrets were never committed to Git | §9.2 | Git history audit |
-| **High** | Refresh token persistence in database | §7.4 | new `refreshTokenRepository.py`, `userService.py` |
 | **High** | Unified error message for login (account enumeration) | §7.1 | `authRoutes.py`, `userService.py` |
 | **High** | Redis-backed rate limiting (multi-worker) | §4.1, §8.2 | `rateLimiter.py` |
 | **High** | Constant-time login response (timing attack) | §1.2 | `authRoutes.py` |

@@ -1,7 +1,5 @@
-from datetime import datetime
-
-import redis
-
+from datetime import datetime, timezone
+from security.persistentHashTable import PersistentHashTable
 from security.encryption import Encryption
 from core.config import config
 
@@ -29,7 +27,23 @@ class TokenBlacklist:
 
     def isBlacklisted(self, jti: str) -> bool:
         hashedJti = self._hash(jti)
-        return self._redis.exists(self._PREFIX + hashedJti) == 1
+        return self._storage.exists(hashedJti)
+
+
+    def cleanup(self) -> None:
+        """
+        Removes all expired tokens from memory and from the backing file.
+        Called automatically on startup and can be scheduled periodically
+        to keep the file compact.
+        """
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        self._storage.cleanup(
+            isExpired=lambda exp: datetime.fromisoformat(exp) < now
+        )
+
+
+    # ── Internal ──────────────────────────────────────────────────────────────
 
     def _hash(self, jti: str) -> str:
         return Encryption.hash(jti)
