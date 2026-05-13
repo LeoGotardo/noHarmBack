@@ -25,3 +25,4 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
                 {"userId": userId, "online": userId in connectedUsers},
                 to=sid,
             )
+            
