@@ -6,52 +6,26 @@ from core.config import config
 
 class TokenBlacklist:
     """
-    Blacklist of revoked JWT tokens.
-
-    Tokens added here are never removed manually — they are only evicted
-    when they expire naturally, via cleanup.
-
-    The JTI is stored as a SHA-256 hash to avoid writing the original
-    value to disk in plaintext.
+    Revoked JWT tokens stored in Redis with TTL-based auto-expiry.
 
     Usage:
         blacklist = TokenBlacklist()
         blacklist.add(jti, expiresAt)
         blacklist.isBlacklisted(jti)  # True/False
-        blacklist.cleanup()           # removes expired entries
     """
 
-    _STORAGE_PATH = str(config.STORAGE_PATH + '/blacklist.jsonl')
+    _PREFIX = "jti:"
 
     def __init__(self):
-        self._storage = PersistentHashTable(self._STORAGE_PATH)
-        self.cleanup()
-
-
-    # ── Public interface ──────────────────────────────────────────────────────
+        self._redis = redis.from_url(config.REDIS_URL, decode_responses=True)
 
     def add(self, jti: str, expiresAt: datetime) -> None:
-        """
-        Revokes a token by adding its JTI to the blacklist.
-
-        Args:
-            jti:       unique token ID ('jti' claim from the JWT)
-            expiresAt: moment the token expires naturally
-        """
         hashedJti = self._hash(jti)
-        self._storage.set(hashedJti, expiresAt.isoformat())
-
+        ttl = int((expiresAt - datetime.utcnow()).total_seconds())
+        if ttl > 0:
+            self._redis.setex(self._PREFIX + hashedJti, ttl, "1")
 
     def isBlacklisted(self, jti: str) -> bool:
-        """
-        Checks whether a token has been revoked.
-
-        Args:
-            jti: unique token ID ('jti' claim from the JWT)
-
-        Returns:
-            True if the token is on the blacklist, False otherwise
-        """
         hashedJti = self._hash(jti)
         return self._storage.exists(hashedJti)
 
@@ -72,8 +46,4 @@ class TokenBlacklist:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _hash(self, jti: str) -> str:
-        """
-        Returns the SHA-256 hash of the JTI.
-        Plaintext JTIs are never stored on disk.
-        """
         return Encryption.hash(jti)
