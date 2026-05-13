@@ -29,6 +29,7 @@ class Config:
                 Validator("REFRESH_TOKEN_EXPIRE_DAYS", must_exist=True, is_type_of=int),
                 Validator("STORAGE_PATH", must_exist=True, is_type_of=str),
                 Validator("ALLOWED_ORIGINS", must_exist=True, is_type_of=list),
+                Validator("REDIS_URL", must_exist=True, is_type_of=str),
             ],
         )
 
@@ -55,6 +56,7 @@ class Config:
         self.REFRESH_TOKEN_EXPIRE_DAYS: int = self._settings.REFRESH_TOKEN_EXPIRE_DAYS
         self.STORAGE_PATH: str = self._settings.STORAGE_PATH
         self.ALLOWED_ORIGINS: list = self._settings.ALLOWED_ORIGINS
+        self.REDIS_URL: str = self._settings.REDIS_URL
 
 
 config = Config()
