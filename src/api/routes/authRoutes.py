@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
@@ -6,6 +6,7 @@ from api.dependencies.database import getDb
 from domain.services.authService import AuthService
 from exceptions.baseExceptions import NoHarmException
 from schemas.authSchemas import AuthLoginRequest, AuthRefreshRequest, AuthResponse, AuthRegisterRequest
+from security.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 security = HTTPBearer()
@@ -22,10 +23,11 @@ security = HTTPBearer()
         "Status is set to 'pending' until email is verified by Firebase."
     )
 )
-def register(request: AuthRegisterRequest, db: Session = Depends(getDb)):
+@limiter.limit("5/minute")
+def register(request: Request, body: AuthRegisterRequest, db: Session = Depends(getDb)):
     try:
         service = AuthService(db)
-        tokens = service.register(request)
+        tokens = service.register(body)
         return AuthResponse(**tokens)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
@@ -41,10 +43,11 @@ def register(request: AuthRegisterRequest, db: Session = Depends(getDb)):
         "Banned, blocked, or deleted accounts are rejected with 403."
     )
 )
-def login(request: AuthLoginRequest, db: Session = Depends(getDb)):
+@limiter.limit("10/minute")
+def login(request: Request, body: AuthLoginRequest, db: Session = Depends(getDb)):
     try:
         service = AuthService(db)
-        tokens = service.login(request)
+        tokens = service.login(body)
         return AuthResponse(**tokens)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
@@ -56,10 +59,11 @@ def login(request: AuthLoginRequest, db: Session = Depends(getDb)):
     summary="Refresh tokens",
     description="Issues a new token pair from a valid refresh token. The old refresh token is revoked (rotation)."
 )
-def refresh(request: AuthRefreshRequest, db: Session = Depends(getDb)):
+@limiter.limit("20/minute")
+def refresh(request: Request, body: AuthRefreshRequest, db: Session = Depends(getDb)):
     try:
         service = AuthService(db)
-        tokens = service.refresh(request.refreshToken)
+        tokens = service.refresh(body.refreshToken)
         return AuthResponse(**tokens)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
@@ -71,13 +75,15 @@ def refresh(request: AuthRefreshRequest, db: Session = Depends(getDb)):
     summary="Logout",
     description="Revokes both tokens. The user is logged out of this device only."
 )
+@limiter.limit("20/minute")
 def logout(
-    refreshRequest: AuthRefreshRequest,
+    request: Request,
+    body: AuthRefreshRequest,
     accessCredentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(getDb)
 ):
     try:
         service = AuthService(db)
-        service.logout(accessCredentials.credentials, refreshRequest.refreshToken)
+        service.logout(accessCredentials.credentials, body.refreshToken)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

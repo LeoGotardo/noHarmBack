@@ -50,6 +50,7 @@ class Config:
             self.DATABASE_USER: str = _require("DATABASE_USER")
             self.DATABASE_PASSWORD: str = _require("DATABASE_PASSWORD")
             self.DATABASE_URL_UNPOOLED: str = _require("DATABASE_URL_UNPOOLED")
+            self.DATABASE_ENCRYPTION_KEY: str = _require("DATABASE_ENCRYPTION_KEY")
             self.STORAGE_SERVICE_URI: str = _require("STORAGE_SERVICE_URI")
             self.STORAGE_SERVICE_KEY: str = _require("STORAGE_SERVICE_KEY")
             self.EXEC_MODE: str = _require("EXEC_MODE")

@@ -24,10 +24,10 @@ _loginLimiter = LoginRateLimiter()
 
 
 class AuthService:
-    def __init__(self, db: Database):
-        self.db = db
-        self.userRepository = UserRepository(db)
-        self.auditRepository = AuditLogsRepository(db)
+    def __init__(self, db):
+        self.db: Database = db
+        self.userRepository = UserRepository(db)  
+        self.auditRepository = AuditLogsRepository(db)  
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ class AuthService:
                 catalyst=None,
                 description=description
             )
-            self.auditRepository.create(entry)
+            self.auditRepository.create(entry)  
         except Exception:
             pass
 
@@ -76,7 +76,7 @@ class AuthService:
             self.userRepository.findByEmail(email)
             raise NoHarmException(statusCode=409, errorCode="CONFLICT", message="Registration failed. Please check your details.")
         except NoHarmException as e:
-            if e.statusCode == 409:
+            if e.statusCode != 404:
                 raise e
             # 404 → email is available, continue
 
@@ -84,21 +84,21 @@ class AuthService:
             self.userRepository.findByUsername(username)
             raise NoHarmException(statusCode=409, errorCode="CONFLICT", message="Registration failed. Please check your details.")
         except NoHarmException as e:
-            if e.statusCode == 409:
+            if e.statusCode != 404:
                 raise e
             # 404 → username is available, continue
 
-        photoBytes: bytes = request.photoURL.encode("utf-8") if request.photoURL else b""
+        photoUrl = request.photoURL
         status = config.STATUS_CODES["enabled"] if request.emailVerified else config.STATUS_CODES["pending"]
 
         newUser = UserModel(
             id=uid,
             username=username,
             email=email,
-            profile_picture=photoBytes,
+            profile_picture=photoUrl,
             status=status
         )
-        self.userRepository.create(newUser)
+        self.userRepository.create(newUser)  
 
         accessToken = _jwtHandler.createAccessToken(str(uid))
         refreshToken = _jwtHandler.createRefreshToken(str(uid))

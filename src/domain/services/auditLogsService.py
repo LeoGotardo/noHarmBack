@@ -61,7 +61,7 @@ class AuditLogsService:
         Returns:
             list[AuditLogs] | PaginatedResponse[AuditLogs]
         """
-        return self.auditLogsRepository.findByCatalystId(catalistId, params)
+        return self.auditLogsRepository.findByCatalystId(catalistId, params)  
     
     
     def getByDateRange(self, startDate: str, endDate: str, params: Optional[PaginationParams] = None) -> list[AuditLogs] | PaginatedResponse[AuditLogs]:
@@ -94,18 +94,4 @@ class AuditLogsService:
             list[AuditLogs] | PaginatedResponse[AuditLogs]
         """
         return self.auditLogsRepository.findByType(type, params)
-
-
-    def updateStatus(self, id: str, status: int) -> AuditLogs:
-        """
-        Update the status of an audit log.
-
-        Args:
-            id: Audit log ID
-            status: New status (ex: enabled, disabled)
-
-        Returns:
-            AuditLogs: Updated audit log
-        """
-        return self.auditLogsRepository.updateStatus(id, status)
 

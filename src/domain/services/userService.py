@@ -30,7 +30,7 @@ class UserService:
                 catalyst=None,
                 description=description
             )
-            self.auditRepository.create(entry)
+            self.auditRepository.create(entry)  
         except Exception:
             pass
 
@@ -74,13 +74,12 @@ class UserService:
                     message="Profile not accessible."
                 )
         except NoHarmException as e:
-            if e.statusCode == 403:
-                raise e
-            # 404 → no friendship → access is allowed, continue
+            if e.statusCode != 404:
+                raise
 
         return self.userRepository.findById(targetUserId)
 
-    def updateProfile(self, userId: str, username: Optional[str], profilePicture: Optional[bytes]) -> User:
+    def updateProfile(self, userId: str, username: Optional[str], profilePicture: Optional[str]) -> User:
         """Update only the fields that users are allowed to change (§1.3).
 
         Only `username` and `profilePicture` may be modified.

@@ -27,7 +27,7 @@ class MessageResponse(BaseModel):
     created_at: datetime = Field(..., description="Created time")
     updated_at: datetime = Field(..., description="Updated time")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
 class MessageListResponse(BaseModel):

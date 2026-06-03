@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 import redis
 
@@ -19,11 +19,13 @@ class TokenBlacklist:
     _PREFIX = "jti:"
 
     def __init__(self):
-        self._redis = redis.from_url(config.REDIS_URL, decode_responses=True)
+        self._redis: redis.Redis[str] = redis.from_url(config.REDIS_URL, decode_responses=True)  # type: ignore[assignment]
 
     def add(self, jti: str, expiresAt: datetime) -> None:
         hashedJti = self._hash(jti)
-        ttl = int((expiresAt - datetime.utcnow()).total_seconds())
+        if expiresAt.tzinfo is None:
+            expiresAt = expiresAt.replace(tzinfo=timezone.utc)
+        ttl = int((expiresAt - datetime.now(timezone.utc)).total_seconds())
         if ttl > 0:
             self._redis.setex(self._PREFIX + hashedJti, ttl, "1")
 

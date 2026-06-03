@@ -50,7 +50,7 @@ class BadgeService:
         return self.badgeRepository.create(newBadge)
         
     
-    def update(self, newBadge: Badge) -> Badge:
+    def update(self, id: str, newBadge: Badge) -> Badge:
         """
         Edit a badge.
         
@@ -60,10 +60,10 @@ class BadgeService:
         Returns:
             Badge: updated badge
         """
-        return self.badgeRepository.update(newBadge)
+        return self.badgeRepository.update(id, newBadge)  
     
     
-    def updateStatus(self, badgeId: str, status: int) -> None:
+    def updateStatus(self, badgeId: str, status: str) -> Badge:
         """
         Update the status of a badge.
         
@@ -71,7 +71,7 @@ class BadgeService:
             badgeId: ID of the badge
             status: new status (ex: 1 enabled, 0 disabled)
         """
-        return self.badgeRepository.updateStatus(badgeId, status)
+        return self.badgeRepository.updateStatus(badgeId, status)  
     
     
     def delete(self, badgeId: str) -> None:

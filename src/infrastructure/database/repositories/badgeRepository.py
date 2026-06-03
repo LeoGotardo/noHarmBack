@@ -1,3 +1,4 @@
+from core.errorUtils import excLocation
 from infrastructure.database.models.badgeModel import BadgeModel
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.badge import Badge
@@ -8,17 +9,27 @@ from core.config import config
 
 from typing import Optional
 
-import sys
 
-
-class BadgeRepository(Badge):
+class BadgeRepository:
     def __init__(self, db: Database):
         self.db = db
         self.session = self.db.session
         self.engine = self.db.engine
         
+    def _toEntity(self, model: BadgeModel) -> Badge:
+        return Badge(
+            id=model.id,
+            name=model.name,
+            description=model.description,
+            milestone=model.milestone,
+            icon=model.icon,
+            status=model.status,
+            created_at=model.created_at,
+            updated_at=model.updated_at
+        )
+        
 
-    def findById(self, id: str) -> Badge:
+    def findById(self, id: str, returnModel: bool = False) -> Badge | BadgeModel:
         """Find a badge by ID
         
         Args:
@@ -28,15 +39,15 @@ class BadgeRepository(Badge):
             Badge: Badge with his full data
         """
         try:
-            badge = self.session.query(BadgeModel).filter(BadgeModel.id == id).first()
-            if badge:
-                return badge
+            badgeModel = self.session.query(BadgeModel).filter(BadgeModel.id == id).first()
+            if badgeModel:
+                return self._toEntity(badgeModel) if not returnModel else badgeModel
             else:
                 raise NoHarmException(statusCode=404, message="Badge not found")
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
     def findAll(self, params: Optional[PaginationParams] = None) -> list[Badge] | PaginatedResponse[Badge]:
@@ -54,12 +65,14 @@ class BadgeRepository(Badge):
                 total = query.count()
                 offset = (params.page - 1) * params.pageSize
                 items = query.offset(offset).limit(params.pageSize).all()
+                items = [self._toEntity(item) for item in items]
                 return createPaginatedResponse(items, total, params.page, params.pageSize)
-            return query.all()
+            
+            return [ self._toEntity(item) for item in query.all()]
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
     def create(self, badge: Badge) -> Badge:
@@ -72,14 +85,23 @@ class BadgeRepository(Badge):
             Badge: Badge with his full data
         """
         try:
-            self.session.add(badge) # TODO: Will be nice to return the badge object that was just created
+            badgeModel = BadgeModel(
+                name=badge.name,
+                description=badge.description,
+                milestone=badge.milestone,
+                icon=badge.icon,
+                status=badge.status,
+                created_at=badge.created_at,
+                updated_at=badge.updated_at
+            )
+            self.session.add(badgeModel)
             self.session.commit()
-            return badge
+            return self._toEntity(badgeModel)
         except Exception as e:
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
     def update(self, badge_id: str, updatedBadge: Badge) -> Badge:
@@ -92,22 +114,25 @@ class BadgeRepository(Badge):
             Badge: Badge with his full data
         """
         try:
-            badge = self.findById(badge_id)
-            badge.name = updatedBadge.name if updatedBadge.name else badge.name
-            badge.description = updatedBadge.description if updatedBadge.description else badge.description
-            badge.milestone = updatedBadge.milestone if updatedBadge.milestone else badge.milestone
-            badge.icon = updatedBadge.icon if updatedBadge.icon else badge.icon
-            badge.status = updatedBadge.status if updatedBadge.status else badge.status
+            badgeModel = self.findById(badge_id, returnModel=True)
+            
+            badgeModel.name = updatedBadge.name if updatedBadge.name else badgeModel.name
+            badgeModel.description = updatedBadge.description if updatedBadge.description else badgeModel.description
+            badgeModel.milestone = updatedBadge.milestone if updatedBadge.milestone else badgeModel.milestone
+            badgeModel.icon = updatedBadge.icon if updatedBadge.icon else badgeModel.icon
+            badgeModel.status = updatedBadge.status if updatedBadge.status else badgeModel.status
+            
             self.session.commit()
-            return badge
+            
+            return self._toEntity(badgeModel)
         except Exception as e:
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
-    def updateStatus(self, id: str, status: int) -> Badge:
+    def updateStatus(self, id: str, status: str) -> Badge:
         """Update a badge status
         
         Args:
@@ -118,15 +143,16 @@ class BadgeRepository(Badge):
             Badge: Badge with his full data
         """
         try:
-            badge = self.findById(id)
-            badge.status = status
+            badgeModel = self.findById(id, returnModel=True)
+            badgeModel.status = config.STATUS_CODES[status]
             self.session.commit()
-            return badge
+            
+            return self._toEntity(badgeModel)
         except Exception as e:
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
     def delete(self, id: str) -> bool:
@@ -139,15 +165,15 @@ class BadgeRepository(Badge):
             bool: True if badge was deleted, False if not
         """
         try:
-            badge = self.findById(id)
-            self.session.delete(badge)
+            badgeModel = self.findById(id, returnModel=True)
+            self.session.delete(badgeModel)
             self.session.commit()
             return True
         except Exception as e:
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
     def softDelete(self, id: str) -> bool:
@@ -160,12 +186,12 @@ class BadgeRepository(Badge):
             bool: True if badge was soft deleted, False if not
         """
         try:
-            badge = self.findById(id)
-            badge.status = config.STATUS_CODES["deleted"]
+            badgeModel = self.findById(id, returnModel=True)
+            badgeModel.status = config.STATUS_CODES["deleted"]
             self.session.commit()
             return True
         except Exception as e:
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')

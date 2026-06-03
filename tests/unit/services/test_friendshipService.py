@@ -81,9 +81,8 @@ def test_accept_by_receiver_succeeds(mock_db):
     friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=config.STATUS_CODES["pending"])
     service.friendshipRepository.findById.return_value = friendship
 
-    result = service.accept("friendship-001", "uid-receiver")
-    assert friendship.status == config.STATUS_CODES["accepted"]
-    service.friendshipRepository.session.commit.assert_called_once()
+    service.accept("friendship-001", "uid-receiver")
+    service.friendshipRepository.updateStatus.assert_called_once_with("friendship-001", "accepted")
 
 
 def test_accept_by_sender_raises_403(mock_db):

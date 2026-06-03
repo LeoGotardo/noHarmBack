@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from api.dependencies.auth import getCurrentUser
@@ -6,6 +6,7 @@ from api.dependencies.database import getDbWithRLS
 from domain.services.chatService import ChatService
 from schemas.chatSchemas import ChatResponse, ChatListResponse
 from exceptions.baseExceptions import NoHarmException
+from security.limiter import limiter
 from pydantic import BaseModel
 
 
@@ -24,14 +25,16 @@ class ChatCreateRequest(BaseModel):
     summary="Get my chats",
     description="Returns all chats where the authenticated user is a participant."
 )
+@limiter.limit("60/minute")
 def getMyChats(
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = ChatService(db)
         chats = service.getAllByUserId(currentUserId)
-        return ChatListResponse(chats=chats, total=len(chats))
+        return ChatListResponse(chats=[ChatResponse.model_validate(c) for c in chats], total=len(chats))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -42,8 +45,10 @@ def getMyChats(
     summary="Get a chat by ID",
     description="Returns a specific chat. Only participants may access it (§4.3)."
 )
+@limiter.limit("60/minute")
 def getChatById(
     chatId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -69,14 +74,16 @@ def getChatById(
         "New chats start with status = pending."
     )
 )
+@limiter.limit("10/minute")
 def getOrCreateChat(
-    request: ChatCreateRequest,
+    request: Request,
+    body: ChatCreateRequest,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = ChatService(db)
-        chat = service.getOrCreate(currentUserId, request.receiverId)
+        chat = service.getOrCreate(currentUserId, body.receiverId)
         return chat
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
@@ -94,8 +101,10 @@ def getOrCreateChat(
         "Either participant may accept. Once enabled, messages can be sent (§4.1, §5.1)."
     )
 )
+@limiter.limit("20/minute")
 def acceptChat(
     chatId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -119,8 +128,10 @@ def acceptChat(
         "No new messages can be sent afterwards."
     )
 )
+@limiter.limit("10/minute")
 def endChat(
     chatId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -139,8 +150,10 @@ def endChat(
     summary="Delete a chat",
     description="Soft-deletes an existing chat."
 )
+@limiter.limit("10/minute")
 def deleteChat(
     chatId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):

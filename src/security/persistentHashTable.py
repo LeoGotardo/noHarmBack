@@ -1,7 +1,7 @@
 import json
 import os
 
-from typing import Any
+from typing import Any, Callable
 
 
 class PersistentHashTable:
@@ -53,13 +53,13 @@ class PersistentHashTable:
             self._appendEvent(key, None, "remove")
 
 
-    def cleanup(self, isExpired: callable) -> None:
+    def cleanup(self, isExpired: Callable[[Any], bool]) -> None:
         """
         Removes expired entries from memory and compacts the file.
 
         Args:
             isExpired: A callable that receives a value and returns True if expired.
-                       Example: lambda exp: datetime.fromisoformat(exp) < datetime.now(datetime.UTC)
+                       Example: lambda exp: datetime.fromisoformat(exp) < datetime.datetime.now(datetime.UTC)
         """
         self._table = {
             key: value

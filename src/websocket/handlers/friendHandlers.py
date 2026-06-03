@@ -36,7 +36,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
 
     @sio.on("friend_request")
     async def friendRequest(sid: str, data: dict):
-        userId: str = (data or {}).get("userId")
+        userId: str | None = (data or {}).get("userId")
         if not userId:
             await _err(sid, "INVALID_DATA", "userId required")
             return
@@ -44,7 +44,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
 
     @sio.on("friend_accept")
     async def friendAccept(sid: str, data: dict):
-        userId: str = (data or {}).get("userId")
+        userId: str | None = (data or {}).get("userId")
         if not userId:
             await _err(sid, "INVALID_DATA", "userId required")
             return
@@ -52,7 +52,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
 
     @sio.on("friend_reject")
     async def friendReject(sid: str, data: dict):
-        userId: str = (data or {}).get("userId")
+        userId: str | None = (data or {}).get("userId")
         if not userId:
             await _err(sid, "INVALID_DATA", "userId required")
             return
@@ -60,7 +60,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
 
     @sio.on("friend_remove")
     async def friendRemove(sid: str, data: dict):
-        userId: str = (data or {}).get("userId")
+        userId: str | None = (data or {}).get("userId")
         if not userId:
             await _err(sid, "INVALID_DATA", "userId required")
             return
@@ -68,7 +68,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
 
     @sio.on("friend_block")
     async def friendBlock(sid: str, data: dict):
-        userId: str = (data or {}).get("userId")
+        userId: str | None = (data or {}).get("userId")
         if not userId:
             await _err(sid, "INVALID_DATA", "userId required")
             return
@@ -76,7 +76,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
 
     @sio.on("friend_unblock")
     async def friendUnblock(sid: str, data: dict):
-        userId: str = (data or {}).get("userId")
+        userId: str | None = (data or {}).get("userId")
         if not userId:
             await _err(sid, "INVALID_DATA", "userId required")
             return
