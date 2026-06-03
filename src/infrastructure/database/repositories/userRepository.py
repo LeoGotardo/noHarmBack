@@ -1,22 +1,34 @@
+from core.errorUtils import excLocation
 from infrastructure.database.models.userModel import UserModel
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.user import User
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse, createPaginatedResponse
 from core.database import Database
 from core.config import config
+from security.encryption import Encryption
 
 from typing import Optional
 
-import sys
-
-class UserRepository(User):
+class UserRepository:
     def __init__(self, db: Database):
         self.db = db
         self.session = self.db.session
         self.engine = self.db.engine
         
+        
+    def _toEntity(self, model: UserModel) -> User:
+        return User(
+            id=model.id,
+            username=model.username,
+            email=model.email,
+            status=model.status,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+            profile_picture=model.profile_picture
+        )
+        
     
-    def findById(self, id: str) -> User:
+    def findById(self, id: str, returnModel: bool = False) -> User | UserModel:
         """Find a user by ID
         
         Args:
@@ -28,55 +40,44 @@ class UserRepository(User):
         try:
             user = self.session.query(UserModel).filter(UserModel.id == id).first()
             if user:
-                return user
+                return user if returnModel else self._toEntity(user)
             else:
                 raise NoHarmException(statusCode=404, message="User not found")
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
     
     
     def findByEmail(self, email: str) -> User:
-        """Find a user by email
-        
-        Args:
-            email (str): User email
-            
-        Returns:
-            User: User with his full data
-        """
         try:
-            user = self.session.query(UserModel).filter(UserModel.email == email).first()
-            if user:
-                return user
+            emailHash = Encryption.hash(email)
+            
+            userModel = self.session.query(UserModel).filter(UserModel.email_hash == emailHash).first()
+            
+            if userModel:
+                return self._toEntity(userModel)
             else:
                 raise NoHarmException(statusCode=404, message="User not found")
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
-    
-    
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
     def findByUsername(self, username: str) -> User:
-        """Find a user by username
-        
-        Args:
-            username (str): User username
-            
-        Returns:
-            User: User with his full data
-        """
         try:
-            user = self.session.query(UserModel).filter(UserModel.username == username).first()
-            if user:
-                return user
+            usernameHash = Encryption.hash(username)
+            userModel = self.session.query(UserModel).filter(UserModel.username_hash == usernameHash).first()
+            
+            if userModel:
+                return self._toEntity(userModel)
             else:
                 raise NoHarmException(statusCode=404, message="User not found")
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
     
     
     def findAll(self, params: Optional[PaginationParams] = None) -> list[User] | PaginatedResponse[User]:
@@ -93,13 +94,17 @@ class UserRepository(User):
             if params:
                 total = query.count()
                 offset = (params.page - 1) * params.pageSize
+                
                 items = query.offset(offset).limit(params.pageSize).all()
-                return createPaginatedResponse(items, total, params.page, params.pageSize)
-            return query.all()
+                items = [self._toEntity(item) for item in items]
+                
+                return createPaginatedResponse(items, total, params.page, params.pageSize)  
+            
+            return [self._toEntity(item) for item in query.all()]
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
     
     
     def create(self, User: User) -> User:
@@ -112,14 +117,24 @@ class UserRepository(User):
             User: User with his full data
         """
         try:
-            self.session.add(User)
+            userModel = UserModel(
+                username=User.username,
+                email=User.email,
+                status=User.status,
+                created_at=User.created_at,
+                updated_at=User.updated_at,
+                profile_picture=User.profile_picture
+            )
+            
+            self.session.add(userModel)
             self.session.commit()
-            return User
+            
+            return self._toEntity(userModel)
         except Exception as e:
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
     def update(self, user_id: str, updatedUser: User) -> User: 
@@ -133,20 +148,21 @@ class UserRepository(User):
             User: User with his full data
         """
         try:
-            user = self.findById(user_id)
+            userModel = self.findById(user_id, returnModel=True)
             
-            user.username = updatedUser.username if updatedUser.username else user.username
-            user.email = updatedUser.email if updatedUser.email else user.email
-            user.status = updatedUser.status if updatedUser.status else user.status
-            user.profile_picture = updatedUser.profile_picture if updatedUser.profile_picture else user.profile_picture
+            userModel.username = updatedUser.username if updatedUser.username else userModel.username
+            userModel.email = updatedUser.email if updatedUser.email else userModel.email
+            userModel.status = updatedUser.status if updatedUser.status else userModel.status
+            userModel.profile_picture = updatedUser.profile_picture if updatedUser.profile_picture else userModel.profile_picture
             
             self.session.commit()
-            return user
+            
+            return self._toEntity(userModel)
         except Exception as e:
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
     def updateStatus(self, id: str, status: int) -> User:
@@ -160,15 +176,18 @@ class UserRepository(User):
             User: User with his full data
         """
         try:
-            user = self.findById(id)
-            user.status = status
+            userModel = self.findById(id, returnModel=True)
+            
+            userModel.status = status
+            
             self.session.commit()
-            return user
+            
+            return self._toEntity(userModel)
         except Exception as e:
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
 
     def delete(self, id: str) -> bool:
@@ -181,15 +200,17 @@ class UserRepository(User):
             bool: True if user was deleted, False if not
         """
         try:
-            user = self.findById(id)
-            self.session.delete(user)
+            userModel = self.findById(id, returnModel=True)
+            
+            self.session.delete(userModel)
             self.session.commit()
+            
             return True
         except Exception as e:
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
     def softDelete(self, id: str) -> bool:
@@ -202,12 +223,14 @@ class UserRepository(User):
             bool: True if user was soft deleted, False if not
         """
         try:
-            user = self.findById(id)
-            user.status = config.STATUS_CODES["deleted"]
+            userModel = self.findById(id, returnModel=True)
+            
+            userModel.status = config.STATUS_CODES["deleted"]
             self.session.commit()
+            
             return True
         except Exception as e:
             self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
-            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in line {sys.exc_info()[-1].tb_lineno} in file {sys.exc_info()[-1].tb_frame.f_code.co_filename}')
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')

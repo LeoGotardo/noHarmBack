@@ -17,3 +17,4 @@ dynaconf==3.2.13
 psycopg2-binary==2.9.11
 alembic==1.16.0
 redis==5.0.1
+slowapi==0.1.9

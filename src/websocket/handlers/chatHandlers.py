@@ -22,6 +22,7 @@ from infrastructure.database.rlsContext import RLSContext
 from domain.services.messageService import MessageService
 from domain.services.chatService import ChatService
 from exceptions.baseExceptions import NoHarmException
+from websocket.rateLimiter import wsLimit
 
 
 def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
@@ -45,7 +46,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
         try:
             RLSContext.setUserId(db, userId)
             ChatService(db).get(chatId, userId)          # asserts participant
-            sio.enter_room(sid, f"chat_{chatId}")
+            await sio.enter_room(sid, f"chat_{chatId}")
         except NoHarmException as e:
             await _err(sid, e.errorCode, e.message)
         finally:
@@ -57,11 +58,12 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
     async def leaveChat(sid: str, data: dict):
         chatId: str | None = (data or {}).get("chatId")
         if chatId:
-            sio.leave_room(sid, f"chat_{chatId}")
+            await sio.leave_room(sid, f"chat_{chatId}")
 
     # ── send_message ──────────────────────────────────────────────────────────
 
     @sio.on("send_message")
+    @wsLimit(maxCalls=30, windowSeconds=60)
     async def sendMessage(sid: str, data: dict):
         session = await sio.get_session(sid)
         userId: str = session.get("userId")
@@ -122,6 +124,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
     # ── typing ────────────────────────────────────────────────────────────────
 
     @sio.on("typing")
+    @wsLimit(maxCalls=60, windowSeconds=60)
     async def typing(sid: str, data: dict):
         session = await sio.get_session(sid)
         userId: str = session.get("userId")

@@ -9,7 +9,7 @@ Rooms:
 
 Events (client → server): see handlers/chatHandlers.py, handlers/presenceHandlers.py
 Events (server → client): new_message, messages_read, message_read,
-                           typing_indicator, online_status, error
+                            typing_indicator, online_status, error
 """
 
 import socketio
@@ -17,6 +17,7 @@ from urllib.parse import parse_qs
 
 from api.dependencies.auth import jwtHandler
 from core.config import config
+from websocket.rateLimiter import WsConnectionLimiter
 
 # userId → sid — in-memory presence map (single-process)
 connectedUsers: dict[str, str] = {}
@@ -26,9 +27,12 @@ sio = socketio.AsyncServer(
     cors_allowed_origins=config.ALLOWED_ORIGINS,
     logger=False,
     engineio_logger=False,
+    max_http_buffer_size=2000000,
 )
 
 socketApp = socketio.ASGIApp(sio, socketio_path="socket.io")
+
+_connectionLimiter = WsConnectionLimiter(maxPerUser=3)
 
 
 # ── Connection lifecycle ───────────────────────────────────────────────────────
@@ -45,17 +49,23 @@ async def connect(sid: str, environ: dict, auth: dict | None):
         raise ConnectionRefusedError("invalid_token")
 
     userId: str = payload["sub"]
+
+    if not await _connectionLimiter.tryConnect(userId):
+        raise ConnectionRefusedError("too_many_connections")
+
     await sio.save_session(sid, {"userId": userId})
     connectedUsers[userId] = sid
-    sio.enter_room(sid, f"user_{userId}")
+    await sio.enter_room(sid, f"user_{userId}")
 
 
 @sio.event
 async def disconnect(sid: str):
     session = await sio.get_session(sid)
     userId: str | None = session.get("userId")
-    if userId and connectedUsers.get(userId) == sid:
-        del connectedUsers[userId]
+    if userId:
+        await _connectionLimiter.onDisconnect(userId)
+        if connectedUsers.get(userId) == sid:
+            del connectedUsers[userId]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

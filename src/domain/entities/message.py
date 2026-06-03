@@ -1,13 +1,16 @@
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+from uuid import UUID
 
 @dataclass
 class Message:
-    id: str
-    chat: str
-    sender: str
+    chat: UUID
+    sender: UUID
     message: str
     status: int
-    send_at: str
-    recived_at: str
-    created_at: str
-    updated_at: str
+    id: Optional[UUID] = None
+    send_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    recived_at: Optional[datetime] = None

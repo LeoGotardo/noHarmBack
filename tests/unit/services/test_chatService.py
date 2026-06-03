@@ -32,15 +32,14 @@ def _mock_friendship(status=None):
 
 # ── getAllByUserId ────────────────────────────────────────────────────────────
 
-def test_getAllByUserId_combines_sent_and_received(mock_db):
+def test_getAllByUserId_returns_chats(mock_db):
     service = _make_service(mock_db)
-    sent = [_mock_chat()]
-    received = [_mock_chat(sender="uid-other", reciver="uid-001")]
-    service.chatRepository.findAllBySenderId.return_value = sent
-    service.chatRepository.findAllByReciverId.return_value = received
+    chats = [_mock_chat(), _mock_chat(sender="uid-other", reciver="uid-001")]
+    service.chatRepository.findByParticipant.return_value = chats
 
     result = service.getAllByUserId("uid-001")
-    assert len(result) == 2
+    assert result is chats
+    service.chatRepository.findByParticipant.assert_called_once_with("uid-001")
 
 
 # ── get ───────────────────────────────────────────────────────────────────────
@@ -72,8 +71,7 @@ def test_getOrCreate_creates_new_chat_when_none_exists(mock_db):
     service.friendshipRepository.findByUsers.return_value = friendship
 
     # No active chat between users
-    service.chatRepository.findAllBySenderId.return_value = []
-    service.chatRepository.findAllByReciverId.return_value = []
+    service.chatRepository.findBetween.return_value = None
 
     new_chat = _mock_chat()
     service.chatRepository.create.return_value = new_chat
@@ -89,7 +87,7 @@ def test_getOrCreate_returns_existing_active_chat(mock_db):
     service.friendshipRepository.findByUsers.return_value = friendship
 
     existing = _mock_chat(sender="uid-sender", reciver="uid-receiver", status=config.STATUS_CODES["pending"])
-    service.chatRepository.findAllBySenderId.return_value = [existing]
+    service.chatRepository.findBetween.return_value = existing
 
     result = service.getOrCreate("uid-sender", "uid-receiver")
     assert result is existing

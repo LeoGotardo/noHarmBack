@@ -90,24 +90,24 @@ def test_hash_returns_64_char_hex():
 # ── encryptPass / isValidPass (Argon2) ────────────────────────────────────────
 
 def test_encryptPass_returns_string(enc):
-    hashed = enc.encryptPass("my-password")
+    _, hashed = enc.encryptPass("my-password")
     assert isinstance(hashed, str)
 
 
 def test_isValidPass_correct_password(enc):
-    hashed = enc.encryptPass("correct-password")
+    _, hashed = enc.encryptPass("correct-password")
     valid, _ = enc.isValidPass(hashed, "correct-password")
     assert valid
 
 
 def test_isValidPass_wrong_password(enc):
-    hashed = enc.encryptPass("correct-password")
+    _, hashed = enc.encryptPass("correct-password")
     valid, _ = enc.isValidPass(hashed, "wrong-password")
     assert not valid
 
 
 def test_encryptPass_different_hashes_same_input(enc):
     """Argon2 uses random salt — same password yields different hashes."""
-    h1 = enc.encryptPass("password")
-    h2 = enc.encryptPass("password")
+    _, h1 = enc.encryptPass("password")
+    _, h2 = enc.encryptPass("password")
     assert h1 != h2

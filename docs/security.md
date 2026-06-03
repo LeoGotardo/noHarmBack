@@ -38,8 +38,8 @@ This document describes every attack vector considered during the design of the 
 | Long-lived refresh token | 7-day expiry — issued only on login |
 | Unique JTI per token | Every token has a `jti` claim; allows individual revocation |
 | Token type enforcement | `verifyToken()` checks the `type` claim matches the expected type |
-| Persistent blacklist | Revoked JTIs are stored hashed (SHA-256) in a JSONL file via `TokenBlacklist` |
-| Refresh token rotation | Each `/refresh` call should invalidate the old refresh token |
+| Persistent blacklist | Revoked JTIs are stored hashed (SHA-256) in Redis with TTL-based auto-expiry via `TokenBlacklist` |
+| Refresh token rotation | Old refresh token JTI is revoked (blacklisted) before new tokens are issued in `authService.refresh()` |
 
 **Token lifecycle:**
 ```
@@ -56,7 +56,7 @@ Logout → revoke accessToken + revoke refreshToken → both added to blacklist
 
 **Blacklist implementation (`src/security/tokenBlacklist.py`):**
 
-The blacklist uses `PersistentHashTable` — an append-only JSONL log. Each `add` operation costs O(1) (single file append). On startup the state is rebuilt by replaying all events. Expired entries are removed via `cleanup()`. JTIs are stored as SHA-256 hashes — plaintext JTIs are never written to disk.
+The blacklist uses **Redis** (Upstash, serverless-compatible) via `redis.from_url`. Each `add` call computes TTL as `(expiresAt − now)` and stores the key via `SETEX` — Redis automatically removes expired keys, so no manual cleanup is needed. JTIs are stored as SHA-256 hashes (`jti:<hash>`) — plaintext JTIs are never written to the store. `isBlacklisted` is an O(1) Redis `EXISTS` check. This replaces the previous file-based `PersistentHashTable` approach, which was not suitable for Vercel's ephemeral filesystem and multi-instance deployments.
 
 ---
 
@@ -66,7 +66,7 @@ The blacklist uses `PersistentHashTable` — an append-only JSONL log. Each `add
 
 **Countermeasures implemented (`src/security/rateLimiter.py`):**
 
-`LoginRateLimiter` — per-username sliding window:
+`LoginRateLimiter` — per-UID sliding window (Firebase UID, not username):
 
 | Configuration | Value |
 |---------------|-------|
@@ -86,7 +86,6 @@ The blacklist uses `PersistentHashTable` — an append-only JSONL log. Each `add
 **Pending countermeasures:**
 - [ ] Constant-time response (add `time.sleep(0.1)` regardless of success/failure to prevent timing attacks)
 - [ ] CAPTCHA after 3 consecutive failures
-- [ ] Generic error messages that do not reveal whether the username exists
 
 ---
 
@@ -132,8 +131,13 @@ user = session.query(UserModel).filter(UserModel.email == email).first()
 | `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 
+**Implemented:** `Sanitizer.cleanHtml()` is applied in:
+- `authService.register()` — username on registration
+- `userService.updateProfile()` — username on update
+- `messageService.sendMessage()` — message content before persistence
+
 **Pending countermeasures:**
-- [ ] Apply `Sanitizer.cleanHtml()` consistently in all schemas that accept free-text fields (message content, display names, etc.)
+- [ ] Apply `Sanitizer.cleanHtml()` to any future free-text fields added (e.g. profile bio, badge descriptions if user-editable)
 
 ---
 
@@ -145,8 +149,15 @@ user = session.query(UserModel).filter(UserModel.email == email).first()
 
 Pydantic schemas act as an explicit whitelist. Only fields declared in a schema can be updated. FastAPI ignores any extra fields by default.
 
+**Response schemas with `extra="forbid"`:** `TokenResponse`, `StreakResponse`, `UserPrivateResponse`, `UserPublicResponse`, `ChatResponse`, `BadgeResponse`, `AuditLogsResponse`, `UserBadgeResponse`, `MessageResponse`.
+
+**Missing `extra="forbid"`:**
+- All **response** schemas in `friendshipSchemas.py` — no `model_config` at all
+- All **input/create/update** schemas across every file (`AuthRegisterRequest`, `AuthLoginRequest`, `AuthRefreshRequest`, `UserCreate`, `UserUpdate`, `ChatCreate`, `ChatUpdate`, `FriendshipCreate`, `FriendshipUpdate`, `MessageCreate`, `MessageUpdate`)
+
 **Pending countermeasures:**
-- [ ] Add `model_config = ConfigDict(extra='forbid')` to all input schemas to actively reject unexpected fields rather than silently ignore them
+- [ ] Add `model_config = ConfigDict(extra='forbid')` to `friendshipSchemas.py` response schemas
+- [ ] Add `model_config = ConfigDict(extra='forbid')` to all input/create/update schemas to actively reject unexpected fields rather than silently ignore them
 
 ---
 
@@ -185,7 +196,7 @@ In `development`, `ALLOWED_ORIGINS = ["*"]` is acceptable. In `staging` and `pro
 
 ### 4.1 Application-Layer DoS / Brute Force
 
-**Countermeasures implemented (`src/security/rateLimiter.py`, `src/security/middleware.py`):**
+**Countermeasures implemented (`src/security/rateLimiter.py`, `src/security/middleware.py`, `src/security/limiter.py`):**
 
 `RateLimitMiddleware` applies `IpRateLimiter` globally on every request:
 - 60 requests / 60 seconds per IP
@@ -194,8 +205,21 @@ In `development`, `ALLOWED_ORIGINS = ["*"]` is acceptable. In `staging` and `pro
 
 `LoginRateLimiter` applies per-username limits on the login endpoint (see §1.2).
 
+**Per-route rate limits via `slowapi` (`src/security/limiter.py`):**
+
+Every HTTP endpoint carries a `@limiter.limit(...)` decorator. The shared `Limiter` instance uses the same X-Forwarded-For aware IP extraction as `RateLimitMiddleware`. The global middleware acts as a floor; per-route decorators enforce tighter ceilings on sensitive paths.
+
+| Tier | Endpoints | Limit |
+|------|-----------|-------|
+| Critical | `POST /auth/register` | 5/minute |
+| High | `POST /auth/login` | 10/minute |
+| High | `POST /auth/refresh`, `POST /auth/logout` | 20/minute |
+| Write | create/update/delete mutations across all routes | 5–10/minute |
+| Read | all GET endpoints | 30–60/minute |
+
+Exceeding a per-route limit returns 429. The JWT blacklist already uses Redis (Upstash). To make `slowapi` per-route counters and `IpRateLimiter` / `LoginRateLimiter` also share state across workers, they need to be migrated to Redis as well — see §8.2.
+
 **Pending countermeasures:**
-- [ ] Per-endpoint rate limits (e.g. stricter limits on `/auth/login`, `/auth/refresh`)
 - [ ] Burst protection (e.g. max 10 requests/second before sliding window kicks in)
 - [ ] Redis-backed rate limiting for multi-instance deployments (current in-memory state is not shared across workers)
 
@@ -242,9 +266,12 @@ In `development`, `ALLOWED_ORIGINS = ["*"]` is acceptable. In `staging` and `pro
 **Countermeasures implemented:**
 - All primary keys are **UUIDs** (v4), not sequential integers — not guessable
 - `getCurrentUser` dependency injects the authenticated user's ID into every protected route
-
-**Pending countermeasures:**
-- [ ] Ownership checks in all `Service` methods — verify that the authenticated user owns the requested resource before returning or modifying it
+- Ownership checks implemented in all `Service` methods:
+  - `ChatService._assertParticipant()` — enforced on `get`, `activate`, `endChat`, `delete`
+  - `MessageService.sendMessage` / `markAsRead` / `markAllAsRead` — verifies sender is a chat participant
+  - `FriendshipService.accept` / `reject` / `block` / `unblock` / `delete` — verifies requester is a participant
+  - `UserService.delete` — only the account owner may delete their own account
+  - `StreakService.checkin` — verifies `owner_id == userId`
 
 ---
 
@@ -283,12 +310,23 @@ In `development`, `ALLOWED_ORIGINS = ["*"]` is acceptable. In `staging` and `pro
 
 **Why this matters for NoHarm:** Users are in addiction recovery. Confirming their presence on the platform to a third party is a privacy violation with real personal-safety implications.
 
+**Countermeasures implemented:**
+- `authService.login()` returns generic `"Invalid credentials."` (401) when the user is **not found** — attacker cannot confirm whether a UID is registered
+- `authService.register()` returns generic `"Registration failed. Please check your details."` (409) for both email and username conflicts — neither conflicting field is identified in the response
+
+**Note:** Banned, blocked, and deleted accounts return **specific 403 responses** (`ACCOUNT_BANNED`, `ACCOUNT_BLOCKED`, `ACCOUNT_DELETED`) after the user record is found. This is intentional — these are post-authentication status checks, not enumeration vectors, since an attacker must already possess the valid UID. The trade-off is accepted.
+
+**Known weakness (found via code audit):**
+`authService.register()` catches only `NoHarmException` during the email/username uniqueness checks. If `findByEmail` or `findByUsername` raises a non-`NoHarmException` (e.g. DB timeout → status 500), the except block silently proceeds to create the user without completing the uniqueness check.
+
+~~`userService.getPublicProfile()` swallowed non-404 errors from `findByUsers`, which could allow a blocked user to view a blocker's profile during a DB transient error.~~ **Fixed** — service now re-raises any non-404 exception from `findByUsers`.
+
 **Pending countermeasures:**
-- [ ] Unified error message for login: `"Invalid credentials"` regardless of whether the email exists or the password is wrong — both cases must return the same response body, status code, and response time
-- [ ] Registration endpoint: return the same success-like response whether the email is new or already taken; send a `"you already have an account"` email to the existing address instead of leaking the conflict in the HTTP response
+- [ ] Constant-time response on login (timing side-channel still possible)
+- [ ] Fix `authService.register()` uniqueness check to re-raise non-404 errors as 500 instead of falling through
 - [ ] Forgot-password endpoint (when built): always respond with `"If this email is registered, you will receive a reset link"` — never confirm or deny
 
-**Where to implement:** `authRoutes.py`, `userService.py`
+**Where to implement:** `authRoutes.py`
 
 ---
 
@@ -328,28 +366,34 @@ Firebase Auth manages password reset flows. The backend does not store or manage
 
 ### 7.4 Refresh Token Persistence
 
-**Status:** Implemented
+**Status:** Partially implemented — model exists, repository does not.
 
-**Countermeasures implemented:**
+**What exists:**
+- `refreshTokenModel.py` defines `tb_8` with fields `userId`, `tokenHash`, `expiresAt`, `createdAt`, `deviceHint`
+- `authService.py` issues and rotates refresh tokens via JWT signing + Redis blacklist
 
-| Component | Detail |
-|-----------|--------|
-| Storage | Refresh tokens stored in `tb_8` (refreshTokenModel) with SHA-256 hash |
-| Fields | `userId`, `tokenHash`, `expiresAt`, `createdAt`, `deviceHint` |
-| Rotation | On refresh: old token deleted, new token issued and stored |
-| Revocation | On logout: specific token deleted; on security event: all user tokens deleted |
+**What is missing:**
+- `refreshTokenRepository.py` — **does not exist**. No code stores or looks up token hashes in `tb_8`. The table is defined but unused.
+- Revocation currently works only through the Redis JWT blacklist (`TokenBlacklist.add(jti, expiresAt)`), not through DB-level token records.
 
-**Flow:**
+**Current flow (actual):**
 ```
 POST /auth/refresh
-  → Verify refresh token signature
-  → Look up hash in tb_8
-  → Delete old token (rotation)
+  → Verify refresh token signature (JWT)
+  → Check JTI not in Redis blacklist
+  → Revoke old JTI in Redis (rotation)
   → Issue new access + refresh tokens
-  → Store new token hash
+  (tb_8 is never consulted)
 ```
 
-**Where implemented:** `refreshTokenRepository.py`, `refreshTokenModel.py`, `authService.py`
+**Implications:** Without DB-persisted tokens, "revoke all sessions for a user" (e.g. on password reset or account compromise) is not possible — only individual JTI revocation via logout.
+
+**Pending:**
+- [ ] Implement `refreshTokenRepository.py` (create, findByTokenHash, deleteByUserId, deleteExpired)
+- [ ] Wire `authService` to store new refresh token hash in `tb_8` on login/refresh
+- [ ] Use `deleteByUserId` on security events (forced logout all sessions)
+
+**Where to implement:** `refreshTokenRepository.py`, `authService.py`
 
 ---
 
@@ -367,15 +411,20 @@ POST /auth/refresh
 | Encryption | Description field encrypted via `AuditLogsModel` |
 
 **Logged events:**
-- Successful login attempts
-- Failed login attempts
-- Registration events
+
+| Type | Service | Event |
+|------|---------|-------|
+| 1 | `authService` | Successful login |
+| 2 | `authService` | Failed login (user not found, blocked, banned, deleted) |
+| 5 | `userService` | Account status changed |
+| 6 | `authService` | Token revocation on logout |
+| 7 | `streakService` | Streak reset |
 
 **Pending:**
-- Define `LOG_TYPES` enum (e.g. `LOGIN_SUCCESS=1`, `LOGIN_FAILURE=2`, ...)
-- Extend audit logging to all services (user, streak, friendship, etc.)
+- [ ] Define a `LOG_TYPES` enum (e.g. `LOGIN_SUCCESS=1`, `LOGIN_FAILURE=2`, ...) to replace bare integer literals
+- [ ] Extend audit logging to friendship, chat, message, and badge events (types 3, 4, 8, 9 unused)
 
-**Where implemented:** `auditLogsService.py`, `auditLogsRoutes.py`, `auditLogsRepository.py`, `authService.py`
+**Where implemented:** `auditLogsService.py`, `auditLogsRoutes.py`, `auditLogsRepository.py`, `authService.py`, `userService.py`, `streakService.py`
 
 ---
 
@@ -398,19 +447,20 @@ raise NoHarmException(
 
 This exposes the server's file system layout and internal class names to any client that triggers a 500 error — extremely useful to an attacker performing reconnaissance.
 
+**Bugs found via unit tests (now fixed):**
+
+- ~~`messageRepository.update()` — the `except` block silently returns `None` on non-`NoHarmException` DB errors instead of raising a 500, masking failures entirely.~~ **Fixed.**
+- ~~`auditLogsRepository.findByType()` — the method parameter was named `type`, shadowing Python's built-in. On DB error, the handler raised `TypeError: 'int' object is not callable`.~~ **Fixed** — parameter renamed to `logType`.
+
+**Implemented countermeasures:**
+- ✅ `main.py` exception handler returns generic `{"errorCode": "INTERNAL_ERROR", "message": "An internal server error occurred."}` for all 5xx responses in `staging` and `production` — traceback never reaches the client
+- ✅ Catch-all `@app.exception_handler(Exception)` added — unhandled exceptions also return the generic 500 in non-dev environments; full traceback included only in `development`
+
 **Pending countermeasures:**
-- [ ] Log the full traceback server-side (to a structured logger or Sentry) but return a generic message to the client: `"An internal error occurred"` with only the `errorCode`
-- [ ] Introduce a logging wrapper that captures `exc_info=True` and strips all sensitive detail from the client response
-- [ ] In `main.py`, add a catch-all exception handler for unhandled `Exception` (not just `NoHarmException`) that prevents FastAPI's default detail from leaking
+- [ ] Log the full traceback server-side to a structured logger or Sentry (currently only returned in development responses)
+- [ ] Introduce a logging wrapper that captures `exc_info=True` for all repository exceptions
 
-```python
-@app.exception_handler(Exception)
-async def unhandledExceptionHandler(request: Request, exc: Exception):
-    logger.error("Unhandled exception", exc_info=True)
-    return JSONResponse(status_code=500, content={"errorCode": "INTERNAL_ERROR", "message": "An internal error occurred"})
-```
-
-**Where to implement:** all `*Repository.py` files, `main.py`
+**Where to implement:** logging setup, `main.py` (logger integration)
 
 ---
 
@@ -534,16 +584,18 @@ pip-audit -r requirements.txt
 
 **What it is:** `.secrets.toml` contains the database password, encryption key, and JWT secrets. If this file is ever committed to Git (even once, even on a private repository), the secrets are permanently compromised — Git history retains all commits.
 
-**Current state:** `.gitignore` includes `venv` and `__pycache__` but **does not explicitly ignore `.secrets.toml`**.
+**Current state:** `.gitignore` explicitly ignores `.secrets.toml` and `.env` / `.env.local`.
+
+**Countermeasures implemented:**
+- `.secrets.toml`, `.env`, `.env.local` all listed in `.gitignore`
 
 **Pending countermeasures:**
-- [ ] **Immediately** add `.secrets.toml` and `.env*.local` to `.gitignore`
-- [ ] Run `git log --all -- .secrets.toml` and `git log --all -- .env.local` to verify these files have never been committed
-- [ ] If they have been committed, rotate all secrets immediately — assume they are compromised
+- [ ] Run `git log --all -- .secrets.toml` to verify the file was never committed before the ignore was added
+- [ ] If it was committed, rotate all secrets immediately — assume compromised
 - [ ] Add a pre-commit hook (e.g. `detect-secrets` or `git-secrets`) that blocks commits containing high-entropy strings or known secret patterns
 - [ ] Consider using Vercel's encrypted environment variable storage instead of `.secrets.toml` for production deployments
 
-**Where to implement:** `.gitignore`, CI pre-commit hooks
+**Where to implement:** CI pre-commit hooks
 
 ---
 
@@ -556,18 +608,25 @@ pip-audit -r requirements.txt
 | Transport | Security headers (CSP, HSTS, X-Frame-Options, etc.) |
 | Transport | CORS origin whitelist |
 | Authentication | JWT access + refresh tokens with unique JTI |
-| Authentication | Persistent JWT blacklist (JSONL, SHA-256 hashed) |
-| Authentication | Per-IP rate limiting (60 req/min, 60-min block) |
+| Authentication | Persistent JWT blacklist (Redis `SETEX` + TTL auto-expiry, SHA-256 hashed JTIs) |
+| Authentication | Refresh token rotation — old token revoked on every `/refresh` call |
+| Authentication | Per-IP rate limiting (60 req/min, 60-min block) — global middleware |
 | Authentication | Per-username login rate limiting (5 attempts, 30-min lockout) |
-| Authentication | Refresh token persistence in database (tb_8) |
+| Authentication | Per-route rate limits via `slowapi` — stricter ceilings on auth and mutation endpoints |
+| Authentication | Generic "Invalid credentials" (401) for user-not-found — no UID enumeration |
+| Authentication | Generic 409 on registration — no enumeration of conflicting field (email vs username) |
+| Authentication | Refresh token revocation via Redis JTI blacklist (TTL-based auto-expiry) |
 | WebSocket | JWT authentication on connection |
 | Data at rest | AES-256 field-level encryption for all sensitive columns |
 | Data at rest | SHA-256 hash index for encrypted field lookups |
 | Data at rest | Argon2 password hashing |
 | Data at rest | PostgreSQL Row Level Security (RLS) policies |
+| Authorization | Service-layer ownership checks on all mutating/read operations |
 | Input validation | Pydantic schemas on all routes |
 | Input sanitisation | HTML stripping via `bleach` |
 | Error handling | Centralised `NoHarmException` — no stack traces leaked to clients |
+| Configuration | `.secrets.toml` excluded from version control via `.gitignore` |
+| Audit | Login success/failure, token revocation, status changes, streak resets logged |
 | API | Generic pagination system with `PaginatedResponse[T]` |
 | API | Pagination respects RLS policies — `total` reflects filtered count |
 
@@ -597,7 +656,6 @@ Rules requiring changes outside routes/services (new tables, models, external se
 | Rule | Requirement | Why Blocked |
 |------|-------------|-------------|
 | 1.1 — Email Verification | Send verification email, middleware guard for `status=pending` | `emailService.py` is empty; needs new table for tokens |
-| 2.2 — Refresh Token DB Storage | Store hashed refresh tokens in `tb_8` with device hints | Needs new model, migration, repository; requires `JwtHandler` coordination |
 | 7.2 — Badge Milestones | Grant badges at 1w/1m/3m/6m/1y/comeback streaks | Badge seed data must exist in `tb_5` first (FK constraint) |
 | 8.1 — Password/Email Change Audit | Log type=3 (password), type=4 (email) changes | Auth delegated to Firebase; no backend endpoints to instrument |
 
@@ -726,32 +784,34 @@ def testRLS():
 
 ---
 
+### Recently Fixed ✅
+
+| Control | Section | Location |
+|---------|---------|----------|
+| Stack traces never reach clients in staging/production — generic 500 returned | §8.1 | `main.py` |
+| Catch-all `Exception` handler added — unhandled exceptions return generic 500 | §8.1 | `main.py` |
+| `messageRepository.update()` — now raises `NoHarmException(500)` on DB error | §8.1 | `messageRepository.py` |
+| `auditLogsRepository.findByType()` — param renamed `logType`, no longer shadows `type` builtin | §8.1 | `auditLogsRepository.py` |
+| `userService.getPublicProfile()` — non-404 from `findByUsers` now re-raises correctly | §7.1 | `userService.py` |
+
 ### Pending ⬜
 
 | Priority | Control | Section | Location |
 |----------|---------|---------|----------|
-| **Critical** | Service-layer ownership checks (IDOR prevention) | §5.2 | all `*Service.py` |
-| **Critical** | Stack trace removed from client error responses | §8.1 | all `*Repository.py`, `main.py` |
-| **Critical** | `.secrets.toml` added to `.gitignore` | §9.2 | `.gitignore` |
-| **Critical** | Verify secrets were never committed to Git | §9.2 | Git history audit |
-| **High** | Unified error message for login (account enumeration) | §7.1 | `authRoutes.py`, `userService.py` |
-| **High** | Redis-backed rate limiting (multi-worker) | §4.1, §8.2 | `rateLimiter.py` |
+| **High** | Implement `refreshTokenRepository.py` + wire `tb_8` — enables "revoke all sessions" | §7.4 | `refreshTokenRepository.py`, `authService.py` |
+| **High** | Redis-backed rate limiting (multi-worker) | §4.1, §8.2 | `rateLimiter.py`, `limiter.py` |
 | **High** | Constant-time login response (timing attack) | §1.2 | `authRoutes.py` |
-| **High** | Refresh token rotation (invalidate old on refresh) | §1.1 | `authRoutes.py` |
-| **High** | Per-endpoint rate limits | §4.1 | `middleware.py` |
-| **High** | Structured log sanitisation | §5.1 | logging setup |
+| **High** | Fix `authService.register()` — non-404 DB error during uniqueness check falls through silently | §7.1 | `authService.py` |
+| **High** | Structured log sanitisation + server-side traceback logging | §5.1, §8.1 | logging setup |
 | **High** | Debug mode guard in production | §8.5 | `main.py`, `config.py` |
 | **High** | pip-audit in CI pipeline | §9.1 | `.github/workflows/` |
-| **Medium** | Email verification on registration | §7.2 | `userService.py`, `emailService.py` |
-| **Medium** | Secure password reset flow | §7.3 | `userService.py`, `emailService.py` |
-| **Medium** | Audit log integration in all services | §7.5 | all `*Service.py` |
 | **Medium** | Request body size limit (Uvicorn + Nginx) | §8.3 | `run.py`, Nginx config |
 | **Medium** | CAPTCHA after 3 login failures | §1.2 | `authRoutes.py` |
-| **Medium** | `extra='forbid'` on all input schemas | §2.3 | all `*Schemas.py` |
+| **Medium** | `extra='forbid'` on all **input** schemas (response schemas already done) | §2.3 | `authSchemas.py`, `userSchemas.py`, `friendshipSchemas.py`, `chatSchemas.py`, … |
 | **Medium** | Nginx configuration (timeouts, body size, SSL) | §4.2 | infrastructure |
 | **Medium** | Encryption key versioning and rotation strategy | §8.4 | `encryption.py`, `config.py` |
 | **Medium** | File upload security (MIME validation, UUID rename, private bucket) | §8.7 | `storageService.py` |
-| **Low** | Account enumeration protection on register endpoint | §7.1 | `userService.py` |
+| **Medium** | Extend audit logging to friendship, chat, badge events | §7.5 | `friendshipService.py`, `chatService.py`, `badgeService.py` |
 | **Low** | Host header injection protection | §8.6 | `config.py`, Nginx |
 | **Low** | Dependabot / automated dependency update PRs | §9.1 | `.github/` |
 | **Low** | 2FA / MFA | — | `authRoutes.py` |

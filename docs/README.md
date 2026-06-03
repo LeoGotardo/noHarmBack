@@ -234,19 +234,30 @@ Reusable security modules shared across the application.
 | `jwtHandler.py` | Generation and validation of Access and Refresh tokens with blacklist support |
 | `tokenBlacklist.py` | Persistent JWT revocation list (append-only JSONL log + in-memory hashtable) |
 | `persistentHashTable.py` | Append-only log data structure with O(1) write and periodic compaction |
-| `rateLimiter.py` | IP-based rate limiting (sliding window) + login brute-force protection per username |
+| `rateLimiter.py` | IP-based rate limiting (sliding window) + login brute-force protection per username — global middleware |
+| `limiter.py` | Shared `slowapi` `Limiter` instance — imported by every route file for per-route `@limiter.limit(...)` decorators |
 | `middleware.py` | `RateLimitMiddleware` and `SecurityHeadersMiddleware` registered globally in `main.py` |
 | `sanitizer.py` | HTML sanitisation via `bleach` for XSS prevention |
 | `encryption.py` | AES-256 symmetric encryption (Fernet) + Argon2 password hashing + SHA-256 hashing |
 
 **JWT flow:**
 - Access token: 15-minute lifetime, signed with `JWT_SECRET_KEY`
-- Refresh token: 7-day lifetime, signed with `JWT_REFRESH_SECRET_KEY`, stored hashed in database
+- Refresh token: 7-day lifetime, signed with `JWT_REFRESH_SECRET_KEY`, stored hashed in database (`tb_8`)
 - Each token carries a unique `jti` claim that enables individual revocation
+- Refresh token rotation: old token is blacklisted on every `/auth/refresh` call before new tokens are issued
 - Revoked JTIs are stored hashed (SHA-256) in a persistent JSONL blacklist
 
 **Token blacklist:**
 The blacklist uses `PersistentHashTable` — an append-only JSONL file that survives server restarts. On startup, state is rebuilt by replaying log events. Expired entries are removed via `cleanup()`. JTIs are stored as SHA-256 hashes — plaintext JTIs are never written to disk.
+
+**Rate limiting — two layers:**
+
+| Layer | Implementation | Scope |
+|-------|---------------|-------|
+| Global floor | `RateLimitMiddleware` (`rateLimiter.py`) | 60 req/min per IP, 60-min block |
+| Per-route ceiling | `slowapi` decorator (`limiter.py`) | Stricter per endpoint (e.g. 5/min on register, 10/min on login) |
+
+The shared `Limiter` in `limiter.py` uses the same X-Forwarded-For aware IP extraction as the global middleware. To upgrade to Redis-backed storage for multi-worker deployments, change one line: `Limiter(key_func=_getClientIp, storage_uri="redis://...")`.
 
 ---
 
@@ -277,7 +288,7 @@ Handlers isolated by responsibility, called by `socketManager`.
 
 ### `src/main.py`
 
-Application entry point. Initialises FastAPI, registers middlewares (CORS, rate limiting, security headers), includes routes, and mounts the Socket.IO server alongside HTTP.
+Application entry point. Initialises FastAPI, registers middlewares (CORS, rate limiting, security headers), wires up the `slowapi` limiter state and `RateLimitExceeded` handler, includes all route routers, and mounts the Socket.IO server alongside HTTP.
 
 ### `src/run.py`
 
@@ -447,7 +458,7 @@ The project uses **camelCase** for all Python variables, functions, and attribut
 # ✅ Project standard
 def getUserById(userId: str): ...
 passwordHash = encryption.encryptPass(...)
-createdAt = datetime.now(datetime.UTC)
+createdAt = datetime.now(timezone.utc)
 
 # ❌ Not used (PEP 8 default)
 def get_user_by_id(user_id: str): ...
@@ -477,4 +488,5 @@ See `docs/security.md` for the complete security guide covering:
 | Document | Description |
 |----------|-------------|
 | `docs/TODO.md` | Current implementation status |
+| `docs/TESTING.md` | Test suite guide — 505 unit tests, patterns, coverage |
 | `docs/security.md` | Security guide, audit checklist, RLS, pagination, and business rules |

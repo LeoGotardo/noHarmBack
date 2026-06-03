@@ -18,7 +18,7 @@ This document tracks the current state of the backend architecture and component
 | **Models** | All 9 SQLAlchemy models | ✅ Complete |
 | **Encryption** | AES-256 field-level encryption | ✅ Complete |
 | **Repositories** | All 9 repositories (full CRUD) | ✅ Complete |
-| **Security** | Encryption, JWT, Blacklist, Rate Limiting | ✅ Complete |
+| **Security** | Encryption, JWT, Blacklist, Rate Limiting, Per-route limits (slowapi) | ✅ Complete |
 | **Middleware** | RateLimit, SecurityHeaders | ✅ Complete |
 | **Dependencies** | getCurrentUser, getDb, getDbWithRLS | ✅ Complete |
 | **Exceptions** | NoHarmException hierarchy | ✅ Complete |
@@ -29,6 +29,8 @@ This document tracks the current state of the backend architecture and component
 | **WebSocket** | Socket.IO + handlers | ✅ Complete |
 | **Row Level Security** | PostgreSQL RLS policies | ✅ Complete |
 | **Pagination** | Generic pagination system | ✅ Complete |
+| **Unit Tests** | 505 tests, 0 failures | ✅ Complete |
+| **Pyright/Pylance config** | `pyrightconfig.json` + `.vscode/settings.json` | ✅ Complete |
 
 ---
 
@@ -120,7 +122,8 @@ This document tracks the current state of the backend architecture and component
 | `jwtHandler.py` | Access/refresh token generation and validation |
 | `tokenBlacklist.py` | JWT revocation with persistent storage |
 | `persistentHashTable.py` | Append-only log for blacklist |
-| `rateLimiter.py` | IP-based and login rate limiting |
+| `rateLimiter.py` | IP-based and login rate limiting (global middleware) |
+| `limiter.py` | Shared `slowapi` Limiter for per-route rate limits |
 | `middleware.py` | RateLimitMiddleware, SecurityHeadersMiddleware |
 | `encryption.py` | AES-256, Argon2, SHA-256 |
 | `sanitizer.py` | HTML sanitization via bleach |
@@ -171,7 +174,7 @@ PostgreSQL
 1. **Field-Level Encryption**: All sensitive fields encrypted at rest with AES-256 (Fernet)
 2. **Row Level Security**: PostgreSQL RLS policies enforce data access control at database level
 3. **JWT Authentication**: Access tokens (15 min) + Refresh tokens (7 days) with blacklist
-4. **Rate Limiting**: IP-based (60 req/min) and login brute-force protection
+4. **Rate Limiting**: Two-layer — global IP floor (60 req/min via middleware) + per-route ceilings via `slowapi` (5/min on register, 10/min on login, etc.)
 5. **Pagination**: Generic pagination system with PaginatedResponse[T]
 6. **WebSocket**: Real-time chat with Socket.IO and JWT authentication
 
@@ -198,7 +201,7 @@ Defined in `.secrets.toml` under `STATUS_CODES`:
 
 ## Known Issues
 
-1. **Bug in `userBedgesModel.py`**: `badge_id` foreign key references `tb_1.cl_1a` instead of `tb_5.cl_5a`
+1. **Bug in `userBedgesModel.py`**: `badge_id` foreign key references `tb_1.cl_1a` instead of `tb_5.cl_5a` — FK points to `streaks` table instead of `badges`
 
 ---
 
@@ -209,7 +212,6 @@ Rules requiring infrastructure changes (new tables, models, external services):
 | Rule | Description | Blocked By |
 |------|-------------|------------|
 | 1.1 — Email Verification | Backend-initiated verification flow | `emailService.py` empty; needs token storage table |
-| 2.2 — Refresh Token DB Storage | Hashed tokens in DB with device hints | Needs `tb_8` model, migration, repository |
 | 7.2 — Badge Milestones | Auto-grant at streak milestones | Badge seed data missing in `tb_5` |
 | 8.1 — Audit Log Password/Email | Type=3 (password), Type=4 (email) logs | Auth delegated to Firebase — no backend endpoints |
 

@@ -1,26 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
-from typing import Optional
 
 from api.dependencies.auth import getCurrentUser
 from api.dependencies.database import getDb, getDbWithRLS
 from domain.services.userService import UserService
-from schemas.userSchemas import UserCreate, UserUpdate, UserResponse, UserListResponse
+from schemas.userSchemas import UserResponse, UserListResponse, ProfileUpdateRequest
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.user import User
+from security.limiter import limiter
 from typing import Union
 
-import uuid
 
 
 router = APIRouter(prefix="/users", tags=["Users"])
-
-
-class ProfileUpdateRequest(BaseModel):
-    username: Optional[str] = None
-    profilePicture: Optional[bytes] = None
 
 
 # ── /me ──────────────────────────────────────────────────────────────────────
@@ -31,21 +24,16 @@ class ProfileUpdateRequest(BaseModel):
     summary="Get my profile",
     description="Returns the full private profile of the authenticated user."
 )
+@limiter.limit("60/minute")
 def getMyProfile(
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = UserService(db)
         user = service.getProfile(currentUserId)
-        return UserResponse(
-            id=user.id,
-            username=user.username,
-            email=user.email,
-            status=user.status,
-            created_at=user.created_at,
-            updated_at=user.updated_at
-        )
+        return UserResponse.model_validate(user)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -61,22 +49,17 @@ def getMyProfile(
         "Status can never be changed via this endpoint."
     )
 )
+@limiter.limit("10/minute")
 def updateMyProfile(
-    request: ProfileUpdateRequest,
+    request: Request,
+    body: ProfileUpdateRequest,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = UserService(db)
-        user = service.updateProfile(currentUserId, request.username, request.profilePicture)
-        return UserResponse(
-            id=user.id,
-            username=user.username,
-            email=user.email,
-            status=user.status,
-            created_at=user.created_at,
-            updated_at=user.updated_at
-        )
+        user = service.updateProfile(currentUserId, body.username, body.profile_picture)
+        return UserResponse.model_validate(user)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -92,22 +75,17 @@ def updateMyProfile(
         "Blocked users cannot view the profile of their blocker (§3.3)."
     )
 )
+@limiter.limit("60/minute")
 def getPublicProfile(
     userId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = UserService(db)
         user = service.getPublicProfile(currentUserId, userId)
-        return UserResponse(
-            id=user.id,
-            username=user.username,
-            email=user.email,
-            status=user.status,
-            created_at=user.created_at,
-            updated_at=user.updated_at
-        )
+        return UserResponse.model_validate(user)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -120,7 +98,9 @@ def getPublicProfile(
     summary="Get all users",
     description="Returns all users (admin use)."
 )
+@limiter.limit("30/minute")
 def getAllUsers(
+    request: Request,
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
@@ -131,7 +111,8 @@ def getAllUsers(
         if paginated:
             return service.findAll(paginatedParams)
         users = service.findAll()
-        return UserListResponse(users=users, total=len(users))
+        assert isinstance(users, list)
+        return UserListResponse(users=[UserResponse.model_validate(u) for u in users], total=len(users))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -143,9 +124,11 @@ def getAllUsers(
     summary="Update a user status (admin)",
     description="Updates the status of an existing user. Admin action — creates audit log type=5."
 )
+@limiter.limit("10/minute")
 def updateUserStatus(
     status: int,
     userId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -163,7 +146,9 @@ def updateUserStatus(
     summary="Delete my account",
     description="Soft-deletes the authenticated user's own account (sets status = deleted). Only a user can delete their own account (§1.4)."
 )
+@limiter.limit("5/minute")
 def deleteUser(
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):

@@ -11,12 +11,12 @@ from core.config import config as appConfig
 
 from infrastructure.database.models import (
     friendshipModel,
+    userBadgesModel,
     userModel,
     streakModel,
     chatModel,
     messageModel,
     badgeModel,
-    userBedgesModel,
     auditLogsModel,
 )
 

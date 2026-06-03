@@ -10,10 +10,9 @@ jwtHandler = JwtHandler(TokenBlacklist)
 def getCurrentUser(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> str:
-    """Retorna o userId do token. Injete nas rotas que precisam de autenticação."""
     payload = jwtHandler.verifyToken(credentials.credentials, "access")
 
     if not payload:
-        raise HTTPException(status_code=401, detail="Token inválido ou expirado")
+        raise HTTPException(status_code=401, detail="Invalid or expired token.")
 
-    return payload["sub"]  # userId como string
+    return payload["sub"]

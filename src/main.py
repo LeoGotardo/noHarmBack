@@ -9,6 +9,9 @@ from exceptions.baseExceptions import NoHarmException
 from core.config import config
 from core.database import database
 from security.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
+from security.limiter import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.status import HTTP_200_OK
@@ -30,6 +33,9 @@ app = FastAPI(
     version="1.0.0",
     debug=config.DEBUG
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
@@ -53,9 +59,26 @@ app.include_router(auditLogsRouter)
 app.include_router(friendshipRouter)
 
 
+_GENERIC_500 = {"errorCode": "INTERNAL_ERROR", "message": "An internal server error occurred."}
+_IS_DEV = config.EXEC_MODE == "development"
+
+
 @app.exception_handler(NoHarmException)
 def noHarmExceptionHandler(request: Request, exc: NoHarmException):
+    if not _IS_DEV and exc.statusCode >= 500:
+        return JSONResponse(status_code=exc.statusCode, content=_GENERIC_500)
     return JSONResponse(status_code=exc.statusCode, content=exc.toDict())
+
+
+@app.exception_handler(Exception)
+def genericExceptionHandler(request: Request, exc: Exception):
+    if _IS_DEV:
+        import traceback
+        return JSONResponse(
+            status_code=500,
+            content={"errorCode": "INTERNAL_ERROR", "message": f"{type(exc).__name__}: {exc}", "details": traceback.format_exc()},
+        )
+    return JSONResponse(status_code=500, content=_GENERIC_500)
 
 
 @app.get("/")
@@ -73,7 +96,7 @@ app.mount("/ws", socketApp)
     responses={HTTP_200_OK: {"status": "ok", "database": "database is connected or disconnected", "env": "config mode [development, production]"}},
 )
 def healthCheck():
-    # Testa a conexão em tempo real
+    # Test the connection in real time
     try:
         with database.engine.connect():
             dbStatus = "connected"

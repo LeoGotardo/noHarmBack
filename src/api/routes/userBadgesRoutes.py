@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from api.dependencies.auth import getCurrentUser
 from api.dependencies.database import getDb, getDbWithRLS
@@ -6,11 +6,12 @@ from domain.services.userBadgeService import UserBadgeService
 from schemas.userBadgeSchemas import UserBadgeResponse, UserBadgeCreate, UserBadgeUpdate, UserBadgeListResponse
 from exceptions.baseExceptions import NoHarmException
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
+from security.limiter import limiter
 from typing import Union
 from domain.entities.userBadge import UserBadge
 
-
 import uuid
+
 
 router = APIRouter(prefix="/user-badges", tags=["User Badges"])
 
@@ -19,35 +20,26 @@ router = APIRouter(prefix="/user-badges", tags=["User Badges"])
             response_model=Union[PaginatedResponse[UserBadge], UserBadgeListResponse],
             summary="Get user badge by userId",
             description="Returns all user badges by userId.")
+@limiter.limit("60/minute")
 def getByUserId(
     userId: str,
+    request: Request,
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
     ):
-    """Get user badges by userId
-    
-    Args:
-        userId (str): User ID
-        paginated (bool, optional): If true, returns a paginated response. Defaults to False.
-        paginatedParams (PaginationParams, optional): Pagination parameters. Defaults to Depends().
-        
-    Returns:
-        UserBadgeListResponse: List of user badges
-        
-    """
     service = UserBadgeService(db)
-    
+
     if paginated:
         userBadges = service.findByUserId(userId, paginatedParams)
-        
+
         return userBadges
     else:
-        userBadges = service.getByUserId(userId)
-    
+        userBadges = service.findByUserId(userId)
+        assert isinstance(userBadges, list)
         return UserBadgeListResponse(
-            userBadges=userBadges,
+            badges=[UserBadgeResponse.model_validate(ub) for ub in userBadges],
             total=len(userBadges)
         )
 
@@ -56,35 +48,26 @@ def getByUserId(
             response_model=Union[PaginatedResponse[UserBadge], UserBadgeListResponse],
             summary="Get user badge by badgeId",
             description="Returns all user badges by badgeId.")
+@limiter.limit("60/minute")
 def getByBadgeId(
     badgeId: str,
+    request: Request,
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
     ):
-    """Get user badges by badgeId
-    
-    Args:
-        badgeId (str): Badge ID
-        paginated (bool, optional): If true, returns a paginated response. Defaults to False.
-        paginatedParams (PaginationParams, optional): Pagination parameters. Defaults to Depends().
-        
-    Returns:
-        UserBadgeListResponse: List of user badges
-        
-    """
     service = UserBadgeService(db)
-    
+
     if paginated:
         userBadges = service.findByBadgeId(badgeId, paginatedParams)
-        
+
         return userBadges
     else:
-        userBadges = service.getByBadgeId(badgeId)
-    
+        userBadges = service.findByBadgeId(badgeId)
+        assert isinstance(userBadges, list)
         return UserBadgeListResponse(
-            userBadges=userBadges,
+            badges=[UserBadgeResponse.model_validate(ub) for ub in userBadges],
             total=len(userBadges)
         )
 
@@ -94,33 +77,24 @@ def getByBadgeId(
             status_code=200,
             summary="Update a user badge",
             description="Updates an existing user badge.")
+@limiter.limit("10/minute")
 def updateUserBadge(
     userBadgeId: str,
-    request: UserBadgeUpdate,
+    request: Request,
+    body: UserBadgeUpdate,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
-    """
-    Update an existing user badge.    
-    Args:
-        userBadgeId: UUID of the user badge
-        request: User badge update data
-    Returns:
-        UserBadgeResponse: The updated user badge
-    """
     try:
         service = UserBadgeService(db)
-        
-        # Update the user badge entity
-        updatedUserBadge = UserBadge(
-            id=userBadgeId,
-            user_id=request.user,
-            badge_id=request.badge,
-            given_at=request.givenAt,
-            status=request.status
-        )        
-        updatedUserBadge = service.update(updatedUserBadge)
-        return updatedUserBadge
+
+        userBadge = service.findById(userBadgeId)
+        if body.given_at is not None:
+            userBadge.given_at = body.given_at
+        if body.status is not None:
+            userBadge.status = body.status
+        updated = service.update(userBadgeId, userBadge)
+        return UserBadgeResponse.model_validate(updated)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -130,27 +104,17 @@ def updateUserBadge(
              status_code=200,
              summary="Grant a user badge",
              description="Grants a badge to a user.")
+@limiter.limit("10/minute")
 def grantUserBadge(
     userId: str,
     badgeId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
-    """
-    Grant a badge to a user.
-
-    Args:
-        userId: UUID of the user
-        badgeId: UUID of the badge
-
-    Returns:
-        UserBadgeResponse: The granted user badge
-    """
     try:
         service = UserBadgeService(db)
-        
-        # Grant the badge to the user
-        grantedUserBadge = service.grant(userId, badgeId)
+        grantedUserBadge = service.grant(userId, badgeId)  
         return grantedUserBadge
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
@@ -161,26 +125,16 @@ def grantUserBadge(
              status_code=200,
              summary="Revoke a user badge",
              description="Revokes a badge from a user.")
+@limiter.limit("10/minute")
 def revokeUserBadge(
     userId: str,
     badgeId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
-    """
-    Revoke a badge from a user.
-
-    Args:
-        userId: UUID of the user
-        badgeId: UUID of the badge
-
-    Returns:
-        UserBadgeResponse: The revoked user badge
-    """
     try:
         service = UserBadgeService(db)
-        
-        # Revoke the badge from the user
         revokedUserBadge = service.revoke(userId, badgeId)
         return revokedUserBadge
     except NoHarmException as e:
@@ -192,30 +146,20 @@ def revokeUserBadge(
              status_code=200,
              summary="Update a user badge status",
              description="Updates the status of an existing user badge.")
+@limiter.limit("10/minute")
 def updateUserBadgeStatus(
     status: str,
     userBadgeId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
-    """
-    Update the status of an existing user badge.
-
-    Args:
-        status: New status (ex: enabled, disabled)
-        userBadgeId: UUID of the user badge
-
-    Returns:
-        UserBadgeResponse: The updated user badge
-    """
     try:
         service = UserBadgeService(db)
-
-        updatedUserBadge = service.updateStatus(userBadgeId, status)
+        updatedUserBadge = service.updateStatus(userBadgeId, status)  
         return updatedUserBadge
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
-
 
 
 @router.delete("/{userBadgeId}",
@@ -223,20 +167,13 @@ def updateUserBadgeStatus(
             status_code=200,
             summary="Delete a user badge",
             description="Soft deletes an existing user badge.")
+@limiter.limit("10/minute")
 def deleteUserBadge(
     userBadgeId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
-    """
-    Delete an existing user badge.
-
-    Args:
-        userBadgeId: UUID of the user badge
-
-    Returns:
-        UserBadgeResponse: The deleted user badge
-    """
     try:
         service = UserBadgeService(db)
         deletedUserBadge = service.delete(userBadgeId)

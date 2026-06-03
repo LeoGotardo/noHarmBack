@@ -44,6 +44,7 @@ _DEFAULTS = {
     "REFRESH_TOKEN_EXPIRE_DAYS": "7",
     "STORAGE_PATH": _test_storage,
     "ALLOWED_ORIGINS": '["http://localhost:3000"]',
+    "REDIS_URL": "redis://localhost:6379",
 }
 
 for _key, _val in _DEFAULTS.items():
@@ -56,6 +57,7 @@ _mock_db_module = MagicMock()
 _mock_db_module.Database = MagicMock
 _mock_db_module.database = MagicMock()
 sys.modules["core.database"] = _mock_db_module
+
 
 # ── Shared fixtures ───────────────────────────────────────────────────────────
 import pytest

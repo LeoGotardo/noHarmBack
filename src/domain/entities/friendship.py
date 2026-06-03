@@ -1,12 +1,13 @@
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+from uuid import UUID
 
 @dataclass
 class Friendship:
-    id: str
-    sender: str
-    reciver: str
-    send_at: str
-    recived_at: str
+    sender: UUID
+    reciver: UUID
     status: int
-    created_at: str
-    updated_at: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    id: Optional[UUID] = None

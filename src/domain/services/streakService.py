@@ -30,7 +30,7 @@ class StreakService:
                 catalyst=None,
                 description=description
             )
-            self.auditRepository.create(entry)
+            self.auditRepository.create(entry)  
         except Exception:
             pass
 
@@ -73,7 +73,7 @@ class StreakService:
 
         # §6.3 — auto-expiry: check updated_at (TimestampMixin)
         lastActivity = streak.updated_at
-        if lastActivity and (datetime.now(timezone.utc) - lastActivity) > timedelta(hours=24):
+        if lastActivity and (datetime.now(timezone.utc) - lastActivity) > timedelta(hours=24):  
             # Expire and start fresh
             return self._expireAndReset(streak, userId)
 
@@ -111,7 +111,7 @@ class StreakService:
             status=config.STATUS_CODES["enabled"],
             is_record=False
         )
-        created = self.streakRepository.create(newStreak)
+        created = self.streakRepository.create(newStreak)  
         self._checkAndGrantBadges(userId)
         return created
 
@@ -148,7 +148,7 @@ class StreakService:
         if str(streak.owner_id) != str(userId):
             raise NoHarmException(statusCode=403, errorCode="FORBIDDEN", message="Access denied.")
 
-        streak.updated_at = datetime.now(timezone.utc)
+        streak.updated_at = datetime.now(timezone.utc)  
         self.streakRepository.session.commit()
         return streak
 
@@ -204,7 +204,7 @@ class StreakService:
             status=config.STATUS_CODES["enabled"],
             is_record=False
         )
-        created = self.streakRepository.create(newStreak)
+        created = self.streakRepository.create(newStreak)  
         self._checkAndGrantBadges(userId)
         return created
 
