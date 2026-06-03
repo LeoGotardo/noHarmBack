@@ -1,6 +1,7 @@
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response
 
 from security.rateLimiter import IpRateLimiter
 
@@ -20,7 +21,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         app.add_middleware(RateLimitMiddleware)
     """
 
-    async def dispatch(self, request: Request, callNext):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         ip = self._extractIp(request)
 
         allowed, reason = _ipLimiter.check(ip)
@@ -35,7 +36,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 headers = {"Retry-After": "60"}
             )
 
-        return await callNext(request)
+        return await call_next(request)
 
 
     def _extractIp(self, request: Request) -> str:
@@ -48,6 +49,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if forwarded:
             return forwarded.split(",")[0].strip()
 
+        if request.client is None:
+            return "unknown"
         return request.client.host
 
 
@@ -61,8 +64,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
     _DOCS_PATHS = {"/docs", "/redoc", "/openapi.json"}
 
-    async def dispatch(self, request: Request, callNext):
-        response = await callNext(request)
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
 
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"]        = "DENY"

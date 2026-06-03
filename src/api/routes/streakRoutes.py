@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from api.dependencies.auth import getCurrentUser
@@ -7,6 +7,7 @@ from domain.services.streakService import StreakService
 from schemas.streakSchemas import StreakResponse, StreakListResponse
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
+from security.limiter import limiter
 from typing import Union
 from domain.entities.streak import Streak
 
@@ -23,22 +24,16 @@ router = APIRouter(prefix="/streaks", tags=["Streaks"])
         "Auto-expires and resets the streak if no activity was recorded in the last 24 h (§6.3)."
     )
 )
+@limiter.limit("60/minute")
 def getCurrentStreak(
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = StreakService(db)
         streak = service.getCurrentByUserId(currentUserId)
-        return StreakResponse(
-            id=streak.id,
-            owner=streak.owner_id,
-            start=streak.start,
-            end=streak.end,
-            status=streak.status,
-            isRecord=streak.is_record,
-            createdAt=streak.created_at
-        )
+        return StreakResponse.model_validate(streak)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -49,22 +44,16 @@ def getCurrentStreak(
     summary="Get my record streak",
     description="Returns the authenticated user's longest streak (isRecord = True)."
 )
+@limiter.limit("60/minute")
 def getRecordStreak(
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = StreakService(db)
         streak = service.getRecordByUserId(currentUserId)
-        return StreakResponse(
-            id=streak.id,
-            owner=streak.owner_id,
-            start=streak.start,
-            end=streak.end,
-            status=streak.status,
-            isRecord=streak.is_record,
-            createdAt=streak.created_at
-        )
+        return StreakResponse.model_validate(streak)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -75,7 +64,9 @@ def getRecordStreak(
     summary="Get my streak history",
     description="Returns all past and current streaks for the authenticated user."
 )
+@limiter.limit("30/minute")
 def getStreakHistory(
+    request: Request,
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
@@ -86,7 +77,11 @@ def getStreakHistory(
         if paginated:
             return service.getAllByUserId(currentUserId, paginatedParams)
         streaks = service.getAllByUserId(currentUserId)
-        return StreakListResponse(streaks=streaks, total=len(streaks))
+        assert isinstance(streaks, list)
+        return StreakListResponse(
+            streaks=[StreakResponse.model_validate(s) for s in streaks],
+            total=len(streaks)
+        )
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -102,22 +97,16 @@ def getStreakHistory(
         "start = now, isRecord = False."
     )
 )
+@limiter.limit("5/minute")
 def startStreak(
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = StreakService(db)
         streak = service.startStreak(currentUserId)
-        return StreakResponse(
-            id=streak.id,
-            owner=streak.owner_id,
-            start=streak.start,
-            end=streak.end,
-            status=streak.status,
-            isRecord=streak.is_record,
-            createdAt=streak.created_at
-        )
+        return StreakResponse.model_validate(streak)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -133,22 +122,16 @@ def startStreak(
         "Creates an audit log entry of type 7."
     )
 )
+@limiter.limit("5/minute")
 def endStreak(
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = StreakService(db)
         newStreak = service.endStreak(currentUserId)
-        return StreakResponse(
-            id=newStreak.id,
-            owner=newStreak.owner_id,
-            start=newStreak.start,
-            end=newStreak.end,
-            status=newStreak.status,
-            isRecord=newStreak.is_record,
-            createdAt=newStreak.created_at
-        )
+        return StreakResponse.model_validate(newStreak)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -163,21 +146,15 @@ def endStreak(
         "Must be called at least once every 24 h to prevent auto-expiry (§6.3)."
     )
 )
+@limiter.limit("10/minute")
 def checkin(
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = StreakService(db)
         streak = service.checkin(currentUserId)
-        return StreakResponse(
-            id=streak.id,
-            owner=streak.owner_id,
-            start=streak.start,
-            end=streak.end,
-            status=streak.status,
-            isRecord=streak.is_record,
-            createdAt=streak.created_at
-        )
+        return StreakResponse.model_validate(streak)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

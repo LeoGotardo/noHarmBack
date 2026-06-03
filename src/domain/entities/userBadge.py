@@ -1,11 +1,14 @@
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+from uuid import UUID
 
 @dataclass
 class UserBadge:
-    id: str
-    user_id: str
-    badge_id: str
-    given_at: str
+    user_id: UUID
+    badge_id: UUID
     status: int
-    created_at: str    
-    updated_at: str
+    id: Optional[UUID] = None
+    given_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None

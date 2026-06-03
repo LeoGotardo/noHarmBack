@@ -7,7 +7,6 @@ from core.config import config
 from core.database import Database
 
 from datetime import datetime, timezone
-from sqlalchemy import or_
 
 
 class ChatService:
@@ -20,9 +19,8 @@ class ChatService:
 
     def getAllByUserId(self, userId: str) -> list[Chat]:
         """Return all chats where the user is sender or receiver."""
-        sent = self.chatRepository.findAllBySenderId(userId)
-        received = self.chatRepository.findAllByReciverId(userId)
-        return sent + received
+        chats = self.chatRepository.findByParticipant(userId)
+        return chats
 
     def get(self, chatId: str, requestingUserId: str) -> Chat:
         """Return a chat, verifying the requesting user is a participant (§9.2)."""
@@ -60,7 +58,7 @@ class ChatService:
         # §4.1 — check for existing active chat
         existing = self._findActiveChatBetween(senderId, receiverId)
         if existing:
-            return existing
+            return existing  
 
         newChat = ChatModel(
             sender=senderId,
@@ -69,7 +67,7 @@ class ChatService:
             ended_at=None,
             status=config.STATUS_CODES["pending"]
         )
-        return self.chatRepository.create(newChat)
+        return self.chatRepository.create(newChat)  
 
     def activate(self, chatId: str, requestingUserId: str) -> Chat:
         """Activate a pending chat (pending → enabled) (§4.1).
@@ -109,14 +107,14 @@ class ChatService:
     def create(self, newChat: Chat) -> Chat:
         return self.chatRepository.create(newChat)
 
-    def updateStatus(self, chatId: str, status: int) -> Chat:
-        self.chatRepository.updateStatus(chatId, status)
+    def updateStatus(self, chatId: str, status: int) -> Chat:  
+         return self.chatRepository.updateStatus(chatId, status)
 
     def update(self, chatId: str, updatedChat: Chat) -> Chat:
         return self.chatRepository.update(chatId, updatedChat)
 
-    def updateEndedAt(self, chatId: str, endedAt: datetime) -> Chat:
-        self.chatRepository.updateEndedAt(chatId, endedAt)
+    def updateEndedAt(self, chatId: str, endedAt: datetime) -> Chat:  
+        return self.chatRepository.updateEndedAt(chatId, endedAt)
 
     def delete(self, chatId: str, requestingUserId: str) -> bool:
         """Soft-delete a chat — only participants may delete it (§4.3, §9.2)."""
@@ -126,7 +124,7 @@ class ChatService:
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
-    def _assertParticipant(self, chat, userId: str) -> None:
+    def _assertParticipant(self, chat: Chat, userId: str) -> None:
         """Raise 403 if userId is not a participant of the chat (§9.2)."""
         if str(chat.sender) != str(userId) and str(chat.reciver) != str(userId):
             raise NoHarmException(
@@ -135,18 +133,12 @@ class ChatService:
                 message="You are not a participant in this chat."
             )
 
-    def _findActiveChatBetween(self, userA: str, userB: str):
+    def _findActiveChatBetween(self, userA: str, userB: str) -> Chat | None:
         """Find an active (pending or enabled) chat between two users."""
         active_statuses = {config.STATUS_CODES.get("pending"), config.STATUS_CODES.get("enabled")}
 
-        sent = self.chatRepository.findAllBySenderId(userA)
-        for chat in sent:
-            if str(chat.reciver) == str(userB) and chat.status in active_statuses:
-                return chat
-
-        received = self.chatRepository.findAllByReciverId(userA)
-        for chat in received:
-            if str(chat.sender) == str(userB) and chat.status in active_statuses:
-                return chat
-
+        chat = self.chatRepository.findBetween(userA, userB)
+        if chat and chat.status in active_statuses:
+            return chat
+        
         return None

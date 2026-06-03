@@ -1,12 +1,15 @@
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+from uuid import UUID
 
 @dataclass
 class Streak:
-    id: str
-    owner_id: str
-    start: str
-    end: str
+    owner_id: UUID
+    start: datetime
     status: int
-    is_record: bool
-    created_at: str
-    updated_at: str
+    id: Optional[UUID] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    is_record: Optional[bool] = False
+    end: Optional[datetime] = None

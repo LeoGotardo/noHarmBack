@@ -29,7 +29,7 @@ class Database:
 
 
     def _setupEngine(self):
-        # SQLAlchemy 2.x não aceita "postgres://", só "postgresql://"
+        # SQLAlchemy 2.x requires "postgresql://", not "postgres://"
         dbUrl = config.DATABASE_URL.replace("postgres://", "postgresql://", 1)
         
         return create_engine(

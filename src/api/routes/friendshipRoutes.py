@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from api.dependencies.auth import getCurrentUser
@@ -7,6 +7,7 @@ from domain.services.friendshipService import FriendshipService
 from schemas.friendshipSchemas import FriendshipResponse, FriendshipListResponse
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
+from security.limiter import limiter
 from typing import Union
 from domain.entities.friendship import Friendship
 
@@ -22,7 +23,9 @@ router = APIRouter(prefix="/friendships", tags=["Friendships"])
     summary="Get my friendships",
     description="Returns all friendships for the authenticated user."
 )
+@limiter.limit("60/minute")
 def getMyFriendships(
+    request: Request,
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
@@ -33,7 +36,8 @@ def getMyFriendships(
         if paginated:
             return service.getAll(currentUserId, paginatedParams)
         friendships = service.getAll(currentUserId)
-        return FriendshipListResponse(friendships=friendships, total=len(friendships))
+        assert isinstance(friendships, list)
+        return FriendshipListResponse(friendships=[FriendshipResponse.model_validate(f) for f in friendships], total=len(friendships))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -44,7 +48,9 @@ def getMyFriendships(
     summary="Get pending friend requests (received)",
     description="Returns all pending friendship requests received by the authenticated user."
 )
+@limiter.limit("60/minute")
 def getPendingReceived(
+    request: Request,
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
@@ -55,7 +61,8 @@ def getPendingReceived(
         if paginated:
             return service.getPendingReceived(currentUserId, paginatedParams)
         friendships = service.getPendingReceived(currentUserId)
-        return FriendshipListResponse(friendships=friendships, total=len(friendships))
+        assert isinstance(friendships, list)
+        return FriendshipListResponse(friendships=[FriendshipResponse.model_validate(f) for f in friendships], total=len(friendships))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -66,7 +73,9 @@ def getPendingReceived(
     summary="Get pending friend requests (sent)",
     description="Returns all pending friendship requests sent by the authenticated user."
 )
+@limiter.limit("60/minute")
 def getPendingSent(
+    request: Request,
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
@@ -77,7 +86,8 @@ def getPendingSent(
         if paginated:
             return service.getPendingSent(currentUserId, paginatedParams)
         friendships = service.getPendingSent(currentUserId)
-        return FriendshipListResponse(friendships=friendships, total=len(friendships))
+        assert isinstance(friendships, list)
+        return FriendshipListResponse(friendships=[FriendshipResponse.model_validate(f) for f in friendships], total=len(friendships))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -88,8 +98,10 @@ def getPendingSent(
     summary="Get a friendship by ID",
     description="Returns a specific friendship. Only participants may access it."
 )
+@limiter.limit("60/minute")
 def getFriendshipById(
     friendshipId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -114,8 +126,10 @@ def getFriendshipById(
         "and cannot send to a user who has blocked you."
     )
 )
+@limiter.limit("10/minute")
 def sendFriendRequest(
     receiverId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -138,8 +152,10 @@ def sendFriendRequest(
         "Only the recipient of the request can accept it."
     )
 )
+@limiter.limit("20/minute")
 def acceptFriendRequest(
     friendshipId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -160,8 +176,10 @@ def acceptFriendRequest(
         "Only the recipient of the request can reject it."
     )
 )
+@limiter.limit("20/minute")
 def rejectFriendRequest(
     friendshipId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -184,8 +202,10 @@ def rejectFriendRequest(
         "Either participant may block the other at any time, regardless of current status."
     )
 )
+@limiter.limit("10/minute")
 def blockUser(
     friendshipId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -203,8 +223,10 @@ def blockUser(
     summary="Unblock a user",
     description="Unblocks a previously blocked user."
 )
+@limiter.limit("10/minute")
 def unblockUser(
     friendshipId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -223,8 +245,10 @@ def unblockUser(
     summary="Remove a friendship",
     description="Soft-deletes the friendship. Only participants may remove it."
 )
+@limiter.limit("10/minute")
 def deleteFriendship(
     friendshipId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):

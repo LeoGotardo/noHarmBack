@@ -6,14 +6,15 @@ from datetime import datetime
 
 class StreakResponse(BaseModel):
     id: UUID
-    owner: UUID = Field(..., description="Owner user ID")
-    start: Optional[datetime] = Field(None, description="Start time")
+    owner_id: UUID = Field(..., description="Owner user ID")
+    start: datetime = Field(..., description="Start time")
     end: Optional[datetime] = Field(None, description="End time")
     status: int = Field(..., description="Streak status")
-    isRecord: bool = Field(..., description="Whether this is the user's personal record")
-    createdAt: Optional[datetime] = Field(None, description="Created at")
+    is_record: Optional[bool] = Field(False, description="Whether this is the user's personal record")
+    created_at: Optional[datetime] = Field(None, description="Created at")
+    updated_at: Optional[datetime] = Field(None, description="Updated at")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
 class StreakListResponse(BaseModel):
@@ -21,17 +22,16 @@ class StreakListResponse(BaseModel):
     total: int
 
 
-# Kept for backward compatibility with any internal callers
 class StreakCreate(BaseModel):
-    owner: UUID
-    start: Optional[datetime] = None
+    owner_id: UUID
+    start: datetime
     end: Optional[datetime] = None
     status: int = 1
-    isRecord: bool = False
+    is_record: bool = False
 
 
 class StreakUpdate(BaseModel):
     start: Optional[datetime] = None
     end: Optional[datetime] = None
     status: Optional[int] = None
-    isRecord: Optional[bool] = None
+    is_record: Optional[bool] = None

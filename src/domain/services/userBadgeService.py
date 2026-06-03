@@ -3,6 +3,7 @@ from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from domain.entities.userBadge import UserBadge
 from core.database import Database
 from typing import Optional
+from datetime import datetime
 
 
 class UserBadgeService:
@@ -62,7 +63,7 @@ class UserBadgeService:
         return self.userBadgeRepository.existsByUserAndBadge(user_id, badge_id)
     
     
-    def grant(self, user_id: str, badge_id: str, given_at: str) -> bool:
+    def grant(self, user_id: str, badge_id: str, given_at: datetime | None = None) -> bool:
         """Grant a badge to a user
         
         Args:
@@ -73,7 +74,7 @@ class UserBadgeService:
         Returns:
             bool: True if badge was granted, False if not
         """
-        return self.userBadgeRepository.grant(user_id, badge_id, given_at)
+        return self.userBadgeRepository.grant(user_id, badge_id, given_at)  
     
     
     def revoke(self, user_id: str, badge_id: str) -> bool:
@@ -89,12 +90,25 @@ class UserBadgeService:
         return self.userBadgeRepository.revoke(user_id, badge_id)
     
     
-    def updateStatus(self, id: str, status: int) -> UserBadge:
+    def update(self, id: str, updatedUserBadge: UserBadge) -> UserBadge:
+        """Update a badge
+        
+        Args:
+            id (str): UserBadge ID
+            updatedUserBadge (UserBadge): UserBadge with updated data
+            
+        Returns:
+            UserBadge: UserBadge with his full data
+        """
+        return self.userBadgeRepository.update(id, updatedUserBadge)
+    
+    
+    def updateStatus(self, id: str, status: str) -> UserBadge:
         """Update a badge status
         
         Args:
             id (str): UserBadge ID
-            status (int): New status
+            status (str): New status
             
         Returns:
             UserBadge: UserBadge with his full data

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
@@ -8,6 +8,7 @@ from domain.services.messageService import MessageService
 from schemas.messageSchemas import MessageResponse, MessageListResponse
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
+from security.limiter import limiter
 from typing import Union
 
 router = APIRouter(prefix="/messages", tags=["Messages"])
@@ -26,8 +27,10 @@ class SendMessageRequest(BaseModel):
     summary="Get messages in a chat",
     description="Returns all messages for a chat. Only participants may access them (§5.2, RLS)."
 )
+@limiter.limit("60/minute")
 def getMessagesByChatId(
     chatId: str,
+    request: Request,
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
@@ -38,7 +41,8 @@ def getMessagesByChatId(
         if paginated:
             return service.getByChatId(chatId, paginatedParams)
         messages = service.getByChatId(chatId)
-        return MessageListResponse(messages=messages, total=len(messages))
+        assert isinstance(messages, list)
+        return MessageListResponse(messages=[MessageResponse.model_validate(m) for m in messages], total=len(messages))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -49,8 +53,10 @@ def getMessagesByChatId(
     summary="Get unread messages in a chat",
     description="Returns all unread messages in the given chat."
 )
+@limiter.limit("60/minute")
 def getUnreadMessagesByChatId(
     chatId: str,
+    request: Request,
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
@@ -61,7 +67,8 @@ def getUnreadMessagesByChatId(
         if paginated:
             return service.getUnreadByChatId(chatId, paginatedParams)
         messages = service.getUnreadByChatId(chatId)
-        return MessageListResponse(messages=messages, total=len(messages))
+        assert isinstance(messages, list)
+        return MessageListResponse(messages=[MessageResponse.model_validate(m) for m in messages], total=len(messages))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -72,8 +79,10 @@ def getUnreadMessagesByChatId(
     summary="Get a message by ID",
     description="Returns a specific message."
 )
+@limiter.limit("60/minute")
 def getMessageById(
     messageId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -98,14 +107,16 @@ def getMessageById(
         "status = unread, sendAt = now."
     )
 )
+@limiter.limit("30/minute")
 def sendMessage(
-    request: SendMessageRequest,
+    request: Request,
+    body: SendMessageRequest,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = MessageService(db)
-        return service.sendMessage(request.chatId, currentUserId, request.content)
+        return service.sendMessage(body.chatId, currentUserId, body.content)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -119,8 +130,10 @@ def sendMessage(
     summary="Mark a message as read",
     description="Marks a specific message as read (§5.3). Idempotent — already-read messages are not updated."
 )
+@limiter.limit("60/minute")
 def markMessageAsRead(
     messageId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -137,8 +150,10 @@ def markMessageAsRead(
     summary="Mark all messages as read",
     description="Marks all unread messages in a chat as read (§5.3)."
 )
+@limiter.limit("30/minute")
 def markAllMessagesAsRead(
     chatId: str,
+    request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):

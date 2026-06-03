@@ -7,7 +7,6 @@ from core.config import config
 from core.database import Database
 
 from typing import Optional
-from datetime import datetime, timezone
 
 
 class FriendshipService:
@@ -20,17 +19,22 @@ class FriendshipService:
     def get(self, friendshipId: str) -> Friendship:
         return self.friendshipRepository.findById(friendshipId)
 
+
     def getByUsers(self, userA: str, userB: str) -> Friendship:
         return self.friendshipRepository.findByUsers(userA, userB)
+
 
     def getAll(self, userId: str, params: Optional[PaginationParams] = None) -> list[Friendship] | PaginatedResponse[Friendship]:
         return self.friendshipRepository.findAllByUserId(userId, params)
 
+
     def getPendingReceived(self, userId: str, params: Optional[PaginationParams] = None) -> list[Friendship] | PaginatedResponse[Friendship]:
         return self.friendshipRepository.findPendingReceived(userId, params)
 
+
     def getPendingSent(self, userId: str, params: Optional[PaginationParams] = None) -> list[Friendship] | PaginatedResponse[Friendship]:
         return self.friendshipRepository.findPendingSent(userId, params)
+
 
     def existsByUsers(self, userA: str, userB: str) -> bool:
         return self.friendshipRepository.existsByUsers(userA, userB)
@@ -78,11 +82,10 @@ class FriendshipService:
         newFriendship = FriendshipModel(
             sender=senderId,
             reciver=receiverId,
-            send_at=datetime.now(timezone.utc),
-            recived_at=None,
             status=config.STATUS_CODES["pending"]
         )
-        return self.friendshipRepository.create(newFriendship)
+        return self.friendshipRepository.create(newFriendship)  
+
 
     def accept(self, friendshipId: str, receiverId: str) -> Friendship:
         """Accept a pending friend request (§3.2).
@@ -107,10 +110,8 @@ class FriendshipService:
                 message="Only pending requests can be accepted."
             )
 
-        friendship.status = config.STATUS_CODES["accepted"]
-        friendship.recived_at = datetime.now(timezone.utc)
-        self.friendshipRepository.session.commit()
-        return friendship
+        return self.friendshipRepository.updateStatus(friendshipId, "accepted")
+
 
     def reject(self, friendshipId: str, receiverId: str) -> Friendship:
         """Reject (ignore) a pending friend request (§3.2).
@@ -137,6 +138,7 @@ class FriendshipService:
 
         return self.friendshipRepository.updateStatus(friendshipId, "ignored")
 
+
     def block(self, friendshipId: str, requestingUserId: str) -> Friendship:
         """Block from an existing friendship — either participant may block (§3.3).
 
@@ -153,6 +155,7 @@ class FriendshipService:
 
         return self.friendshipRepository.updateStatus(friendshipId, "blocked")
 
+
     def unblock(self, friendshipId: str, requestingUserId: str) -> Friendship:
         """Unblock a previously blocked friendship (§3.3)."""
         friendship = self.friendshipRepository.findById(friendshipId)
@@ -163,8 +166,16 @@ class FriendshipService:
                 errorCode="FORBIDDEN",
                 message="You are not a participant in this friendship."
             )
+            
+        if friendship.status != config.STATUS_CODES.get("blocked"):
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="INVALID_STATE",
+                message="Only blocked requests can be unblocked."
+            )
 
         return self.friendshipRepository.updateStatus(friendshipId, "disabled")
+
 
     def delete(self, id: str, requestingUserId: str) -> bool:
         """Soft-delete a friendship — only participants may remove it (§9.1, §9.2)."""
@@ -178,6 +189,7 @@ class FriendshipService:
             )
 
         return self.friendshipRepository.softDelete(id)
+
 
     # ── low-level passthrough (kept for admin/internal use) ───────────────────
 

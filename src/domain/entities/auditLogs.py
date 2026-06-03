@@ -1,11 +1,14 @@
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+from uuid import UUID
 
 @dataclass
 class AuditLogs:
-    id: str
     type: int
-    catalist_id: str
-    catalist: int
     description: str
-    created_at: str
-    updated_at: str
+    id: Optional[UUID] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    catalyst_id: Optional[UUID] = None
+    catalyst: Optional[int] = None
