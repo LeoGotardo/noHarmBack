@@ -23,13 +23,20 @@ def _require_json(key: str):
     except json.JSONDecodeError as e:
         raise Exception(f"Env var {key} is not valid JSON: {e}")
 
-# Load .secrets.toml for local development (overrides nothing if already in env)
 try:
     import tomllib
     _toml_path = os.path.join(os.path.dirname(__file__), "..", "..", ".secrets.toml")
+    _enviroment = os.environ.get("APP_ENV", 'prod')
+    
     if os.path.exists(_toml_path):
         with open(_toml_path, "rb") as f:
             _toml = tomllib.load(f)
+            
+        _toml_default = _toml.get("default", {})
+        _toml_enviroment = _toml.get(_enviroment, {})
+        
+        _toml = {**_toml_default, **_toml_enviroment}
+        
         for k, v in _toml.items():
             if k.upper() not in os.environ:
                 if isinstance(v, (dict, list)):
