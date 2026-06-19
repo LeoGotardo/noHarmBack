@@ -35,7 +35,6 @@ class Database:
         return create_engine(
             dbUrl,
             pool_pre_ping=True,
-            connect_args={"sslmode": "require"}
         )
 
 
