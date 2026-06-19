@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # O Banco de Dados Postgres
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres_db
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: noharm-db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # O Banco de Dados Redis
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # A sua Aplicação Python
+  app:
+    build: 
+      context: ../
+      dockerfile: docker/Dockerfile
+    container_name: noharm-backend
+    environment:
+      - APP_ENV=dev
+    ports:
+      - "8080:8080"
+    # O 'depends_on' garante que o app só sobe após o banco e o redis estarem de pé
+    depends_on:
+      - postgres
+      - redis
+
+volumes:
+  postgres_data:
+  redis_data:
