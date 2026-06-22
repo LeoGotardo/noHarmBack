@@ -16,13 +16,12 @@ import uuid
 router = APIRouter(prefix="/user-badges", tags=["User Badges"])
 
 
-@router.get("/{userId}",
+@router.get("/",
             response_model=Union[PaginatedResponse[UserBadge], UserBadgeListResponse],
             summary="Get user badge by userId",
             description="Returns all user badges by userId.")
 @limiter.limit("60/minute")
 def getByUserId(
-    userId: str,
     request: Request,
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
@@ -32,11 +31,11 @@ def getByUserId(
     service = UserBadgeService(db)
 
     if paginated:
-        userBadges = service.findByUserId(userId, paginatedParams)
+        userBadges = service.findByUserId(currentUserId, paginatedParams)
 
         return userBadges
     else:
-        userBadges = service.findByUserId(userId)
+        userBadges = service.findByUserId(currentUserId)
         assert isinstance(userBadges, list)
         return UserBadgeListResponse(
             badges=[UserBadgeResponse.model_validate(ub) for ub in userBadges],
