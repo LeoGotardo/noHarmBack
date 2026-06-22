@@ -16,7 +16,7 @@ import uuid
 router = APIRouter(prefix="/user-badges", tags=["User Badges"])
 
 
-@router.get("/{userBadgeId}",
+@router.get("/{userId}",
             response_model=Union[PaginatedResponse[UserBadge], UserBadgeListResponse],
             summary="Get user badge by userId",
             description="Returns all user badges by userId.")
