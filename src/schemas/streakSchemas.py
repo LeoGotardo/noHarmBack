@@ -7,8 +7,9 @@ from datetime import datetime
 class StreakResponse(BaseModel):
     id: UUID
     owner_id: UUID = Field(..., description="Owner user ID")
-    start: datetime = Field(..., description="Start time")
-    end: Optional[datetime] = Field(None, description="End time")
+    start_at: datetime = Field(..., description="When the streak started")
+    end_at: Optional[datetime] = Field(None, description="When the streak ended (null if active)")
+    last_checkin: Optional[datetime] = Field(None, description="Last sobriety check-in timestamp")
     status: int = Field(..., description="Streak status")
     is_record: Optional[bool] = Field(False, description="Whether this is the user's personal record")
     created_at: Optional[datetime] = Field(None, description="Created at")
@@ -24,14 +25,16 @@ class StreakListResponse(BaseModel):
 
 class StreakCreate(BaseModel):
     owner_id: UUID
-    start: datetime
-    end: Optional[datetime] = None
+    start_at: datetime
+    end_at: Optional[datetime] = None
+    last_checkin: Optional[datetime] = None
     status: int = 1
     is_record: bool = False
 
 
 class StreakUpdate(BaseModel):
-    start: Optional[datetime] = None
-    end: Optional[datetime] = None
+    start_at: Optional[datetime] = None
+    end_at: Optional[datetime] = None
+    last_checkin: Optional[datetime] = None
     status: Optional[int] = None
     is_record: Optional[bool] = None

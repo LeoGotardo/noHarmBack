@@ -20,8 +20,7 @@ router = APIRouter(prefix="/streaks", tags=["Streaks"])
     response_model=StreakResponse,
     summary="Get my current streak",
     description=(
-        "Returns the authenticated user's active streak. "
-        "Auto-expires and resets the streak if no activity was recorded in the last 24 h (§6.3)."
+        "Returns the authenticated user's active streak."
     )
 )
 @limiter.limit("60/minute")
@@ -142,8 +141,8 @@ def endStreak(
     status_code=200,
     summary="Daily check-in",
     description=(
-        "Confirms the user's sobriety for today, refreshing the streak's activity timestamp. "
-        "Must be called at least once every 24 h to prevent auto-expiry (§6.3)."
+        "Confirms the user's sobriety, refreshing the streak's activity timestamp. "
+        "Streaks only reset via manual relapse (POST /streaks/end)."
     )
 )
 @limiter.limit("10/minute")

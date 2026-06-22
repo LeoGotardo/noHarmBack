@@ -25,10 +25,11 @@ class StreakRepository:
         return Streak(
             id=model.id,
             owner_id=model.owner_id,
-            start=model.start,
+            start_at=model.start_at,
             status=model.status,
             is_record=model.is_record,
-            end=model.end,
+            end_at=model.end_at,
+            last_checkin=model.last_checkin,
             created_at=model.created_at,
             updated_at=model.updated_at
         )
@@ -137,10 +138,11 @@ class StreakRepository:
         try:
             streakModel = StreakModel(
                 owner_id=Streak.owner_id,
-                start=Streak.start,
+                start_at=Streak.start_at,
                 status=Streak.status,
                 is_record=Streak.is_record,
-                end=Streak.end,
+                end_at=Streak.end_at,
+                last_checkin=Streak.last_checkin,
                 created_at=Streak.created_at,
                 updated_at=Streak.updated_at
             )
@@ -167,8 +169,8 @@ class StreakRepository:
         try:
             streakModel = self.findById(streak_id, returnModel=True)
             
-            streakModel.start = updatedStreak.start if updatedStreak.start else streakModel.start
-            streakModel.end = updatedStreak.end if updatedStreak.end else streakModel.end
+            streakModel.start_at = updatedStreak.start_at if updatedStreak.start_at else streakModel.start_at
+            streakModel.end_at = updatedStreak.end_at if updatedStreak.end_at else streakModel.end_at
             streakModel.status = updatedStreak.status if updatedStreak.status else streakModel.status
             
             self.session.commit()
@@ -181,6 +183,18 @@ class StreakRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
         
+    def updateLastCheckin(self, id: str, checkinAt: datetime) -> Streak:
+        try:
+            streakModel = self.findById(id, returnModel=True)
+            streakModel.last_checkin = checkinAt
+            self.session.commit()
+            return self._toEntity(streakModel)
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
     def markAsRecord(self, id: str) -> Streak:
         """Mark a streak as record
         
@@ -218,7 +232,7 @@ class StreakRepository:
         try:
             streakModel = self.findById(id, returnModel=True)
             
-            streakModel.end = end  
+            streakModel.end_at = end
             
             self.session.commit()
             

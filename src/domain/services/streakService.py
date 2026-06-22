@@ -10,7 +10,7 @@ from core.config import config
 from core.database import Database
 from typing import Optional
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 
 class StreakService:
@@ -35,12 +35,10 @@ class StreakService:
             pass
 
     def _durationDays(self, streak) -> float:
-        """Return the length of a streak in days."""
-        end = streak.end if streak.end else datetime.now(timezone.utc)
-        start = streak.start
-        if not start:
+        end = streak.end_at if streak.end_at else datetime.now(timezone.utc)
+        if not streak.start_at:
             return 0
-        return (end - start).total_seconds() / 86400
+        return (end - streak.start_at).total_seconds() / 86400
 
     def _checkAndGrantBadges(self, userId: str) -> None:
         """Placeholder for badge milestone checks (§7.2 — future release).
@@ -59,23 +57,12 @@ class StreakService:
         return self.streakRepository.findAllByOwnerId(userId, params)
 
     def getCurrentByUserId(self, userId: str) -> Streak:
-        """Return the active streak, auto-expiring it if >24 h have passed (§6.3).
-
-        If expired, the same end-streak flow runs: the streak is closed,
-        a new one is created, badges are checked, and the new streak is returned.
-        """
         try:
             streak = self.streakRepository.findCurrentStreak(userId)
         except NoHarmException as e:
             if e.statusCode == 404:
                 raise NoHarmException(statusCode=404, errorCode="NO_ACTIVE_STREAK", message="No active streak found.")
             raise e
-
-        # §6.3 — auto-expiry: check updated_at (TimestampMixin)
-        lastActivity = streak.updated_at
-        if lastActivity and (datetime.now(timezone.utc) - lastActivity) > timedelta(hours=24):  
-            # Expire and start fresh
-            return self._expireAndReset(streak, userId)
 
         return streak
 
@@ -106,8 +93,9 @@ class StreakService:
 
         newStreak = StreakModel(
             owner_id=userId,
-            start=datetime.now(timezone.utc),
-            end=None,
+            start_at=datetime.now(timezone.utc),
+            end_at=None,
+            last_checkin=None,
             status=config.STATUS_CODES["enabled"],
             is_record=False
         )
@@ -134,23 +122,16 @@ class StreakService:
         return self._closeAndReset(streak, userId)
 
     def checkin(self, userId: str) -> Streak:
-        """Refresh the streak's updated_at to prevent auto-expiry (§6.3).
-
-        The frontend calls this once per day to confirm the user's sobriety.
-        Without a daily check-in, the streak expires after 24 h of inactivity.
-        """
+        """Increment streak days by 1."""
         try:
             streak = self.streakRepository.findCurrentStreak(userId)
         except NoHarmException:
             raise NoHarmException(statusCode=404, errorCode="NO_ACTIVE_STREAK", message="No active streak found.")
 
-        # Ownership check (§9.2)
         if str(streak.owner_id) != str(userId):
             raise NoHarmException(statusCode=403, errorCode="FORBIDDEN", message="Access denied.")
 
-        streak.updated_at = datetime.now(timezone.utc)  
-        self.streakRepository.session.commit()
-        return streak
+        return self.streakRepository.updateLastCheckin(str(streak.id), datetime.now(timezone.utc))
 
     def markAsRecord(self, streakId: str) -> Streak:
         return self.streakRepository.markAsRecord(streakId)
@@ -194,13 +175,14 @@ class StreakService:
                 self.streakRepository.markAsRecord(str(streak.id))
 
         # Audit log (§8.1 type=7)
-        self._logAudit(7, userId, f"Streak reset after {endedDuration:.1f} days")
+        self._logAudit(7, userId, f"Streak reset after {endedDuration} days")
 
         # Create replacement streak
         newStreak = StreakModel(
             owner_id=userId,
-            start=now,
-            end=None,
+            start_at=now,
+            end_at=None,
+            last_checkin=None,
             status=config.STATUS_CODES["enabled"],
             is_record=False
         )
@@ -208,6 +190,3 @@ class StreakService:
         self._checkAndGrantBadges(userId)
         return created
 
-    def _expireAndReset(self, streak, userId: str) -> Streak:
-        """Auto-expire a stale streak and start a new one (§6.3)."""
-        return self._closeAndReset(streak, userId)

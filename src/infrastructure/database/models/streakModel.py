@@ -19,7 +19,8 @@ class StreakModel(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column("cl_1a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     owner_id: Mapped[uuid.UUID] = mapped_column("cl_1b", UUID(as_uuid=True), ForeignKey("tb_0.cl_0a"), nullable=False)
-    start: Mapped[datetime.datetime] = mapped_column("cl_1c", StringEncryptedType(DateTime, _encryption_key, AesGcmEngine, 'pkcs5'), nullable=False)
-    end: Mapped[Optional[datetime.datetime]] = mapped_column("cl_1d", StringEncryptedType(DateTime, _encryption_key, AesGcmEngine, 'pkcs5'))
+    start_at: Mapped[datetime.datetime] = mapped_column("cl_1c", StringEncryptedType(DateTime, _encryption_key, AesGcmEngine, 'pkcs5'), nullable=False)
+    end_at: Mapped[Optional[datetime.datetime]] = mapped_column("cl_1d", StringEncryptedType(DateTime, _encryption_key, AesGcmEngine, 'pkcs5'))
     status: Mapped[int] = mapped_column("cl_1e", Integer, nullable=False)
     is_record: Mapped[bool] = mapped_column("cl_1f", Boolean, nullable=False)
+    last_checkin: Mapped[Optional[datetime.datetime]] = mapped_column("cl_1g", StringEncryptedType(DateTime, _encryption_key, AesGcmEngine, 'pkcs5'))

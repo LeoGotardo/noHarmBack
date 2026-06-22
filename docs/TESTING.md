@@ -185,7 +185,7 @@ Every repository is tested for:
 |------|---------------|
 | `test_authService.py` | Login success/failure, rate limit, banned/blocked/deleted account, refresh rotation, logout blacklist |
 | `test_userService.py` | Profile access (blocked 403, self, no-friendship), update validation, soft delete ownership |
-| `test_streakService.py` | Active streak, expired (auto-reset), start/end/checkin, record detection |
+| `test_streakService.py` | Active streak, start/end/checkin, last_checkin update, record detection |
 | `test_friendshipService.py` | Send (self/duplicate/blocked), accept/reject (receiver-only), block, delete |
 | `test_chatService.py` | Create, activate, end, participant check, soft delete |
 | `test_messageService.py` | Send (empty content, non-participant, pending chat), markAsRead, markAllAsRead |

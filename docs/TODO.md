@@ -55,7 +55,7 @@ This document tracks the current state of the backend architecture and component
 | File                        | Entity       | Key Methods                                                       |
 | --------------------------- | ------------ | ----------------------------------------------------------------- |
 | `userRepository.py`         | User         | findById, findByEmail, findByUsername, create, update, softDelete |
-| `streakRepository.py`       | Streak       | findByOwnerId, findCurrentStreak, findCurrentRecord, markAsRecord |
+| `streakRepository.py`       | Streak       | findByOwnerId, findCurrentStreak, findCurrentRecord, markAsRecord, updateLastCheckin |
 | `friendshipRepository.py`   | Friendship   | findByPair, findAllBySenderId, findAllByReceiverId                |
 | `chatRepository.py`         | Chat         | findByParticipants, findAllByUserId                               |
 | `messageRepository.py`      | Message      | findByChatId, findUnreadByChatId, markAsRead, markAllAsRead       |
@@ -70,7 +70,7 @@ This document tracks the current state of the backend architecture and component
 | ---------------------- | --------------------------------------------------------- |
 | `authService.py`       | Registration, login, logout, token refresh, Firebase auth |
 | `userService.py`       | Profile management, user search, password changes         |
-| `streakService.py`     | Streak lifecycle, expiry check, record tracking           |
+| `streakService.py`     | Streak lifecycle, check-in tracking, record detection     |
 | `friendshipService.py` | Friend requests, accept/reject/block                      |
 | `chatService.py`       | Conversation management                                   |
 | `messageService.py`    | Message CRUD, read status                                 |
@@ -84,7 +84,7 @@ This document tracks the current state of the backend architecture and component
 | --------------------- | -------------------------------------------------------------------------------------- | ------------- |
 | `authRoutes.py`       | POST /auth/register, /auth/login, /auth/refresh, /auth/logout                          | Varies        |
 | `userRoutes.py`       | GET /users/me, PUT /users/me, PUT /users/password, GET /users/{userId}                 | Yes           |
-| `streakRoutes.py`     | GET /streaks/current, /streaks/record, /streaks/history, POST /streaks/end             | Yes           |
+| `streakRoutes.py`     | GET /streaks/current, /streaks/record, /streaks/history, POST /streaks/start, /streaks/end, /streaks/checkin | Yes           |
 | `friendshipRoutes.py` | GET /friendships, POST /friendships, PUT /friendships/{id}/accept, etc.                | Yes           |
 | `chatRoutes.py`       | GET /chats, GET /chats/{chatId}, POST /chats, PUT /chats/{chatId}/read                 | Yes           |
 | `messageRoutes.py`    | GET /messages/chat/{chatId}, POST /messages, PUT /messages/{id}, DELETE /messages/{id} | Yes           |
@@ -98,7 +98,7 @@ This document tracks the current state of the backend architecture and component
 | ---------------------- | ------------------------------------------------------------------------------- |
 | `authSchemas.py`       | AuthRegisterRequest, AuthLoginRequest, TokenResponse                            |
 | `userSchemas.py`       | UserRegisterRequest, UserUpdateRequest, UserPrivateResponse, UserPublicResponse |
-| `streakSchemas.py`     | StreakResponse, StreakResetRequest                                              |
+| `streakSchemas.py`     | StreakResponse (start_at, end_at, last_checkin), StreakCreate, StreakUpdate     |
 | `friendshipSchemas.py` | FriendshipRequest, FriendshipResponse, FriendshipListResponse                   |
 | `chatSchemas.py`       | ChatResponse, ConversationResponse                                              |
 | `messageSchemas.py`    | MessageRequest, MessageResponse, MessageListResponse                            |

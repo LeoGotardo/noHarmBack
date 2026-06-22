@@ -695,8 +695,10 @@ Rules requiring changes outside routes/services (new tables, models, external se
 
 ### 11.6 Streaks
 - One active streak per user
-- On reset: sets `end`, creates new streak, updates `isRecord` if longest
-- Auto-expiry: >24h without activity triggers reset on next `getCurrentStreak`
+- Fields: `start_at` (set on creation), `end_at` (null until relapse), `last_checkin` (updated on each check-in)
+- Duration = `end_at - start_at` for closed streaks; `now - start_at` for active streaks
+- Streaks reset only on explicit relapse (`POST /streaks/end`) — no auto-expiry on inactivity
+- On reset: sets `end_at`, creates new streak, updates `isRecord` if longest
 
 ### 11.7 Badges
 - Granted via `BadgeService.checkAndGrantBadges()` after streak updates

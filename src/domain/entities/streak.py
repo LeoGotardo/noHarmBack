@@ -6,10 +6,11 @@ from uuid import UUID
 @dataclass
 class Streak:
     owner_id: UUID
-    start: datetime
+    start_at: datetime
     status: int
     id: Optional[UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     is_record: Optional[bool] = False
-    end: Optional[datetime] = None
+    end_at: Optional[datetime] = None
+    last_checkin: Optional[datetime] = None
