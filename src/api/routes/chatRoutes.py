@@ -162,3 +162,27 @@ def deleteChat(
         return service.delete(chatId, currentUserId)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
+    
+
+@router.post(
+    "/{chatId}/reject",
+    response_model=ChatResponse,
+    status_code=200,
+    summary="reject a chat invitation",
+    description=(
+        "REjects a pending chat (pending → deleted). "
+        "Either participant may reject. Once deleted, messages cannot be sent."
+    )
+)
+@limiter.limit("20/minute")
+def rejectChat(
+    chatId: str,
+    request: Request,
+    db: Session = Depends(getDbWithRLS),
+    currentUserId: str = Depends(getCurrentUser)
+):
+    try:
+        service = ChatService(db)
+        return service.reject(chatId, currentUserId)
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)

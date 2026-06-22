@@ -101,6 +101,22 @@ class ChatService:
         self.chatRepository.updateEndedAt(chatId, datetime.now(timezone.utc))
         self.chatRepository.updateStatus(chatId, config.STATUS_CODES["disabled"])
         return self.chatRepository.findById(chatId)
+    
+    def reject(self, chatId: str, requestingUserId: str) -> Chat:
+        """Reject a pending chat invitation.
+        """
+        chat = self.chatRepository.findById(chatId)
+        self._assertParticipant(chat, requestingUserId)
+        
+        if chat.status != config.STATUS_CODES.get("pending"):
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="INVALID_STATE",
+                message="Only pending chats can be rejected."
+            )
+        
+        self.chatRepository.updateStatus(chatId, config.STATUS_CODES["deleted"])
+        return self.chatRepository.findById(chatId)
 
     # ── passthrough (legacy / admin) ──────────────────────────────────────────
 

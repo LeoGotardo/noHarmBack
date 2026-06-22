@@ -192,6 +192,22 @@ class FriendshipRepository:
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+        
+        
+    def findBlockedUsers(self, userId: str, params: Optional[PaginationParams] = None) -> list[Friendship] | PaginatedResponse[Friendship]:
+        try:
+            query = self.db.session.query(FriendshipModel).filter(FriendshipModel.sender == userId, FriendshipModel.status == config.STATUS_CODES.get("blocked"))
+            if params:
+                query = query.offset(params.page * params.pageSize).limit(params.pageSize)
+                total = query.count()
+                items = [self._toEntity(item) for item in query.all()]
+                
+                return createPaginatedResponse(items, total, params.page, params.pageSize)  
+            return [self._toEntity(item) for item in query.all()]
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
 
     def create(self, Friendship: Friendship) -> Friendship:
