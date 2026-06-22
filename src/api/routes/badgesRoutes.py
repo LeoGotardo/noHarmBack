@@ -19,8 +19,8 @@ router = APIRouter(prefix="/badges", tags=["Badges"])
 
 @router.get("",
             response_model=Union[PaginatedResponse[Badge], BadgeListResponse],
-            summary="Get all badges for current user",
-            description="Returns all badges for the current user.")
+            summary="Get all badges",
+            description="Returns all badges.")
 @limiter.limit("60/minute")
 def getAllBadges(
     request: Request,
@@ -30,7 +30,7 @@ def getAllBadges(
     paginatedParams: PaginationParams = Depends(),
 ):
     """
-    Get all badges for the current user.
+    Get all badges.
 
     Returns:
         BadgeListResponse: List of badges with total count

@@ -35,9 +35,12 @@ class FriendshipService:
     def getPendingSent(self, userId: str, params: Optional[PaginationParams] = None) -> list[Friendship] | PaginatedResponse[Friendship]:
         return self.friendshipRepository.findPendingSent(userId, params)
 
+    def getBlockedUsers(self, userId: str, params: Optional[PaginationParams] = None) -> list[Friendship] | PaginatedResponse[Friendship]:
+        return self.friendshipRepository.findBlockedUsers(userId, params)
 
     def existsByUsers(self, userA: str, userB: str) -> bool:
         return self.friendshipRepository.existsByUsers(userA, userB)
+    
 
     # ── business actions ──────────────────────────────────────────────────────
 

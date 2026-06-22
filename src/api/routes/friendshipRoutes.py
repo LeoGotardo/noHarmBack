@@ -111,7 +111,33 @@ def getFriendshipById(
         return friendship
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
+    
+    
 
+@router.get(
+    "/{friendshipId}/blocked",
+    response_model=FriendshipResponse,
+    summary="Get a blocked user",
+    description="Returns the blocked user of a friendship."
+)
+@limiter.limit("60/minute")
+def getBlockedUser(
+    request: Request,
+    paginated: bool = False,
+    paginatedParams: PaginationParams = Depends(),
+    db: Session = Depends(getDbWithRLS),
+    currentUserId: str = Depends(getCurrentUser)
+):
+    try:
+        service = FriendshipService(db)
+        
+        if paginated:
+            return service.getBlockedUsers(currentUserId, paginatedParams)
+        friendships = service.getBlockedUsers(currentUserId)
+        assert isinstance(friendships, list)
+        return FriendshipListResponse(friendships=[FriendshipResponse.model_validate(f) for f in friendships], total=len(friendships))
+    except NoHarmException as e:        
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
 
 # ── create ────────────────────────────────────────────────────────────────────
 
