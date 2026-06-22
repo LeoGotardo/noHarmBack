@@ -63,22 +63,33 @@ _GENERIC_500 = {"errorCode": "INTERNAL_ERROR", "message": "An internal server er
 _IS_DEV = config.EXEC_MODE == "development"
 
 
+def _corsHeaders(request: Request) -> dict:
+    origin = request.headers.get("origin", "")
+    allowed = config.ALLOWED_ORIGINS
+    if origin and (origin in allowed or "*" in allowed):
+        return {"Access-Control-Allow-Origin": origin}
+    return {}
+
+
 @app.exception_handler(NoHarmException)
 def noHarmExceptionHandler(request: Request, exc: NoHarmException):
+    headers = _corsHeaders(request)
     if not _IS_DEV and exc.statusCode >= 500:
-        return JSONResponse(status_code=exc.statusCode, content=_GENERIC_500)
-    return JSONResponse(status_code=exc.statusCode, content=exc.toDict())
+        return JSONResponse(status_code=exc.statusCode, content=_GENERIC_500, headers=headers)
+    return JSONResponse(status_code=exc.statusCode, content=exc.toDict(), headers=headers)
 
 
 @app.exception_handler(Exception)
 def genericExceptionHandler(request: Request, exc: Exception):
+    headers = _corsHeaders(request)
     if _IS_DEV:
         import traceback
         return JSONResponse(
             status_code=500,
             content={"errorCode": "INTERNAL_ERROR", "message": f"{type(exc).__name__}: {exc}", "details": traceback.format_exc()},
+            headers=headers,
         )
-    return JSONResponse(status_code=500, content=_GENERIC_500)
+    return JSONResponse(status_code=500, content=_GENERIC_500, headers=headers)
 
 
 @app.get("/")

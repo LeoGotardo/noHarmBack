@@ -65,7 +65,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     _DOCS_PATHS = {"/docs", "/redoc", "/openapi.json"}
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            response = JSONResponse(
+                status_code=500,
+                content={"errorCode": "INTERNAL_ERROR", "message": "An internal server error occurred."}
+            )
 
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"]        = "DENY"
