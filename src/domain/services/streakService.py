@@ -71,13 +71,8 @@ class StreakService:
 
     # ── mutations ─────────────────────────────────────────────────────────────
 
-    def startStreak(self, userId: str) -> Streak:
-        """Create a new active streak for a user.
-
-        Rules (§6.1):
-        - Only one active streak allowed at a time → 409 if one exists
-        - start = now, isRecord = False
-        """
+    def startStreak(self, userId: str, startAt: Optional[datetime] = None) -> Streak:
+        """Create a new active streak. start_at defaults to now if not provided."""
         try:
             existing = self.streakRepository.findCurrentStreak(userId)
             if existing:
@@ -93,17 +88,17 @@ class StreakService:
 
         newStreak = StreakModel(
             owner_id=userId,
-            start_at=datetime.now(timezone.utc),
+            start_at=startAt or datetime.now(timezone.utc),
             end_at=None,
             last_checkin=None,
             status=config.STATUS_CODES["enabled"],
             is_record=False
         )
-        created = self.streakRepository.create(newStreak)  
+        created = self.streakRepository.create(newStreak)
         self._checkAndGrantBadges(userId)
         return created
 
-    def endStreak(self, userId: str) -> Streak:
+    def endStreak(self, userId: str, endAt: Optional[datetime] = None) -> Streak:
         """Manually end the active streak and start a fresh one (§6.2).
 
         Flow:
@@ -119,7 +114,7 @@ class StreakService:
         except NoHarmException:
             raise NoHarmException(statusCode=404, errorCode="NO_ACTIVE_STREAK", message="No active streak to end.")
 
-        return self._closeAndReset(streak, userId)
+        return self._closeAndReset(streak, userId, endAt)
 
     def checkin(self, userId: str) -> Streak:
         """Increment streak days by 1."""
@@ -150,9 +145,9 @@ class StreakService:
 
     # ── internal ──────────────────────────────────────────────────────────────
 
-    def _closeAndReset(self, streak, userId: str) -> Streak:
+    def _closeAndReset(self, streak, userId: str, endAt: Optional[datetime] = None) -> Streak:
         """End a streak, check record, create new streak, audit. Returns new streak."""
-        now = datetime.now(timezone.utc)
+        now = endAt or datetime.now(timezone.utc)
         endedDuration = self._durationDays(streak)
 
         # Close the streak

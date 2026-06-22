@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from api.dependencies.auth import getCurrentUser
 from api.dependencies.database import getDbWithRLS
 from domain.services.streakService import StreakService
-from schemas.streakSchemas import StreakResponse, StreakListResponse
+from schemas.streakSchemas import StreakResponse, StreakListResponse, StreakStartRequest, StreakEndRequest
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
 from security.limiter import limiter
@@ -92,19 +92,20 @@ def getStreakHistory(
     summary="Start a new streak",
     description=(
         "Creates a new active streak. "
-        "Fails with 409 if an active streak already exists (§6.1). "
-        "start = now, isRecord = False."
+        "Fails with 409 if an active streak already exists. "
+        "`start_at` defaults to now if omitted."
     )
 )
 @limiter.limit("5/minute")
 def startStreak(
     request: Request,
+    body: StreakStartRequest,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = StreakService(db)
-        streak = service.startStreak(currentUserId)
+        streak = service.startStreak(currentUserId, startAt=body.start_at)
         return StreakResponse.model_validate(streak)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
@@ -116,20 +117,21 @@ def startStreak(
     status_code=200,
     summary="End (reset) my streak",
     description=(
-        "Manually ends the active streak, checks whether it is a new personal record, "
-        "and immediately starts a fresh streak (§6.2). "
+        "Marks relapse: sets end_at on the active streak, checks personal record, "
+        "and starts a fresh streak. `end_at` defaults to now if omitted. "
         "Creates an audit log entry of type 7."
     )
 )
 @limiter.limit("5/minute")
 def endStreak(
     request: Request,
+    body: StreakEndRequest,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = StreakService(db)
-        newStreak = service.endStreak(currentUserId)
+        newStreak = service.endStreak(currentUserId, endAt=body.end_at)
         return StreakResponse.model_validate(newStreak)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
