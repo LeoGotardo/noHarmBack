@@ -23,6 +23,7 @@ from domain.services.messageService import MessageService
 from domain.services.chatService import ChatService
 from exceptions.baseExceptions import NoHarmException
 from websocket.rateLimiter import wsLimit
+from infrastructure.external import fcmService
 
 
 def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
@@ -93,6 +94,8 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
                 roomMembers = sio.manager.get_participants("/", f"chat_{chatId}")
                 if peerSid not in roomMembers:
                     await sio.emit("new_message", payload, room=f"user_{peerId}")
+
+            fcmService.sendPushToUser(peerId, "New message", content[:200])
 
         except NoHarmException as e:
             await _err(sid, e.errorCode, e.message)

@@ -72,6 +72,8 @@ class Config:
             self.STORAGE_PATH: str = _require("STORAGE_PATH")
             self.ALLOWED_ORIGINS: list = _require_json("ALLOWED_ORIGINS")
             self.REDIS_URL: str = _require("REDIS_URL")
+            self.FIREBASE_SERVICE_ACCOUNT: str | None = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
+            self.FIREBASE_SERVICE_ACCOUNT_PATH: str | None = os.environ.get("FIREBASE_SERVICE_ACCOUNT_PATH")
         except Exception as e:
             missing = [k for k in ["ENCRYPTION_KEY","DATABASE_URL","DATABASE_HOST","DATABASE_NAME","DATABASE_USER","DATABASE_PASSWORD","DATABASE_URL_UNPOOLED","STORAGE_SERVICE_URI","STORAGE_SERVICE_KEY","EXEC_MODE","DEBUG","PORT","STATUS_CODES","JWT_SECRET_KEY","JWT_REFRESH_SECRET_KEY","JWT_ALGORITHM","ACCESS_TOKEN_EXPIRE_MINUTES","REFRESH_TOKEN_EXPIRE_DAYS","STORAGE_PATH","ALLOWED_ORIGINS","REDIS_URL"] if not os.environ.get(k)]
             raise Exception(f"Configuration error: {e} | Missing keys: {missing}")

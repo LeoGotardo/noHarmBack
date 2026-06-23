@@ -13,6 +13,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root -d noharm-db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # O Banco de Dados Redis
   redis:
@@ -33,8 +38,10 @@ services:
       - "8080:8080"
     # O 'depends_on' garante que o app só sobe após o banco e o redis estarem de pé
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
 volumes:
   postgres_data:

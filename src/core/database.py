@@ -15,6 +15,7 @@ import infrastructure.database.models.badgeModel
 import infrastructure.database.models.userBadgesModel
 import infrastructure.database.models.auditLogsModel
 import infrastructure.database.models.refreshTokenModel
+import infrastructure.database.models.notificationModel
 
 
 class Database:

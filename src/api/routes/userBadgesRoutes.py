@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from api.dependencies.auth import getCurrentUser
 from api.dependencies.database import getDb, getDbWithRLS
 from domain.services.userBadgeService import UserBadgeService
+from domain.services.badgeService import BadgeService
+from domain.services.notificationService import NotificationService
 from schemas.userBadgeSchemas import UserBadgeResponse, UserBadgeCreate, UserBadgeUpdate, UserBadgeListResponse
 from exceptions.baseExceptions import NoHarmException
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
@@ -113,7 +115,14 @@ def grantUserBadge(
 ):
     try:
         service = UserBadgeService(db)
-        grantedUserBadge = service.grant(userId, badgeId)  
+        grantedUserBadge = service.grant(userId, badgeId)
+
+        try:
+            badge = BadgeService(db).get(badgeId)
+            NotificationService(db).sendBadgeNotification(userId, badge.name)
+        except Exception:
+            pass
+
         return grantedUserBadge
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

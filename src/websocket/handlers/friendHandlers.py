@@ -21,6 +21,8 @@ Client → Server:
 
 import socketio
 
+from infrastructure.external import fcmService
+
 def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
     async def _err(sid: str, code: str, msg: str) -> None:
         await sio.emit("friend_error", {"code": code, "message": msg}, to=sid)
@@ -41,6 +43,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
             await _err(sid, "INVALID_DATA", "userId required")
             return
         await _notify("friend_request", sid, userId)
+        fcmService.sendPushToUser(userId, "New friend request", "Someone wants to connect with you")
 
     @sio.on("friend_accept")
     async def friendAccept(sid: str, data: dict):
@@ -49,6 +52,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
             await _err(sid, "INVALID_DATA", "userId required")
             return
         await _notify("friend_accept", sid, userId)
+        fcmService.sendPushToUser(userId, "Friend request accepted", "Your friend request was accepted")
 
     @sio.on("friend_reject")
     async def friendReject(sid: str, data: dict):
