@@ -5,7 +5,7 @@ from uuid import UUID
 
 @dataclass
 class UserBadge:
-    user_id: UUID
+    user_id: str
     badge_id: UUID
     status: int
     id: Optional[UUID] = None

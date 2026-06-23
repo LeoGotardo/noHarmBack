@@ -5,7 +5,7 @@ from uuid import UUID
 
 @dataclass
 class Streak:
-    owner_id: UUID
+    owner_id: str
     start_at: datetime
     status: int
     id: Optional[UUID] = None

@@ -202,6 +202,7 @@ Defined in `.secrets.toml` under `STATUS_CODES`:
 ## Known Issues
 
 1. **Bug in `userBedgesModel.py`**: `badge_id` foreign key references `tb_1.cl_1a` instead of `tb_5.cl_5a` — FK points to `streaks` table instead of `badges`
+2. **User ID type**: `tb_0.cl_0a` (and all FK columns referencing it) use `String`/`VARCHAR`, not `UUID`. Firebase UID is the PK. Other tables (`tb_1`–`tb_8`) still use `UUID(as_uuid=True)` for their own PKs.
 
 ---
 

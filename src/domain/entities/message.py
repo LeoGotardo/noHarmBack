@@ -6,7 +6,7 @@ from uuid import UUID
 @dataclass
 class Message:
     chat: UUID
-    sender: UUID
+    sender: str
     message: str
     status: int
     id: Optional[UUID] = None

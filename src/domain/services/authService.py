@@ -12,7 +12,6 @@ from core.config import config
 from core.database import Database
 
 import re
-import uuid
 from datetime import datetime
 
 _USERNAME_RE = re.compile(r'^[a-zA-Z0-9_-]{3,50}$')
@@ -98,10 +97,10 @@ class AuthService:
             profile_picture=photoUrl,
             status=status
         )
-        self.userRepository.create(newUser)  
+        self.userRepository.create(newUser)
 
-        accessToken = _jwtHandler.createAccessToken(str(uid))
-        refreshToken = _jwtHandler.createRefreshToken(str(uid))
+        accessToken = _jwtHandler.createAccessToken(uid)
+        refreshToken = _jwtHandler.createRefreshToken(uid)
 
         return {
             "accessToken": accessToken,

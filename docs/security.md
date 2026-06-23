@@ -264,7 +264,7 @@ Exceeding a per-route limit returns 429. The JWT blacklist already uses Redis (U
 **What it is:** A user accesses another user's resources by guessing or iterating resource IDs.
 
 **Countermeasures implemented:**
-- All primary keys are **UUIDs** (v4), not sequential integers — not guessable
+- User PKs (`tb_0.cl_0a`) are **Firebase UIDs** (opaque strings, not guessable). All other PKs (`tb_1`–`tb_8`) are **UUID v4**.
 - `getCurrentUser` dependency injects the authenticated user's ID into every protected route
 - Ownership checks implemented in all `Service` methods:
   - `ChatService._assertParticipant()` — enforced on `get`, `activate`, `endChat`, `delete`
@@ -721,7 +721,7 @@ Rules requiring changes outside routes/services (new tables, models, external se
 - **Soft Delete**: All entities use `status=deleted`, never hard delete
 - **Ownership Checks**: Service layer verifies ownership before repository calls
 - **Input Sanitization**: All free-text passes through `Sanitizer.cleanHtml()`
-- **UUID Keys**: All primary keys are UUID v4 (no sequential integers)
+- **User ID**: `tb_0.cl_0a` uses Firebase UID (opaque string). All other PKs (`tb_1`–`tb_8`) are UUID v4. No sequential integers anywhere.
 - **Status Codes**: `disabled=0`, `enabled=1`, `deleted=2`, `blocked=3`, `pending=4`, `accepted=5`, `ignored=6`, `unread=7`, `read=8`, `banned=9`
 
 ---
@@ -732,10 +732,12 @@ Rules requiring changes outside routes/services (new tables, models, external se
 RLS ensures queries only return rows the authenticated user can see. Enforced at database level — defense-in-depth even if application code vulnerable.
 
 ### 12.2 How It Works
-1. JWT validated, `userId` extracted
-2. `getDbWithRLS` sets `app.current_user_id` in PostgreSQL session
+1. JWT validated, Firebase UID extracted as `userId` (string)
+2. `getDbWithRLS` calls `SELECT set_config('app.current_user_id', userId, true)` in PostgreSQL session
 3. All queries automatically filter based on RLS policies
 4. If no user set, RLS returns no rows (fail-closed)
+
+Note: no `set_current_user_id()` DB function is needed — `set_config` is a built-in PostgreSQL function.
 
 ### 12.3 Usage in Routes
 
@@ -772,8 +774,8 @@ def testRLS():
     count = db.query(StreakModel).count()
     assert count == 0
 
-    # Set RLS context for specific user
-    RLSContext.setUserId(db, "user-uuid")
+    # Set RLS context for specific user (Firebase UID string)
+    RLSContext.setUserId(db, "firebase_uid_abc123")
     count = db.query(StreakModel).count()  # Returns user's streaks
 ```
 

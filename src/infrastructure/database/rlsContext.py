@@ -7,7 +7,6 @@ session, enabling Row Level Security policies to filter data appropriately.
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import Optional
-import uuid
 
 
 class RLSContext:
@@ -19,43 +18,17 @@ class RLSContext:
 
     @staticmethod
     def setUserId(db: Session, userId: Optional[str]) -> None:
-        """Set the current user ID in the PostgreSQL session.
-
-        This must be called after getting a database session and before
-        executing any queries that should be filtered by RLS.
-
-        Args:
-            db: SQLAlchemy session
-            userId: The authenticated user's UUID as string, or None for anonymous
-
-        Example:
-            >>> db = next(getDb())
-            >>> RLSContext.setUserId(db, "550e8400-e29b-41d4-a716-446655440000")
-            >>> # Now all queries will be filtered by RLS
-        """
         if userId:
-            # Validate UUID format
-            try:
-                uuid.UUID(userId)
-            except ValueError:
-                raise ValueError(f"Invalid UUID format: {userId}")
-
             db.execute(
-                text("SELECT set_current_user_id(:userId)"),
+                text("SELECT set_config('app.current_user_id', :userId, true)"),
                 {"userId": userId}
             )
         else:
-            # Clear the user context for anonymous requests
-            db.execute(text("SELECT set_current_user_id(NULL)"))
+            db.execute(text("SELECT set_config('app.current_user_id', '', true)"))
 
     @staticmethod
     def clearUserId(db: Session) -> None:
-        """Clear the current user ID from the PostgreSQL session.
-
-        Args:
-            db: SQLAlchemy session
-        """
-        db.execute(text("SELECT set_current_user_id(NULL)"))
+        db.execute(text("SELECT set_config('app.current_user_id', '', true)"))
 
 
 class RLSQueryFilter:

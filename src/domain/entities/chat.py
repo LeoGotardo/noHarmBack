@@ -5,8 +5,8 @@ from uuid import UUID
 
 @dataclass
 class Chat:
-    sender: UUID
-    reciver: UUID
+    sender: str
+    reciver: str
     started_at: datetime
     status: int
     id: Optional[UUID] = None

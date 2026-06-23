@@ -5,6 +5,17 @@ from core.config import config
 from typing import Generator
 from infrastructure.external.storageService import Base
 
+# Import all models so Base.metadata is populated before create_all
+import infrastructure.database.models.userModel
+import infrastructure.database.models.streakModel
+import infrastructure.database.models.friendshipModel
+import infrastructure.database.models.chatModel
+import infrastructure.database.models.messageModel
+import infrastructure.database.models.badgeModel
+import infrastructure.database.models.userBadgesModel
+import infrastructure.database.models.auditLogsModel
+import infrastructure.database.models.refreshTokenModel
+
 
 class Database:
     def __init__(self):

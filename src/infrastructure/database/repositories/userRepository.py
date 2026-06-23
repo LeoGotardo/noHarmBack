@@ -118,6 +118,7 @@ class UserRepository:
         """
         try:
             userModel = UserModel(
+                id=User.id,
                 username=User.username,
                 email=User.email,
                 status=User.status,

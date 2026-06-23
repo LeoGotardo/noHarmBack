@@ -1,45 +1,38 @@
-from typing import Generator, Optional
+from typing import Generator
 from fastapi import Depends
 from sqlalchemy.orm import Session
 from core.database import database
 from infrastructure.database.rlsContext import RLSContext
 from api.dependencies.auth import getCurrentUser
 
-def getDb() -> Generator[Session, None, None]:
-    """Get database session without RLS context.
 
-    Use this only for operations that don't require user context,
-    such as admin operations or public endpoints.
-    """
-    yield from database.getDb()
+class _DbProxy:
+    """Wraps a raw SQLAlchemy Session to match the Database interface expected by repositories."""
+    def __init__(self, session: Session):
+        self._session = session
+        self.engine = database.engine
+
+    @property
+    def session(self) -> Session:
+        return self._session
+
+
+def getDb() -> Generator[_DbProxy, None, None]:
+    """Database session without RLS context. Use for public/admin endpoints."""
+    session = database.session
+    try:
+        yield _DbProxy(session)
+    finally:
+        session.close()
 
 
 def getDbWithRLS(
     userId: str = Depends(getCurrentUser)
-) -> Generator[Session, None, None]:
-    """Get database session with Row Level Security context.
-
-    This dependency authenticates the user AND sets the PostgreSQL
-    session variable that enables RLS policies to filter data.
-
-    All queries using this session will automatically be filtered
-    to only return rows owned by or accessible to the authenticated user.
-
-    Args:
-        userId: The authenticated user's ID from JWT token
-
-    Yields:
-        SQLAlchemy Session with RLS context set
-
-    Example:
-        @router.get("/streaks")
-        def getStreaks(db: Session = Depends(getDbWithRLS)):
-            # This query will only return the current user's streaks
-            return db.query(StreakModel).all()
-    """
-    db = database.session
+) -> Generator[_DbProxy, None, None]:
+    """Database session with RLS context set for the authenticated user."""
+    session = database.session
     try:
-        RLSContext.setUserId(db, userId)
-        yield db
+        RLSContext.setUserId(session, userId)
+        yield _DbProxy(session)
     finally:
-        db.close()
+        session.close()

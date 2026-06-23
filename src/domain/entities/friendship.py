@@ -5,8 +5,8 @@ from uuid import UUID
 
 @dataclass
 class Friendship:
-    sender: UUID
-    reciver: UUID
+    sender: str
+    reciver: str
     status: int
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

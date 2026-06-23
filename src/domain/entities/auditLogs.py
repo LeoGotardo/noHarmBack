@@ -10,5 +10,5 @@ class AuditLogs:
     id: Optional[UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    catalyst_id: Optional[UUID] = None
+    catalyst_id: Optional[str] = None
     catalyst: Optional[int] = None

@@ -1,6 +1,5 @@
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from typing import Optional
-from uuid import UUID
 from datetime import datetime
 
 class UserBase(BaseModel):
@@ -37,7 +36,7 @@ class UserResponse(UserBase):
     Schema for the client response.
     Has the fields created by the database (ID and timestamps).
     """
-    id: UUID
+    id: str
     profile_picture: Optional[str]
     created_at: datetime
     updated_at: datetime
