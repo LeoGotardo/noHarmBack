@@ -25,6 +25,7 @@ from api.routes.badgesRoutes import router as badgesRouter
 from api.routes.userBadgesRoutes import router as userBadgesRouter
 from api.routes.auditLogsRoutes import router as auditLogsRouter
 from api.routes.friendshipRoutes import router as friendshipRouter
+from api.routes.notificationRoutes import router as notificationRouter
 from websocket.socketManager import socketApp
 
 
@@ -57,6 +58,7 @@ app.include_router(badgesRouter)
 app.include_router(userBadgesRouter)
 app.include_router(auditLogsRouter)
 app.include_router(friendshipRouter)
+app.include_router(notificationRouter)
 
 
 _GENERIC_500 = {"errorCode": "INTERNAL_ERROR", "message": "An internal server error occurred."}
