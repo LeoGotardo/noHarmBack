@@ -16,12 +16,9 @@ def _getApp():
         from firebase_admin import credentials
         from core.config import config
 
-        path = getattr(config, "FIREBASE_SERVICE_ACCOUNT_PATH", None)
         raw = getattr(config, "FIREBASE_SERVICE_ACCOUNT", None)
 
-        if path:
-            cred = credentials.Certificate(path)
-        elif raw:
+        if raw:
             cred = credentials.Certificate(json.loads(raw))
         else:
             return None
