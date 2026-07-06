@@ -1,6 +1,7 @@
 from infrastructure.database.repositories.messageRepository import MessageRepository
 from infrastructure.database.repositories.chatRepository import ChatRepository
 from infrastructure.database.models.messageModel import MessageModel
+from domain.services.chatService import ChatService
 from domain.entities.message import Message
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from security.sanitizer import Sanitizer
@@ -77,7 +78,17 @@ class MessageService:
             send_at=datetime.now(timezone.utc),
             recived_at=None
         )
-        return self.messageRepository.create(newMessage)  
+        return self.messageRepository.create(newMessage)
+
+    def sendMessageToUser(self, senderId: str, recipientId: str, content: str) -> Message:
+        """Send a message to another user, creating the chat if none exists yet (§4.1 / §5.1).
+
+        Resolves (or creates) the chat between the two users via ChatService.getOrCreate
+        — which enforces that they are accepted friends — then delegates to sendMessage,
+        which auto-activates the freshly created pending chat and persists the message.
+        """
+        chat = ChatService(self.database).getOrCreate(senderId, recipientId)
+        return self.sendMessage(chat.id, senderId, content)
 
     # ── read receipts (§5.3) ──────────────────────────────────────────────────
 

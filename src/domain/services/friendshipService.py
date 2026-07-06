@@ -1,10 +1,12 @@
 from infrastructure.database.repositories.friendshipRepository import FriendshipRepository
+from infrastructure.database.repositories.userRepository import UserRepository
 from infrastructure.database.models.friendshipModel import FriendshipModel
 from domain.entities.friendship import Friendship
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
+from schemas.friendshipSchemas import FriendshipResponse, FriendUserInfo
 from exceptions.baseExceptions import NoHarmException
 from core.config import config
-from core.database import Database
+from core.database import Database, database
 
 from typing import Optional
 
@@ -13,6 +15,55 @@ class FriendshipService:
     def __init__(self, db):
         self.database: Database = db
         self.friendshipRepository = FriendshipRepository(self.database)
+
+    # ── enrichment (attach each participant's name + profile picture) ──────────
+
+    def _fetchUsersInfo(self, userIds: set[str]) -> dict[str, FriendUserInfo]:
+        """Read the public profile (name + picture) of the given users.
+
+        Uses a fresh, non-RLS session: tb_0 RLS restricts a user to their own
+        row, so a friend's public profile must be read outside that context.
+        """
+        ids = [uid for uid in userIds if uid]
+        if not ids:
+            return {}
+        userRepo = UserRepository(database)  # no app.current_user_id → public/admin view
+        try:
+            users = userRepo.findManyByIds(ids)
+        finally:
+            userRepo.session.close()
+        return {
+            u.id: FriendUserInfo(id=u.id, username=u.username, profile_picture=u.profile_picture)
+            for u in users
+        }
+
+    def enrich(self, friendship: Friendship) -> FriendshipResponse:
+        infoMap = self._fetchUsersInfo({friendship.sender, friendship.reciver})
+        return self._buildResponse(friendship, infoMap)
+
+    def enrichMany(self, friendships: list[Friendship]) -> list[FriendshipResponse]:
+        ids: set[str] = set()
+        for f in friendships:
+            ids.add(f.sender)
+            ids.add(f.reciver)
+        infoMap = self._fetchUsersInfo(ids)
+        return [self._buildResponse(f, infoMap) for f in friendships]
+
+    def enrichPaginated(self, page: PaginatedResponse) -> PaginatedResponse:
+        ids: set[str] = set()
+        for f in page.items:
+            ids.add(f.sender)
+            ids.add(f.reciver)
+        infoMap = self._fetchUsersInfo(ids)
+        enriched = [self._buildResponse(f, infoMap) for f in page.items]
+        return page.model_copy(update={"items": enriched})
+
+    @staticmethod
+    def _buildResponse(friendship: Friendship, infoMap: dict[str, FriendUserInfo]) -> FriendshipResponse:
+        response = FriendshipResponse.model_validate(friendship)
+        response.sender_user = infoMap.get(friendship.sender)
+        response.reciver_user = infoMap.get(friendship.reciver)
+        return response
 
     # ── reads ─────────────────────────────────────────────────────────────────
 
@@ -87,7 +138,7 @@ class FriendshipService:
             reciver=receiverId,
             status=config.STATUS_CODES["pending"]
         )
-        return self.friendshipRepository.create(newFriendship)  
+        return self.friendshipRepository.create(newFriendship)
 
 
     def accept(self, friendshipId: str, receiverId: str) -> Friendship:

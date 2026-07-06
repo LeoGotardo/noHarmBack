@@ -5,7 +5,7 @@ from datetime import datetime
 
 
 class UserBadgeBase(BaseModel):
-    user_id: UUID = Field(..., description="User ID")
+    user_id: str = Field(..., description="User ID")
     badge_id: UUID = Field(..., description="Badge ID")
     given_at: Optional[datetime] = Field(None, description="Granted at")
     status: int = Field(default=1, description="Badge status (ex: 1 active, 0 disabled)")

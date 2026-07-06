@@ -25,7 +25,6 @@ class ChatRepository:
             reciver=model.reciver,
             started_at=model.started_at,
             status=model.status,
-            messages=model.messages,
             created_at=model.created_at,
             updated_at=model.updated_at,
             ended_at=model.ended_at
@@ -63,7 +62,10 @@ class ChatRepository:
             list[Chat]: List of Chats
         """
         try:
-            chatsModels = self.session.query(ChatModel).filter(ChatModel.reciver == participant_id, ChatModel.status == config.STATUS_CODES["pending"]).all()
+            chatsModels = self.session.query(ChatModel).filter(
+                or_(ChatModel.sender == participant_id, ChatModel.reciver == participant_id),
+                ChatModel.status != config.STATUS_CODES["deleted"]
+            ).all()
             return [self._toEntity(item) for item in chatsModels]
         except Exception as e:
             if isinstance(e, NoHarmException):
@@ -90,13 +92,14 @@ class ChatRepository:
                 )
             )
 
-            return self._toEntity(query.first())
+            chat = query.first()
+            return self._toEntity(chat) if chat else None
         except Exception as e:
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
-        
-    
+
+
     def findAllBySenderId(self, user_id: str, params: Optional[PaginationParams] = None) -> list[Chat] | PaginatedResponse[Chat]:
         """Find all chats by sender ID, optionally paginated
 

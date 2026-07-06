@@ -80,6 +80,22 @@ class UserRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
     
     
+    def findManyByIds(self, ids: list[str]) -> list[User]:
+        """Fetch multiple users by ID (public profile read).
+
+        Returns only users that exist; missing IDs are silently skipped.
+        """
+        if not ids:
+            return []
+        try:
+            userModels = self.session.query(UserModel).filter(UserModel.id.in_(ids)).all()
+            return [self._toEntity(u) for u in userModels]
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
     def findAll(self, params: Optional[PaginationParams] = None) -> list[User] | PaginatedResponse[User]:
         """Find all users, optionally paginated
 

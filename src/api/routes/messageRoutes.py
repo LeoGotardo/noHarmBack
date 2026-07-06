@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from typing import Optional
 
 from api.dependencies.auth import getCurrentUser
 from api.dependencies.database import getDbWithRLS
@@ -10,13 +11,21 @@ from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
 from security.limiter import limiter
 from typing import Union
+from uuid import UUID
 
 router = APIRouter(prefix="/messages", tags=["Messages"])
 
 
 class SendMessageRequest(BaseModel):
-    chatId: str
     content: str = Field(..., min_length=1, max_length=2000)
+    chatId: Optional[UUID] = Field(None, description="Existing chat to send to")
+    recipientId: Optional[str] = Field(None, description="Recipient user ID — the chat is created if none exists yet")
+
+    @model_validator(mode="after")
+    def _exactly_one_target(self):
+        if bool(self.chatId) == bool(self.recipientId):
+            raise ValueError("Provide exactly one of 'chatId' or 'recipientId'.")
+        return self
 
 
 # ── list ──────────────────────────────────────────────────────────────────────
@@ -29,7 +38,7 @@ class SendMessageRequest(BaseModel):
 )
 @limiter.limit("60/minute")
 def getMessagesByChatId(
-    chatId: str,
+    chatId: UUID,
     request: Request,
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
@@ -55,7 +64,7 @@ def getMessagesByChatId(
 )
 @limiter.limit("60/minute")
 def getUnreadMessagesByChatId(
-    chatId: str,
+    chatId: UUID,
     request: Request,
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
@@ -81,7 +90,7 @@ def getUnreadMessagesByChatId(
 )
 @limiter.limit("60/minute")
 def getMessageById(
-    messageId: str,
+    messageId: UUID,
     request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
@@ -116,7 +125,9 @@ def sendMessage(
 ):
     try:
         service = MessageService(db)
-        return service.sendMessage(body.chatId, currentUserId, body.content)
+        if body.chatId:
+            return service.sendMessage(body.chatId, currentUserId, body.content)
+        return service.sendMessageToUser(currentUserId, body.recipientId, body.content)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -132,7 +143,7 @@ def sendMessage(
 )
 @limiter.limit("60/minute")
 def markMessageAsRead(
-    messageId: str,
+    messageId: UUID,
     request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
@@ -152,7 +163,7 @@ def markMessageAsRead(
 )
 @limiter.limit("30/minute")
 def markAllMessagesAsRead(
-    chatId: str,
+    chatId: UUID,
     request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)

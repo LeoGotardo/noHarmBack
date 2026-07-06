@@ -18,6 +18,7 @@ import dataclasses
 import socketio
 
 from core.database import database
+from api.dependencies.database import _DbProxy
 from infrastructure.database.rlsContext import RLSContext
 from domain.services.messageService import MessageService
 from domain.services.chatService import ChatService
@@ -43,15 +44,15 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
             await _err(sid, "INVALID_DATA", "chatId required")
             return
 
-        db = database.session
+        db = _DbProxy(database.session)
         try:
-            RLSContext.setUserId(db, userId)
+            RLSContext.setUserId(db.session, userId)
             ChatService(db).get(chatId, userId)          # asserts participant
             await sio.enter_room(sid, f"chat_{chatId}")
         except NoHarmException as e:
             await _err(sid, e.errorCode, e.message)
         finally:
-            db.close()
+            db.session.close()
 
     # ── leave_chat ────────────────────────────────────────────────────────────
 
@@ -76,9 +77,9 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
             await _err(sid, "INVALID_DATA", "chatId and content required")
             return
 
-        db = database.session
+        db = _DbProxy(database.session)
         try:
-            RLSContext.setUserId(db, userId)
+            RLSContext.setUserId(db.session, userId)
 
             message = MessageService(db).sendMessage(chatId, userId, content)
             payload = {"message": dataclasses.asdict(message)}
@@ -100,7 +101,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
         except NoHarmException as e:
             await _err(sid, e.errorCode, e.message)
         finally:
-            db.close()
+            db.session.close()
 
     # ── mark_read ─────────────────────────────────────────────────────────────
 
@@ -114,15 +115,15 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
             await _err(sid, "INVALID_DATA", "chatId required")
             return
 
-        db = database.session
+        db = _DbProxy(database.session)
         try:
-            RLSContext.setUserId(db, userId)
+            RLSContext.setUserId(db.session, userId)
             MessageService(db).markAllAsRead(chatId, userId)
             await sio.emit("messages_read", {"chatId": chatId}, room=f"chat_{chatId}")
         except NoHarmException as e:
             await _err(sid, e.errorCode, e.message)
         finally:
-            db.close()
+            db.session.close()
 
     # ── typing ────────────────────────────────────────────────────────────────
 

@@ -33,8 +33,8 @@ def getMyChats(
 ):
     try:
         service = ChatService(db)
-        chats = service.getAllByUserId(currentUserId)
-        return ChatListResponse(chats=[ChatResponse.model_validate(c) for c in chats], total=len(chats))
+        chats = service.getAllWithMeta(currentUserId)
+        return ChatListResponse(chats=chats, total=len(chats))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -54,8 +54,7 @@ def getChatById(
 ):
     try:
         service = ChatService(db)
-        chat = service.get(chatId, currentUserId)
-        return chat
+        return service.getWithMeta(chatId, currentUserId)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 

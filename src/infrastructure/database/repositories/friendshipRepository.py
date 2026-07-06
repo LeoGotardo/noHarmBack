@@ -252,11 +252,11 @@ class FriendshipRepository:
         """
         try:
             friendshipModel = self.findById(id, returnModel=True)
-            
+
             friendshipModel.status = config.STATUS_CODES[status]
-            
+
             self.session.commit()
-            
+
             return self._toEntity(friendshipModel)
         except Exception as e:
             self.session.rollback()

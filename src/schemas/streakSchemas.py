@@ -6,7 +6,7 @@ from datetime import datetime
 
 class StreakResponse(BaseModel):
     id: UUID
-    owner_id: UUID = Field(..., description="Owner user ID")
+    owner_id: str = Field(..., description="Owner user ID")
     start_at: datetime = Field(..., description="When the streak started")
     end_at: Optional[datetime] = Field(None, description="When the streak ended (null if active)")
     last_checkin: Optional[datetime] = Field(None, description="Last sobriety check-in timestamp")
@@ -32,7 +32,7 @@ class StreakEndRequest(BaseModel):
 
 
 class StreakCreate(BaseModel):
-    owner_id: UUID
+    owner_id: str
     start_at: datetime
     end_at: Optional[datetime] = None
     last_checkin: Optional[datetime] = None

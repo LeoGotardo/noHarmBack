@@ -1,7 +1,10 @@
 from infrastructure.database.repositories.chatRepository import ChatRepository
 from infrastructure.database.repositories.friendshipRepository import FriendshipRepository
+from infrastructure.database.repositories.messageRepository import MessageRepository
 from infrastructure.database.models.chatModel import ChatModel
 from domain.entities.chat import Chat
+from schemas.chatSchemas import ChatResponse
+from schemas.messageSchemas import MessageResponse
 from exceptions.baseExceptions import NoHarmException
 from core.config import config
 from core.database import Database
@@ -14,6 +17,7 @@ class ChatService:
         self.database: Database = db
         self.chatRepository = ChatRepository(self.database)
         self.friendshipRepository = FriendshipRepository(self.database)
+        self.messageRepository = MessageRepository(self.database)
 
     # ── reads ─────────────────────────────────────────────────────────────────
 
@@ -27,6 +31,25 @@ class ChatService:
         chat = self.chatRepository.findById(chatId)
         self._assertParticipant(chat, requestingUserId)
         return chat
+
+    # ── reads enriched with last message + unread count ─────────────────────────
+
+    def getAllWithMeta(self, userId: str) -> list[ChatResponse]:
+        """Return the user's chats, each with last_message and unread_count."""
+        chats = self.chatRepository.findByParticipant(userId)
+        return [self._withMeta(chat, userId) for chat in chats]
+
+    def getWithMeta(self, chatId: str, requestingUserId: str) -> ChatResponse:
+        """Return one chat (participant-only) with last_message and unread_count."""
+        chat = self.get(chatId, requestingUserId)
+        return self._withMeta(chat, requestingUserId)
+
+    def _withMeta(self, chat: Chat, userId: str) -> ChatResponse:
+        response = ChatResponse.model_validate(chat)
+        last = self.messageRepository.findLastByChatId(chat.id)
+        response.last_message = MessageResponse.model_validate(last) if last else None
+        response.unread_count = self.messageRepository.countUnreadByChatId(chat.id, userId)
+        return response
 
     # ── creation / activation ─────────────────────────────────────────────────
 

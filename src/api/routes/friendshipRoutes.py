@@ -9,7 +9,6 @@ from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
 from security.limiter import limiter
 from typing import Union
-from domain.entities.friendship import Friendship
 
 
 router = APIRouter(prefix="/friendships", tags=["Friendships"])
@@ -19,7 +18,7 @@ router = APIRouter(prefix="/friendships", tags=["Friendships"])
 
 @router.get(
     "",
-    response_model=Union[PaginatedResponse[Friendship], FriendshipListResponse],
+    response_model=Union[PaginatedResponse[FriendshipResponse], FriendshipListResponse],
     summary="Get my friendships",
     description="Returns all friendships for the authenticated user."
 )
@@ -34,17 +33,17 @@ def getMyFriendships(
     try:
         service = FriendshipService(db)
         if paginated:
-            return service.getAll(currentUserId, paginatedParams)
+            return service.enrichPaginated(service.getAll(currentUserId, paginatedParams))
         friendships = service.getAll(currentUserId)
         assert isinstance(friendships, list)
-        return FriendshipListResponse(friendships=[FriendshipResponse.model_validate(f) for f in friendships], total=len(friendships))
+        return FriendshipListResponse(friendships=service.enrichMany(friendships), total=len(friendships))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
 
 @router.get(
     "/pending",
-    response_model=Union[PaginatedResponse[Friendship], FriendshipListResponse],
+    response_model=Union[PaginatedResponse[FriendshipResponse], FriendshipListResponse],
     summary="Get pending friend requests (received)",
     description="Returns all pending friendship requests received by the authenticated user."
 )
@@ -59,17 +58,17 @@ def getPendingReceived(
     try:
         service = FriendshipService(db)
         if paginated:
-            return service.getPendingReceived(currentUserId, paginatedParams)
+            return service.enrichPaginated(service.getPendingReceived(currentUserId, paginatedParams))
         friendships = service.getPendingReceived(currentUserId)
         assert isinstance(friendships, list)
-        return FriendshipListResponse(friendships=[FriendshipResponse.model_validate(f) for f in friendships], total=len(friendships))
+        return FriendshipListResponse(friendships=service.enrichMany(friendships), total=len(friendships))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
 
 @router.get(
     "/sent",
-    response_model=Union[PaginatedResponse[Friendship], FriendshipListResponse],
+    response_model=Union[PaginatedResponse[FriendshipResponse], FriendshipListResponse],
     summary="Get pending friend requests (sent)",
     description="Returns all pending friendship requests sent by the authenticated user."
 )
@@ -84,10 +83,10 @@ def getPendingSent(
     try:
         service = FriendshipService(db)
         if paginated:
-            return service.getPendingSent(currentUserId, paginatedParams)
+            return service.enrichPaginated(service.getPendingSent(currentUserId, paginatedParams))
         friendships = service.getPendingSent(currentUserId)
         assert isinstance(friendships, list)
-        return FriendshipListResponse(friendships=[FriendshipResponse.model_validate(f) for f in friendships], total=len(friendships))
+        return FriendshipListResponse(friendships=service.enrichMany(friendships), total=len(friendships))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -108,7 +107,7 @@ def getFriendshipById(
     try:
         service = FriendshipService(db)
         friendship = service.get(friendshipId)
-        return friendship
+        return service.enrich(friendship)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
     
@@ -132,10 +131,10 @@ def getBlockedUser(
         service = FriendshipService(db)
         
         if paginated:
-            return service.getBlockedUsers(currentUserId, paginatedParams)
+            return service.enrichPaginated(service.getBlockedUsers(currentUserId, paginatedParams))
         friendships = service.getBlockedUsers(currentUserId)
         assert isinstance(friendships, list)
-        return FriendshipListResponse(friendships=[FriendshipResponse.model_validate(f) for f in friendships], total=len(friendships))
+        return FriendshipListResponse(friendships=service.enrichMany(friendships), total=len(friendships))
     except NoHarmException as e:        
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -161,7 +160,7 @@ def sendFriendRequest(
 ):
     try:
         service = FriendshipService(db)
-        return service.sendRequest(currentUserId, receiverId)
+        return service.enrich(service.sendRequest(currentUserId, receiverId))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -187,7 +186,7 @@ def acceptFriendRequest(
 ):
     try:
         service = FriendshipService(db)
-        return service.accept(friendshipId, currentUserId)
+        return service.enrich(service.accept(friendshipId, currentUserId))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -211,7 +210,7 @@ def rejectFriendRequest(
 ):
     try:
         service = FriendshipService(db)
-        return service.reject(friendshipId, currentUserId)
+        return service.enrich(service.reject(friendshipId, currentUserId))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -237,7 +236,7 @@ def blockUser(
 ):
     try:
         service = FriendshipService(db)
-        return service.block(friendshipId, currentUserId)
+        return service.enrich(service.block(friendshipId, currentUserId))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -258,7 +257,7 @@ def unblockUser(
 ):
     try:
         service = FriendshipService(db)
-        return service.unblock(friendshipId, currentUserId)
+        return service.enrich(service.unblock(friendshipId, currentUserId))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 

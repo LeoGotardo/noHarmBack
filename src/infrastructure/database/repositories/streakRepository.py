@@ -117,7 +117,7 @@ class StreakRepository:
         try:
             streak = self.session.query(StreakModel).filter(StreakModel.owner_id == owner_id, StreakModel.status == config.STATUS_CODES["enabled"]).first()
             if streak:
-                return streak  
+                return self._toEntity(streak)
             else:
                 raise NoHarmException(statusCode=404, message="Streak not found")
         except Exception as e:

@@ -6,7 +6,7 @@ from datetime import datetime
 
 class AuditLogsBase(BaseModel):
     type: int = Field(..., description="Audit log type (ex: 1 login, 2 password change, etc.)")
-    catalyst_id: Optional[UUID] = Field(None, description="User ID of the catalyst")
+    catalyst_id: Optional[str] = Field(None, description="User ID of the catalyst")
     catalyst: Optional[int] = Field(None, description="Catalyst action code")
     description: str = Field(..., description="Audit log description")
 
@@ -17,7 +17,7 @@ class AuditLogsCreate(AuditLogsBase):
 
 class AuditLogsUpdate(BaseModel):
     type: Optional[int] = Field(None, description="Audit log type (ex: 1 login, 2 password change, etc.)")
-    catalyst_id: Optional[UUID] = Field(None, description="User ID of the catalyst")
+    catalyst_id: Optional[str] = Field(None, description="User ID of the catalyst")
     catalyst: Optional[int] = Field(None, description="Catalyst action code")
     description: Optional[str] = Field(None, description="Audit log description")
 

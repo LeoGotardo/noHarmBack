@@ -6,7 +6,7 @@ from datetime import datetime
 
 class MessageCreate(BaseModel):
     chat: UUID = Field(..., description="Chat ID")
-    sender: UUID = Field(..., description="Sender user ID")
+    sender: str = Field(..., description="Sender user ID")
     message: str = Field(..., description="Message content")
     status: int = Field(default=7, description="Message status")
 
@@ -19,7 +19,7 @@ class MessageUpdate(BaseModel):
 class MessageResponse(BaseModel):
     id: UUID
     chat: UUID = Field(..., description="Chat ID")
-    sender: UUID = Field(..., description="Sender user ID")
+    sender: str = Field(..., description="Sender user ID")
     message: str = Field(..., description="Message content")
     status: int = Field(..., description="Message status")
     send_at: Optional[datetime] = Field(None, description="Sent time")

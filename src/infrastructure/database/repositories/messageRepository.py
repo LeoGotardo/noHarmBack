@@ -112,6 +112,44 @@ class MessageRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
+    def findLastByChatId(self, chat_id: str) -> Optional[Message]:
+        """Return the most recent message in a chat, or None if the chat has none."""
+        try:
+            model = (
+                self.session.query(MessageModel)
+                .filter(MessageModel.chat == chat_id)
+                .order_by(MessageModel.created_at.desc())
+                .first()
+            )
+            return self._toEntity(model) if model else None
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
+    def countUnreadByChatId(self, chat_id: str, recipient_id: str) -> int:
+        """Count unread messages in a chat addressed to recipient_id.
+
+        Only messages sent by the *other* participant count — the user's own
+        messages are never "unread" for themselves.
+        """
+        try:
+            return (
+                self.session.query(MessageModel)
+                .filter(
+                    MessageModel.chat == chat_id,
+                    MessageModel.status == config.STATUS_CODES["unread"],
+                    MessageModel.sender != recipient_id,
+                )
+                .count()
+            )
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
     def create(self, Message: Message) -> Message:
         """Create a message
         

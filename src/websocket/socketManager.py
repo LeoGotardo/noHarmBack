@@ -30,7 +30,12 @@ sio = socketio.AsyncServer(
     max_http_buffer_size=2000000,
 )
 
-socketApp = socketio.ASGIApp(sio, socketio_path="socket.io")
+# NOTE: socketio_path is the FULL path (mount prefix included) because the
+# BaseHTTPMiddleware stack (RateLimitMiddleware/SecurityHeadersMiddleware)
+# prevents Starlette's Mount from stripping the "/ws" prefix — engineio sees
+# the un-stripped path, so it must match "/ws/socket.io/". Client connects with
+# path "/ws/socket.io".
+socketApp = socketio.ASGIApp(sio, socketio_path="ws/socket.io")
 
 _connectionLimiter = WsConnectionLimiter(maxPerUser=3)
 
