@@ -6,11 +6,14 @@ from domain.entities.message import Message
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from security.sanitizer import Sanitizer
 from exceptions.baseExceptions import NoHarmException
+from infrastructure.external import fcmService
+from websocket import emitter
 from core.config import config
 from core.database import Database
-from typing import Optional
+from typing import Optional, overload
 
 from datetime import datetime, timezone
+from uuid import UUID
 
 
 class MessageService:
@@ -21,18 +24,26 @@ class MessageService:
 
     # ── reads ─────────────────────────────────────────────────────────────────
 
-    def getByChatId(self, chatId: str, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
+    @overload
+    def getByChatId(self, chatId: UUID, params: None = None) -> list[Message]: ...
+    @overload
+    def getByChatId(self, chatId: UUID, params: PaginationParams) -> PaginatedResponse[Message]: ...
+    def getByChatId(self, chatId: UUID, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
         return self.messageRepository.findByChatId(chatId, params)
 
-    def get(self, messageId: str) -> Message:
+    def get(self, messageId: UUID) -> Message:
         return self.messageRepository.findById(messageId)
 
-    def getUnreadByChatId(self, chatId: str, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
+    @overload
+    def getUnreadByChatId(self, chatId: UUID, params: None = None) -> list[Message]: ...
+    @overload
+    def getUnreadByChatId(self, chatId: UUID, params: PaginationParams) -> PaginatedResponse[Message]: ...
+    def getUnreadByChatId(self, chatId: UUID, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
         return self.messageRepository.findUnreadByChatId(chatId, params)
 
     # ── send (§5.1) ───────────────────────────────────────────────────────────
 
-    def sendMessage(self, chatId: str, senderId: str, content: str) -> Message:
+    def sendMessage(self, chatId: UUID, senderId: str, content: str) -> Message:
         """Send a message to a chat.
 
         Rules (§5.1):
@@ -78,7 +89,15 @@ class MessageService:
             send_at=datetime.now(timezone.utc),
             recived_at=None
         )
-        return self.messageRepository.create(newMessage)
+        created = self.messageRepository.create(newMessage)
+
+        # §5.1 — realtime fan-out + push. Done here (not in the route or the
+        # socket handler) so both send paths behave identically.
+        peerId = str(chat.reciver) if str(chat.sender) == str(senderId) else str(chat.sender)
+        emitter.notifyNewMessage(created, [str(chat.sender), str(chat.reciver)])
+        fcmService.sendPushToUser(peerId, "New message", sanitised.strip()[:200])
+
+        return created
 
     def sendMessageToUser(self, senderId: str, recipientId: str, content: str) -> Message:
         """Send a message to another user, creating the chat if none exists yet (§4.1 / §5.1).
@@ -92,7 +111,7 @@ class MessageService:
 
     # ── read receipts (§5.3) ──────────────────────────────────────────────────
 
-    def markAsRead(self, messageId: str, requestingUserId: str) -> Message:
+    def markAsRead(self, messageId: UUID, requestingUserId: str) -> Message:
         """Mark a single message as read. Idempotent — already-read messages are skipped.
 
         Only chat participants may mark messages as read (§5.3, §9.2).
@@ -100,16 +119,23 @@ class MessageService:
         msg = self.messageRepository.findById(messageId)
         if msg.status == config.STATUS_CODES.get("read"):
             return msg
-        chat = self.chatRepository.findById(str(msg.chat))
+        chat = self.chatRepository.findById(msg.chat)
         if str(chat.sender) != str(requestingUserId) and str(chat.reciver) != str(requestingUserId):
             raise NoHarmException(
                 statusCode=403,
                 errorCode="FORBIDDEN",
                 message="You are not a participant in this chat."
             )
-        return self.messageRepository.markAsRead(messageId)
+        updated = self.messageRepository.markAsRead(messageId)
+        emitter.emitToChat(
+            chat.id,
+            "message_read",
+            {"chatId": str(chat.id), "messageId": str(messageId)},
+            [str(chat.sender), str(chat.reciver)],
+        )
+        return updated
 
-    def markAllAsRead(self, chatId: str, requestingUserId: str) -> bool:
+    def markAllAsRead(self, chatId: UUID, requestingUserId: str) -> bool:
         """Mark all unread messages in a chat as read.
 
         Only chat participants may perform this action (§5.3, §9.2).
@@ -121,12 +147,14 @@ class MessageService:
                 errorCode="FORBIDDEN",
                 message="You are not a participant in this chat."
             )
-        return self.messageRepository.markAllAsRead(chatId)
+        result = self.messageRepository.markAllAsRead(chatId)
+        emitter.notifyMessagesRead(chatId, [str(chat.sender), str(chat.reciver)])
+        return result
 
     # ── passthrough ───────────────────────────────────────────────────────────
 
     def create(self, newMessage: Message) -> Message:
         return self.messageRepository.create(newMessage)
 
-    def updateStatus(self, messageId: str, status: int) -> Message:
+    def updateStatus(self, messageId: UUID, status: int) -> Message:
         return self.messageRepository.updateStatus(messageId, status)

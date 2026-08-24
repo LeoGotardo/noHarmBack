@@ -8,7 +8,7 @@ from core.config import config
 from datetime import datetime
 from typing import Optional
 from sqlalchemy import or_, and_
-
+from uuid import UUID
 
 
 class ChatRepository:
@@ -31,11 +31,11 @@ class ChatRepository:
         )
     
         
-    def findById(self, id: str, returnModel: bool = False) -> Chat | ChatModel:
+    def findById(self, id: UUID, returnModel: bool = False) -> Chat | ChatModel:
         """Find a chat by ID
         
         Args:
-            id (str): Chat ID
+            id (UUID): Chat ID
             
         Returns:
             Chat: Chat with his full data
@@ -73,7 +73,7 @@ class ChatRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
         
-    def findBetween(self, userA: str, userB: str) -> Chat:
+    def findBetween(self, userA: str, userB: str) -> Chat | None:
         """Find all chats between two users, optionally paginated
 
         Args:
@@ -93,6 +93,7 @@ class ChatRepository:
             )
 
             chat = query.first()
+            
             return self._toEntity(chat) if chat else None
         except Exception as e:
             if isinstance(e, NoHarmException):
@@ -185,11 +186,11 @@ class ChatRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
         
-    def updateStatus(self, id: str, status: int) -> Chat:
+    def updateStatus(self, id: UUID, status: int) -> Chat:
         """Update a chat status
         
         Args:
-            id (str): Chat ID
+            id (UUID): Chat ID
             status (int): New status
             
         Returns:
@@ -208,11 +209,11 @@ class ChatRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
-    def update(self, id: str, updatedChat: Chat) -> Chat:
+    def update(self, id: UUID, updatedChat: Chat) -> Chat:
         """Update a chat    
         
         Args:
-            id (str): Chat ID
+            id (UUID): Chat ID
             updatedChat (Chat): Chat with updated data
             
         Returns:
@@ -236,11 +237,11 @@ class ChatRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
     
         
-    def updateEndedAt(self, id: str, ended_at: datetime) -> Chat:
+    def updateEndedAt(self, id: UUID, ended_at: datetime) -> Chat:
         """Update a chat ended at
         
         Args:
-            id (str): Chat ID
+            id (UUID): Chat ID
             ended_at (datetime): New ended at
             
         Returns:
@@ -261,11 +262,11 @@ class ChatRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
         
-    def delete(self, id: str) -> bool:
+    def delete(self, id: UUID) -> bool:
         """Delete a chat
         
         Args:
-            id (str): Chat ID
+            id (UUID): Chat ID
             
         Returns:
             bool: True if chat was deleted, False if not
@@ -284,11 +285,11 @@ class ChatRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
         
-    def softDelete(self, id: str) -> bool:
+    def softDelete(self, id: UUID) -> bool:
         """Soft delete a chat
 
         Args:
-            id (str): Chat ID
+            id (UUID): Chat ID
 
         Returns:
             bool: True if chat was soft deleted, False if not

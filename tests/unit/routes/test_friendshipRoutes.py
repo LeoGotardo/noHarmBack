@@ -18,10 +18,8 @@ def _make_friendship_dict():
     now = datetime.now(timezone.utc)
     return {
         "id": uuid4(),
-        "sender": uuid4(),
-        "reciver": uuid4(),
-        "send_at": now,
-        "recived_at": now,
+        "sender": _USER_ID,
+        "reciver": "uid-receiver",
         "status": 4,
         "created_at": now,
         "updated_at": now,
@@ -82,7 +80,7 @@ class TestSendFriendRequestRoute:
     def test_success_returns_201(self, client):
         receiver = str(uuid4())
         with patch("api.routes.friendshipRoutes.FriendshipService") as MockService:
-            MockService.return_value.sendRequest.return_value = _make_friendship_dict()
+            MockService.return_value.enrich.return_value = _make_friendship_dict()
             res = client.post(f"/friendships/{receiver}")
         assert res.status_code == 201
 
@@ -117,7 +115,7 @@ class TestAcceptFriendRequestRoute:
     def test_success_returns_200(self, client):
         fid = str(uuid4())
         with patch("api.routes.friendshipRoutes.FriendshipService") as MockService:
-            MockService.return_value.accept.return_value = _make_friendship_dict()
+            MockService.return_value.enrich.return_value = _make_friendship_dict()
             res = client.post(f"/friendships/{fid}/accept")
         assert res.status_code == 200
 
@@ -135,7 +133,7 @@ class TestRejectFriendRequestRoute:
     def test_success_returns_200(self, client):
         fid = str(uuid4())
         with patch("api.routes.friendshipRoutes.FriendshipService") as MockService:
-            MockService.return_value.reject.return_value = _make_friendship_dict()
+            MockService.return_value.enrich.return_value = _make_friendship_dict()
             res = client.post(f"/friendships/{fid}/reject")
         assert res.status_code == 200
 
@@ -144,7 +142,7 @@ class TestBlockUserRoute:
     def test_success_returns_200(self, client):
         fid = str(uuid4())
         with patch("api.routes.friendshipRoutes.FriendshipService") as MockService:
-            MockService.return_value.block.return_value = _make_friendship_dict()
+            MockService.return_value.enrich.return_value = _make_friendship_dict()
             res = client.post(f"/friendships/{fid}/block")
         assert res.status_code == 200
 

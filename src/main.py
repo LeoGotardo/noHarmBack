@@ -2,9 +2,14 @@ import os, sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from fastapi import FastAPI, Request
+import logging
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from exceptions.baseExceptions import NoHarmException
 from core.config import config
 from core.database import database
@@ -27,6 +32,14 @@ from api.routes.auditLogsRoutes import router as auditLogsRouter
 from api.routes.friendshipRoutes import router as friendshipRouter
 from api.routes.notificationRoutes import router as notificationRouter
 from websocket.socketManager import socketApp
+from websocket import emitter
+
+
+logging.basicConfig(
+    level=logging.DEBUG if config.DEBUG else logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("noharm")
 
 
 app = FastAPI(
@@ -35,12 +48,19 @@ app = FastAPI(
     debug=config.DEBUG
 )
 
+
+@app.on_event("startup")
+async def _bindWebsocketLoop():
+    """Socket.IO emits from REST handlers run in the threadpool — they need a
+    handle on the loop the server is actually running."""
+    emitter.bindLoop()
+
 app.state.limiter = limiter
 
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 app.add_middleware(
     CORSMiddleware,
@@ -63,7 +83,20 @@ app.include_router(notificationRouter)
 
 
 _GENERIC_500 = {"errorCode": "INTERNAL_ERROR", "message": "An internal server error occurred."}
-_IS_DEV = config.EXEC_MODE == "development"
+# EXEC_MODE is "dev" / "prod" (see .secrets.toml); "development" never matched.
+_IS_DEV = config.EXEC_MODE.lower() in ("dev", "development")
+
+# Every error response uses the same envelope: {errorCode, message, details?}.
+# `detail` (FastAPI's default key) is never emitted, so clients read one shape.
+_STATUS_ERROR_CODES = {
+    400: "BAD_REQUEST",
+    401: "UNAUTHORIZED",
+    403: "FORBIDDEN",
+    404: "NOT_FOUND",
+    409: "CONFLICT",
+    422: "VALIDATION_ERROR",
+    429: "RATE_LIMIT_EXCEEDED",
+}
 
 
 def _corsHeaders(request: Request) -> dict:
@@ -74,17 +107,52 @@ def _corsHeaders(request: Request) -> dict:
     return {}
 
 
+def _errorCodeFor(statusCode: int) -> str:
+    return _STATUS_ERROR_CODES.get(statusCode, "INTERNAL_ERROR" if statusCode >= 500 else "ERROR")
+
+
 @app.exception_handler(NoHarmException)
 def noHarmExceptionHandler(request: Request, exc: NoHarmException):
     headers = _corsHeaders(request)
-    if not _IS_DEV and exc.statusCode >= 500:
-        return JSONResponse(status_code=exc.statusCode, content=_GENERIC_500, headers=headers)
+    if exc.statusCode >= 500:
+        logger.exception("%s %s → %s", request.method, request.url.path, exc.message, exc_info=exc)
+        if not _IS_DEV:
+            return JSONResponse(status_code=exc.statusCode, content=_GENERIC_500, headers=headers)
     return JSONResponse(status_code=exc.statusCode, content=exc.toDict(), headers=headers)
+
+
+@app.exception_handler(StarletteHTTPException)
+def httpExceptionHandler(request: Request, exc: StarletteHTTPException):
+    """Normalise FastAPI's `{"detail": ...}` into the shared envelope."""
+    headers = _corsHeaders(request)
+    detail = exc.detail
+    message = detail if isinstance(detail, str) else "Request failed."
+    content = {"errorCode": _errorCodeFor(exc.status_code), "message": message}
+    if not isinstance(detail, str):
+        content["details"] = detail
+    if exc.status_code >= 500:
+        logger.error("%s %s → %s", request.method, request.url.path, detail)
+    return JSONResponse(status_code=exc.status_code, content=content, headers=headers)
+
+
+@app.exception_handler(RequestValidationError)
+def validationExceptionHandler(request: Request, exc: RequestValidationError):
+    headers = _corsHeaders(request)
+    return JSONResponse(
+        status_code=422,
+        content={
+            "errorCode": "VALIDATION_ERROR",
+            "message": "Request validation failed.",
+            "details": jsonable_encoder(exc.errors()),
+        },
+        headers=headers,
+    )
 
 
 @app.exception_handler(Exception)
 def genericExceptionHandler(request: Request, exc: Exception):
     headers = _corsHeaders(request)
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
     if _IS_DEV:
         import traceback
         return JSONResponse(

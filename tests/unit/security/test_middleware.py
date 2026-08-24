@@ -19,7 +19,8 @@ class TestRateLimitMiddleware:
 
     def test_allowed_request_passes(self):
         with patch("security.middleware._ipLimiter") as mock_limiter:
-            mock_limiter.check.return_value = (True, None)
+            mock_limiter.check = AsyncMock()
+            mock_limiter.check.return_value = (True, None, 0)
             app = self._make_app()
             client = TestClient(app, raise_server_exceptions=False)
             res = client.get("/ping")
@@ -27,7 +28,8 @@ class TestRateLimitMiddleware:
 
     def test_blocked_request_returns_429(self):
         with patch("security.middleware._ipLimiter") as mock_limiter:
-            mock_limiter.check.return_value = (False, "IP blocked. Try again in 60s")
+            mock_limiter.check = AsyncMock()
+            mock_limiter.check.return_value = (False, "IP blocked. Try again in 60s", 60)
             app = self._make_app()
             client = TestClient(app, raise_server_exceptions=False)
             res = client.get("/ping")
@@ -36,18 +38,63 @@ class TestRateLimitMiddleware:
             body = res.json()
             assert body["errorCode"] == "RATE_LIMIT_EXCEEDED"
 
-    def test_extracts_forwarded_ip(self):
+    def test_retry_after_reflects_real_block_duration(self):
+        """Retry-After must carry the remaining block, not a fixed window."""
         with patch("security.middleware._ipLimiter") as mock_limiter:
-            mock_limiter.check.return_value = (True, None)
+            mock_limiter.check = AsyncMock()
+            mock_limiter.check.return_value = (False, "IP blocked. Try again in 3500s", 3500)
+            app = self._make_app()
+            client = TestClient(app, raise_server_exceptions=False)
+            res = client.get("/ping")
+            assert res.headers.get("Retry-After") == "3500"
+
+    def test_forwarded_ip_ignored_from_untrusted_peer(self):
+        """X-Forwarded-For is client-controlled: spoofing it must not mint a new bucket."""
+        with patch("security.middleware._ipLimiter") as mock_limiter:
+            mock_limiter.check = AsyncMock()
+            mock_limiter.check.return_value = (True, None, 0)
             app = self._make_app()
             client = TestClient(app, raise_server_exceptions=False)
             client.get("/ping", headers={"X-Forwarded-For": "1.2.3.4, 5.6.7.8"})
             called_ip = mock_limiter.check.call_args[0][0]
-            assert called_ip == "1.2.3.4"
+            assert called_ip == "testclient"
+
+    def test_forwarded_ip_used_from_trusted_peer(self):
+        """Behind a trusted proxy, the rightmost untrusted hop is the real client."""
+        # Patch where the name is looked up: extractClientIp resolves
+        # isTrustedProxy as a module global inside security.clientIp.
+        with patch("security.middleware._ipLimiter") as mock_limiter, \
+             patch("security.clientIp.isTrustedProxy",
+                   lambda ip: ip in ("testclient", "5.6.7.8")):
+            mock_limiter.check = AsyncMock()
+            mock_limiter.check.return_value = (True, None, 0)
+            app = self._make_app()
+            client = TestClient(app, raise_server_exceptions=False)
+            client.get("/ping", headers={"X-Forwarded-For": "1.2.3.4, 9.9.9.9, 5.6.7.8"})
+            called_ip = mock_limiter.check.call_args[0][0]
+            assert called_ip == "9.9.9.9"
+
+    def test_health_and_docs_bypass_the_limiter(self):
+        """A blocked bucket must not take liveness checks or docs down with it."""
+        from security.middleware import RateLimitMiddleware
+        with patch("security.middleware._ipLimiter") as mock_limiter:
+            mock_limiter.check = AsyncMock()
+            mock_limiter.check.return_value = (False, "IP blocked. Try again in 900s", 900)
+            app = FastAPI()
+            app.add_middleware(RateLimitMiddleware)
+
+            @app.get("/health")
+            def health():
+                return {"status": "ok"}
+
+            client = TestClient(app, raise_server_exceptions=False)
+            assert client.get("/health").status_code == 200
+            mock_limiter.check.assert_not_called()
 
     def test_uses_direct_ip_when_no_forwarded(self):
         with patch("security.middleware._ipLimiter") as mock_limiter:
-            mock_limiter.check.return_value = (True, None)
+            mock_limiter.check = AsyncMock()
+            mock_limiter.check.return_value = (True, None, 0)
             app = self._make_app()
             client = TestClient(app, raise_server_exceptions=False)
             client.get("/ping")

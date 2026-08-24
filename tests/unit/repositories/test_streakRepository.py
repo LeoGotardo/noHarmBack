@@ -103,7 +103,11 @@ def test_softDelete_success(repo, session):
 def test_findCurrentStreak_success(repo, session):
     mock_streak = MagicMock()
     session.query.return_value.filter.return_value.first.return_value = mock_streak
-    assert repo.findCurrentStreak("uid") is mock_streak
+    # Repositories hand back domain entities, not ORM models.
+    result = repo.findCurrentStreak("uid")
+    assert result is not None
+    assert result.owner_id is mock_streak.owner_id
+    assert result.start_at is mock_streak.start_at
 
 
 # ── findCurrentRecord success ─────────────────────────────────────────────────
@@ -155,12 +159,12 @@ def test_update_success_merges_fields(repo, session):
 
     updated = MagicMock()
     now =datetime.now(timezone.utc)
-    updated.start = now
-    updated.end = None
+    updated.start_at = now
+    updated.end_at = None
     updated.status = None
 
     result = repo.update("sid", updated)
-    assert result.start == now
+    assert result.start_at == now
     session.commit.assert_called_once()
 
 
@@ -193,7 +197,7 @@ def test_updateEnd_success_sets_end(repo, session):
     session.query.return_value.filter.return_value.first.return_value = mock_streak
     end =datetime.now(timezone.utc)
     result = repo.updateEnd("sid", end)
-    assert mock_streak.end == end
+    assert mock_streak.end_at == end
     session.commit.assert_called()
 
 

@@ -23,6 +23,24 @@ def _require_json(key: str):
     except json.JSONDecodeError as e:
         raise Exception(f"Env var {key} is not valid JSON: {e}")
 
+def _optional_int(key: str, default: int) -> int:
+    raw = os.environ.get(key)
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+def _optional_json(key: str, default):
+    raw = os.environ.get(key)
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return default
+
 try:
     import tomllib
     _toml_path = os.path.join(os.path.dirname(__file__), "..", "..", ".secrets.toml")
@@ -74,6 +92,19 @@ class Config:
             self.REDIS_URL: str = _require("REDIS_URL")
             self.FIREBASE_SERVICE_ACCOUNT: str | None = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
             self.FIREBASE_SERVICE_ACCOUNT_PATH: str | None = os.environ.get("FIREBASE_SERVICE_ACCOUNT_PATH")
+
+            self.IS_DEV: bool = self.EXEC_MODE.lower() in ("dev", "development")
+
+            # Peers allowed to set X-Forwarded-For. Plain IPs or CIDR blocks;
+            # ["*"] trusts every peer — only safe when the app is unreachable
+            # except through the platform's proxy (Vercel, Cloudflare).
+            self.TRUSTED_PROXIES: list = _optional_json("TRUSTED_PROXIES", [])
+
+            # Global IP floor. Per-route slowapi limits are the real ceilings.
+            self.RATE_LIMIT_MAX_REQUESTS: int = _optional_int("RATE_LIMIT_MAX_REQUESTS", 240)
+            self.RATE_LIMIT_WINDOW_SECONDS: int = _optional_int("RATE_LIMIT_WINDOW_SECONDS", 60)
+            self.RATE_LIMIT_BLOCK_SECONDS: int = _optional_int("RATE_LIMIT_BLOCK_SECONDS", 60)
+            self.RATE_LIMIT_MAX_BLOCK_SECONDS: int = _optional_int("RATE_LIMIT_MAX_BLOCK_SECONDS", 900)
         except Exception as e:
             missing = [k for k in ["ENCRYPTION_KEY","DATABASE_URL","DATABASE_HOST","DATABASE_NAME","DATABASE_USER","DATABASE_PASSWORD","DATABASE_URL_UNPOOLED","STORAGE_SERVICE_URI","STORAGE_SERVICE_KEY","EXEC_MODE","DEBUG","PORT","STATUS_CODES","JWT_SECRET_KEY","JWT_REFRESH_SECRET_KEY","JWT_ALGORITHM","ACCESS_TOKEN_EXPIRE_MINUTES","REFRESH_TOKEN_EXPIRE_DAYS","STORAGE_PATH","ALLOWED_ORIGINS","REDIS_URL"] if not os.environ.get(k)]
             raise Exception(f"Configuration error: {e} | Missing keys: {missing}")

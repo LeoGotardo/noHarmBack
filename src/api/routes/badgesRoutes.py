@@ -45,7 +45,6 @@ def getAllBadges(
         else:
             badges = service.getAll()
             
-            assert isinstance(badges, list)
             return BadgeListResponse(
                 badges=[BadgeResponse.model_validate(b) for b in badges],
                 total=len(badges)
@@ -133,7 +132,7 @@ def updateBadge(
              description="Updates the status of an existing badge.")
 @limiter.limit("10/minute")
 def updateBadgeStatus(
-    status: str,
+    status: int,
     badgeId: str,
     request: Request,
     db: Session = Depends(getDbWithRLS),
@@ -143,7 +142,7 @@ def updateBadgeStatus(
     Update the status of an existing badge.
 
     Args:
-        status: New status (ex: enabled, disabled)
+        status: New status code (ex: 1 enabled, 0 disabled)
         badgeId: UUID of the badge
 
     Returns:
@@ -152,8 +151,8 @@ def updateBadgeStatus(
     try:
         service = BadgeService(db)
 
-        updatedBadge = service.updateStatus(badgeId, status)  
-        return updatedBadge
+        updatedBadge = service.updateStatus(badgeId, status)
+        return BadgeResponse.model_validate(updatedBadge)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -223,6 +222,6 @@ def deleteBadge(
     try:
         service = BadgeService(db)
         deletedBadge = service.delete(badgeId)
-        return deletedBadge
+        return BadgeResponse.model_validate(deletedBadge)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

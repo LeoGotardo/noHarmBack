@@ -8,7 +8,7 @@ from schemas.streakSchemas import StreakResponse, StreakListResponse, StreakStar
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
 from security.limiter import limiter
-from typing import Union
+from typing import Optional, Union
 from domain.entities.streak import Streak
 
 
@@ -76,7 +76,6 @@ def getStreakHistory(
         if paginated:
             return service.getAllByUserId(currentUserId, paginatedParams)
         streaks = service.getAllByUserId(currentUserId)
-        assert isinstance(streaks, list)
         return StreakListResponse(
             streaks=[StreakResponse.model_validate(s) for s in streaks],
             total=len(streaks)
@@ -99,13 +98,13 @@ def getStreakHistory(
 @limiter.limit("5/minute")
 def startStreak(
     request: Request,
-    body: StreakStartRequest,
+    body: Optional[StreakStartRequest] = None,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = StreakService(db)
-        streak = service.startStreak(currentUserId, startAt=body.start_at)
+        streak = service.startStreak(currentUserId, startAt=body.start_at if body else None)
         return StreakResponse.model_validate(streak)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
@@ -125,13 +124,13 @@ def startStreak(
 @limiter.limit("5/minute")
 def endStreak(
     request: Request,
-    body: StreakEndRequest,
+    body: Optional[StreakEndRequest] = None,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
     try:
         service = StreakService(db)
-        newStreak = service.endStreak(currentUserId, endAt=body.end_at)
+        newStreak = service.endStreak(currentUserId, endAt=body.end_at if body else None)
         return StreakResponse.model_validate(newStreak)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

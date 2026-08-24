@@ -1,10 +1,14 @@
+import logging
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
+from security.clientIp import extractClientIp, isTrustedProxy
 from security.rateLimiter import IpRateLimiter
 
+logger = logging.getLogger(__name__)
 
 # Global instance — shared across all requests
 _ipLimiter = IpRateLimiter()
@@ -21,10 +25,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         app.add_middleware(RateLimitMiddleware)
     """
 
+    # Liveness and API docs stay reachable even while a bucket is blocked.
+    # Behind a proxy that is not in TRUSTED_PROXIES every client collapses into
+    # one bucket, and a health check that answers 429 makes an orchestrator
+    # recycle a container that is actually fine.
+    _EXEMPT_PATHS = {"/health", "/docs", "/redoc", "/openapi.json"}
+
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if request.url.path in self._EXEMPT_PATHS:
+            return await call_next(request)
+
         ip = self._extractIp(request)
 
-        allowed, reason = _ipLimiter.check(ip)
+        allowed, reason, retryAfter = await _ipLimiter.check(ip)
 
         if not allowed:
             return JSONResponse(
@@ -33,25 +46,20 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     "errorCode": "RATE_LIMIT_EXCEEDED",
                     "message":   reason
                 },
-                headers = {"Retry-After": "60"}
+                headers = {"Retry-After": str(retryAfter)}
             )
 
         return await call_next(request)
 
 
     def _extractIp(self, request: Request) -> str:
-        """
-        Extracts the real client IP, respecting reverse proxies.
-        X-Forwarded-For is populated automatically by Vercel.
-        """
-        forwarded = request.headers.get("X-Forwarded-For")
+        """Resolve the client IP. Shared with slowapi's key_func — see clientIp."""
+        return extractClientIp(request)
 
-        if forwarded:
-            return forwarded.split(",")[0].strip()
 
-        if request.client is None:
-            return "unknown"
-        return request.client.host
+    @staticmethod
+    def _isTrustedProxy(ip: str | None) -> bool:
+        return isTrustedProxy(ip)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -68,10 +76,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
         except Exception:
-            response = JSONResponse(
-                status_code=500,
-                content={"errorCode": "INTERNAL_ERROR", "message": "An internal server error occurred."}
-            )
+            # Log here (this is the innermost frame that still sees the original
+            # traceback) and re-raise so ServerErrorMiddleware can build the
+            # response through the app's exception handler, which includes the
+            # traceback in dev. Swallowing it here made every 500 invisible.
+            logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+            raise
 
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"]        = "DENY"

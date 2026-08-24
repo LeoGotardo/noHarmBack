@@ -1,6 +1,5 @@
 """Unit tests for JwtHandler."""
 
-import time
 import pytest
 from unittest.mock import MagicMock, patch
 from datetime import datetime, timedelta, timezone
@@ -154,14 +153,152 @@ def test_revokeToken_calls_blacklist_add(handler, mock_blacklist):
     mock_blacklist.add.assert_called_once()
 
 
-def test_revokeToken_then_verify_returns_none(mock_blacklist):
-    """After revocation, verify must return None (blacklist returns True)."""
-    handler = JwtHandler(mock_blacklist)
-    token = handler.createAccessToken("user-1")
+# ── type confusion ────────────────────────────────────────────────────────────
+#
+# The two tests above ("wrong type", "refresh as access") pass on the *signature*
+# check: access and refresh are signed with different keys, so decode fails
+# before _hasValidType is ever consulted. Replacing that method with
+# `return True` left the whole suite green. These forge the token with the
+# correct key so the type claim is the only thing that can reject it.
 
+def _forge(claims, secret):
     from core.config import config
+    base = {
+        "sub": "user-1",
+        "type": "access",
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
+        "iat": datetime.now(timezone.utc),
+        "jti": "forged-jti",
+    }
+    base.update(claims)
+    key = config.JWT_SECRET_KEY if secret == "access" else config.JWT_REFRESH_SECRET_KEY
+    return pyjwt.encode(base, key, algorithm="HS256")
+
+
+def test_verifyToken_refresh_claim_signed_with_access_key_is_rejected(handler):
+    """A correctly signed token still fails if its `type` is not the expected one."""
+    token = _forge({"type": "refresh"}, secret="access")
+    assert handler.verifyToken(token, "access") is None
+
+
+def test_verifyToken_access_claim_signed_with_refresh_key_is_rejected(handler):
+    token = _forge({"type": "access"}, secret="refresh")
+    assert handler.verifyToken(token, "refresh") is None
+
+
+def test_verifyToken_unknown_type_claim_is_rejected(handler):
+    token = _forge({"type": "admin"}, secret="access")
+    assert handler.verifyToken(token, "access") is None
+
+
+def test_verifyToken_matching_type_is_accepted(handler):
+    """Control for the three above: same forgery, right type, must pass."""
+    token = _forge({"type": "access"}, secret="access")
+    assert handler.verifyToken(token, "access") is not None
+
+
+# ── algorithm and claim tampering ─────────────────────────────────────────────
+
+def test_verifyToken_alg_none_is_rejected(handler):
+    """An unsigned token must never authenticate anyone."""
+    import base64, json
+
+    def b64(raw):
+        return base64.urlsafe_b64encode(json.dumps(raw).encode()).rstrip(b"=").decode()
+
+    header = b64({"alg": "none", "typ": "JWT"})
+    payload = b64({
+        "sub": "attacker", "type": "access", "jti": "x",
+        "iat": int(datetime.now(timezone.utc).timestamp()),
+        "exp": int((datetime.now(timezone.utc) + timedelta(minutes=15)).timestamp()),
+    })
+    assert handler.verifyToken(f"{header}.{payload}.", "access") is None
+
+
+def test_verifyToken_signed_with_wrong_secret_is_rejected(handler):
+    token = pyjwt.encode(
+        {
+            "sub": "attacker", "type": "access", "jti": "x",
+            "iat": datetime.now(timezone.utc),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
+        },
+        "an-attacker-chosen-secret",
+        algorithm="HS256",
+    )
+    assert handler.verifyToken(token, "access") is None
+
+
+@pytest.mark.parametrize("missing", ["sub", "type", "exp", "iat", "jti"])
+def test_verifyToken_missing_required_claim_is_rejected(handler, missing):
+    from core.config import config
+    claims = {
+        "sub": "user-1", "type": "access",
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
+        "iat": datetime.now(timezone.utc),
+        "jti": "some-jti",
+    }
+    del claims[missing]
+    token = pyjwt.encode(claims, config.JWT_SECRET_KEY, algorithm="HS256")
+    assert handler.verifyToken(token, "access") is None
+
+
+def test_secretForType_rejects_unknown_type(handler):
+    with pytest.raises(ValueError):
+        handler._secretForType("admin")
+
+
+# ── revocation against a real blacklist ───────────────────────────────────────
+#
+# The previous revocation test set `mock_blacklist.isBlacklisted.return_value =
+# True` by hand after calling revokeToken, so it asserted that a MagicMock
+# returns what the test told it to. These run the real TokenBlacklist over
+# fakeredis, which also covers the naive-datetime TTL path — the one
+# revokeToken always takes, since it strips tzinfo before handing `exp` over.
+
+@pytest.fixture
+def real_blacklist():
+    import fakeredis
+    from security.tokenBlacklist import TokenBlacklist
+    bl = TokenBlacklist.__new__(TokenBlacklist)
+    bl._redis = fakeredis.FakeStrictRedis(decode_responses=True)
+    return bl
+
+
+def test_revoked_token_stops_verifying(real_blacklist):
+    from core.config import config
+    handler = JwtHandler(real_blacklist)
+    token = handler.createAccessToken("user-1")
+    assert handler.verifyToken(token, "access") is not None
+
     payload = pyjwt.decode(token, config.JWT_SECRET_KEY, algorithms=["HS256"])
     handler.revokeToken(payload["jti"], payload["exp"])
 
-    mock_blacklist.isBlacklisted.return_value = True
     assert handler.verifyToken(token, "access") is None
+
+
+def test_revoking_one_token_leaves_the_others_valid(real_blacklist):
+    from core.config import config
+    handler = JwtHandler(real_blacklist)
+    revoked = handler.createAccessToken("user-1")
+    kept = handler.createAccessToken("user-1")
+
+    payload = pyjwt.decode(revoked, config.JWT_SECRET_KEY, algorithms=["HS256"])
+    handler.revokeToken(payload["jti"], payload["exp"])
+
+    assert handler.verifyToken(revoked, "access") is None
+    assert handler.verifyToken(kept, "access") is not None
+
+
+def test_revocation_sets_a_positive_ttl(real_blacklist):
+    """revokeToken hands `add` a naive datetime. If the naive branch in
+    TokenBlacklist.add stopped tagging it UTC, the TTL would compute negative
+    and the write would be skipped — revocation silently becoming a no-op."""
+    from core.config import config
+    handler = JwtHandler(real_blacklist)
+    token = handler.createAccessToken("user-1")
+    payload = pyjwt.decode(token, config.JWT_SECRET_KEY, algorithms=["HS256"])
+
+    handler.revokeToken(payload["jti"], payload["exp"])
+
+    key = "jti:" + real_blacklist._hash(payload["jti"])
+    assert real_blacklist._redis.ttl(key) > 0

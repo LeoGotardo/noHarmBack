@@ -83,9 +83,12 @@ def test_softDelete_not_found_raises_404(repo):
     assert exc.value.statusCode == 404
 
 
-def test_softDelete_success_returns_true(repo, session):
+def test_softDelete_success_returns_entity(repo, session):
+    from core.config import config
     session.query.return_value.filter.return_value.first.return_value = MagicMock()
-    assert repo.softDelete("bid") is True
+    result = repo.softDelete("bid")
+    assert result is not None
+    assert result.status == config.STATUS_CODES["deleted"]
 
 
 def test_softDelete_sets_deleted_status(repo, session):
@@ -100,8 +103,10 @@ def test_softDelete_sets_deleted_status(repo, session):
 
 def test_findAll_with_pagination(repo, session):
     from schemas.paginationSchemas import PaginationParams
-    session.query.return_value.count.return_value = 10
-    session.query.return_value.offset.return_value.limit.return_value.all.return_value = []
+    # findAll hides deleted badges, so the chain goes through .filter()
+    filtered = session.query.return_value.filter.return_value
+    filtered.count.return_value = 10
+    filtered.offset.return_value.limit.return_value.all.return_value = []
     result = repo.findAll(PaginationParams(page=1, pageSize=5))
     assert hasattr(result, "total")
     assert result.total == 10

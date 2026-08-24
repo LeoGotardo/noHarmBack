@@ -10,6 +10,7 @@ from core.config import config
 from core.database import Database
 
 from datetime import datetime, timezone
+from uuid import UUID
 
 
 class ChatService:
@@ -26,7 +27,7 @@ class ChatService:
         chats = self.chatRepository.findByParticipant(userId)
         return chats
 
-    def get(self, chatId: str, requestingUserId: str) -> Chat:
+    def get(self, chatId: UUID, requestingUserId: str) -> Chat:
         """Return a chat, verifying the requesting user is a participant (§9.2)."""
         chat = self.chatRepository.findById(chatId)
         self._assertParticipant(chat, requestingUserId)
@@ -39,7 +40,7 @@ class ChatService:
         chats = self.chatRepository.findByParticipant(userId)
         return [self._withMeta(chat, userId) for chat in chats]
 
-    def getWithMeta(self, chatId: str, requestingUserId: str) -> ChatResponse:
+    def getWithMeta(self, chatId: UUID, requestingUserId: str) -> ChatResponse:
         """Return one chat (participant-only) with last_message and unread_count."""
         chat = self.get(chatId, requestingUserId)
         return self._withMeta(chat, requestingUserId)
@@ -92,7 +93,7 @@ class ChatService:
         )
         return self.chatRepository.create(newChat)  
 
-    def activate(self, chatId: str, requestingUserId: str) -> Chat:
+    def activate(self, chatId: UUID, requestingUserId: str) -> Chat:
         """Activate a pending chat (pending → enabled) (§4.1).
 
         Either participant may activate the chat by sending the first message
@@ -113,7 +114,7 @@ class ChatService:
 
     # ── ending ────────────────────────────────────────────────────────────────
 
-    def endChat(self, chatId: str, requestingUserId: str) -> Chat:
+    def endChat(self, chatId: UUID, requestingUserId: str) -> Chat:
         """End a chat — either participant may close it (§4.2).
 
         Sets endedAt = now, status = disabled.
@@ -125,7 +126,7 @@ class ChatService:
         self.chatRepository.updateStatus(chatId, config.STATUS_CODES["disabled"])
         return self.chatRepository.findById(chatId)
     
-    def reject(self, chatId: str, requestingUserId: str) -> Chat:
+    def reject(self, chatId: UUID, requestingUserId: str) -> Chat:
         """Reject a pending chat invitation.
         """
         chat = self.chatRepository.findById(chatId)
@@ -146,16 +147,16 @@ class ChatService:
     def create(self, newChat: Chat) -> Chat:
         return self.chatRepository.create(newChat)
 
-    def updateStatus(self, chatId: str, status: int) -> Chat:  
+    def updateStatus(self, chatId: UUID, status: int) -> Chat:  
          return self.chatRepository.updateStatus(chatId, status)
 
-    def update(self, chatId: str, updatedChat: Chat) -> Chat:
+    def update(self, chatId: UUID, updatedChat: Chat) -> Chat:
         return self.chatRepository.update(chatId, updatedChat)
 
-    def updateEndedAt(self, chatId: str, endedAt: datetime) -> Chat:  
+    def updateEndedAt(self, chatId: UUID, endedAt: datetime) -> Chat:  
         return self.chatRepository.updateEndedAt(chatId, endedAt)
 
-    def delete(self, chatId: str, requestingUserId: str) -> bool:
+    def delete(self, chatId: UUID, requestingUserId: str) -> bool:
         """Soft-delete a chat — only participants may delete it (§4.3, §9.2)."""
         chat = self.chatRepository.findById(chatId)
         self._assertParticipant(chat, requestingUserId)

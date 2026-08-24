@@ -2,7 +2,7 @@ from infrastructure.database.repositories.auditLogsRepository import AuditLogsRe
 from domain.entities.auditLogs import AuditLogs
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from core.database import Database
-from typing import Optional
+from typing import Optional, overload
 
 
 class AuditLogsService:
@@ -11,6 +11,10 @@ class AuditLogsService:
         self.auditLogsRepository = AuditLogsRepository(self.database)
     
     
+    @overload
+    def getAll(self, params: None = None) -> list[AuditLogs]: ...
+    @overload
+    def getAll(self, params: PaginationParams) -> PaginatedResponse[AuditLogs]: ...
     def getAll(self, params: Optional[PaginationParams] = None) -> list[AuditLogs] | PaginatedResponse[AuditLogs]:
         """
         Return all audit logs, optionally paginated.
@@ -50,6 +54,10 @@ class AuditLogsService:
         return self.auditLogsRepository.create(newAuditLog)
         
         
+    @overload
+    def getByCatalyst(self, catalistId: str, params: None = None) -> list[AuditLogs]: ...
+    @overload
+    def getByCatalyst(self, catalistId: str, params: PaginationParams) -> PaginatedResponse[AuditLogs]: ...
     def getByCatalyst(self, catalistId: str, params: Optional[PaginationParams] = None) -> list[AuditLogs] | PaginatedResponse[AuditLogs]:
         """
         Return all audit logs by catalyst, optionally paginated.
@@ -64,6 +72,10 @@ class AuditLogsService:
         return self.auditLogsRepository.findByCatalystId(catalistId, params)  
     
     
+    @overload
+    def getByDateRange(self, startDate: str, endDate: str, params: None = None) -> list[AuditLogs]: ...
+    @overload
+    def getByDateRange(self, startDate: str, endDate: str, params: PaginationParams) -> PaginatedResponse[AuditLogs]: ...
     def getByDateRange(self, startDate: str, endDate: str, params: Optional[PaginationParams] = None) -> list[AuditLogs] | PaginatedResponse[AuditLogs]:
         """
         Return all audit logs within a date range, optionally paginated.
@@ -82,6 +94,10 @@ class AuditLogsService:
         return self.auditLogsRepository.findByDateRange(start, end, params)
     
     
+    @overload
+    def getByType(self, type: int, params: None = None) -> list[AuditLogs]: ...
+    @overload
+    def getByType(self, type: int, params: PaginationParams) -> PaginatedResponse[AuditLogs]: ...
     def getByType(self, type: int, params: Optional[PaginationParams] = None) -> list[AuditLogs] | PaginatedResponse[AuditLogs]:
         """
         Return all audit logs of a specific type, optionally paginated.

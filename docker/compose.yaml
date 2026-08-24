@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # O Banco de Dados Postgres
   postgres:
@@ -25,6 +23,11 @@ services:
     container_name: redis_cache
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # A sua Aplicação Python
   app:
@@ -34,14 +37,33 @@ services:
     container_name: noharm-backend
     environment:
       - APP_ENV=dev
+      # Requests reach the container from the compose bridge gateway, so without
+      # this every client shares one rate-limit bucket and a single user can lock
+      # the whole API out. Trusting the bridge lets X-Forwarded-For identify the
+      # real client again.
+      #
+      # Scoped to Docker's private pool on purpose. Published ports keep the
+      # original source address for hosts outside this machine, so widening this
+      # to 192.168.0.0/16 or 10.0.0.0/8 would mark every machine on the LAN as a
+      # proxy and let them forge X-Forwarded-For.
+      - TRUSTED_PROXIES=["172.16.0.0/12","127.0.0.1/32"]
     ports:
       - "8080:8080"
-    # O 'depends_on' garante que o app só sobe após o banco e o redis estarem de pé
+    # run.py passa reload=DEBUG ao uvicorn, e em dev DEBUG é true. Sem este mount
+    # o reloader vigia a cópia congelada dentro da imagem, então nada recarrega:
+    # cada alteração exigia rebuild. .secrets.toml fica em /app, fora do mount.
+    volumes:
+      - ../src:/app/src
+    # O 'depends_on' garante que o app só sobe após o banco e o redis estarem de pé.
+    # Vale só para container novo: se o app já estiver Running de uma tentativa
+    # anterior, o compose o deixa como está e a condição não é reavaliada. Use
+    # `docker compose down` (ou `up --force-recreate`) depois de uma subida que
+    # falhou, senão o app fica no ar sem o postgres ter existido na rede.
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
 
 volumes:
   postgres_data:

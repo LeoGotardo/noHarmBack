@@ -2,7 +2,7 @@ from infrastructure.database.repositories.userBadgesRepository import UserBadges
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from domain.entities.userBadge import UserBadge
 from core.database import Database
-from typing import Optional
+from typing import Optional, overload
 from datetime import datetime
 
 
@@ -24,6 +24,10 @@ class UserBadgeService:
         return self.userBadgeRepository.findById(id)
     
     
+    @overload
+    def findByUserId(self, user_id: str, params: None = None) -> list[UserBadge]: ...
+    @overload
+    def findByUserId(self, user_id: str, params: PaginationParams) -> PaginatedResponse[UserBadge]: ...
     def findByUserId(self, user_id: str, params: Optional[PaginationParams] = None) -> list[UserBadge] | PaginatedResponse[UserBadge]:
         """Find all badges by user ID, optionally paginated
 
@@ -37,6 +41,10 @@ class UserBadgeService:
         return self.userBadgeRepository.findByUserId(user_id, params)
     
     
+    @overload
+    def findByBadgeId(self, badge_id: str, params: None = None) -> list[UserBadge]: ...
+    @overload
+    def findByBadgeId(self, badge_id: str, params: PaginationParams) -> PaginatedResponse[UserBadge]: ...
     def findByBadgeId(self, badge_id: str, params: Optional[PaginationParams] = None) -> list[UserBadge] | PaginatedResponse[UserBadge]:
         """Find all badges by badge ID, optionally paginated
 
@@ -63,29 +71,29 @@ class UserBadgeService:
         return self.userBadgeRepository.existsByUserAndBadge(user_id, badge_id)
     
     
-    def grant(self, user_id: str, badge_id: str, given_at: datetime | None = None) -> bool:
+    def grant(self, user_id: str, badge_id: str, given_at: datetime | None = None) -> UserBadge:
         """Grant a badge to a user
-        
+
         Args:
             user_id (str): User ID
             badge_id (str): Badge ID
-            given_at (str): Date of creation
-            
+            given_at (datetime): When the badge was earned; defaults to now
+
         Returns:
-            bool: True if badge was granted, False if not
+            UserBadge: The granted user badge
         """
-        return self.userBadgeRepository.grant(user_id, badge_id, given_at)  
-    
-    
-    def revoke(self, user_id: str, badge_id: str) -> bool:
+        return self.userBadgeRepository.grant(user_id, badge_id, given_at)
+
+
+    def revoke(self, user_id: str, badge_id: str) -> UserBadge:
         """Revoke a badge from a user
-        
+
         Args:
             user_id (str): User ID
-            badge_id (str): Badge ID    
-            
+            badge_id (str): Badge ID
+
         Returns:
-            bool: True if badge was revoked, False if not
+            UserBadge: The revoked user badge
         """
         return self.userBadgeRepository.revoke(user_id, badge_id)
     
@@ -103,27 +111,27 @@ class UserBadgeService:
         return self.userBadgeRepository.update(id, updatedUserBadge)
     
     
-    def updateStatus(self, id: str, status: str) -> UserBadge:
+    def updateStatus(self, id: str, status: int) -> UserBadge:
         """Update a badge status
-        
+
         Args:
             id (str): UserBadge ID
-            status (str): New status
-            
+            status (int): New status code
+
         Returns:
             UserBadge: UserBadge with his full data
         """
         return self.userBadgeRepository.updateStatus(id, status)
-    
-    
-    def delete(self, id: str) -> bool:
+
+
+    def delete(self, id: str) -> UserBadge:
         """Soft delete a badge
-        
+
         Args:
             id (str): UserBadge ID
-            
+
         Returns:
-            bool: True if badge was deleted, False if not
+            UserBadge: The soft-deleted user badge
         """
         return self.userBadgeRepository.softDelete(id)
     

@@ -12,7 +12,7 @@ T = TypeVar('T')
 
 
 def paginateQuery(
-    query: Query,
+    query: Query[T],
     page: int,
     pageSize: int
 ) -> Tuple[List[T], int]:
@@ -37,7 +37,7 @@ def paginateQuery(
 
 
 def getPaginatedResult(
-    query: Query,
+    query: Query[T],
     params: PaginationParams
 ) -> PaginatedResponse[T]:
     """Execute a paginated query and return a PaginatedResponse.
@@ -73,7 +73,7 @@ class PaginatedRepository:
 
     def paginate(
         self,
-        query: Query,
+        query: Query[T],
         params: PaginationParams
     ) -> PaginatedResponse[T]:
         """Apply pagination to a query using this repository's session.

@@ -1,5 +1,5 @@
 from typing import Optional
-from sqlalchemy import Integer, Text, DateTime
+from sqlalchemy import Integer, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy_utils import StringEncryptedType
@@ -20,6 +20,8 @@ class BadgeModel(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column("cl_5a", UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column("cl_5b", StringEncryptedType(Text, _encryption_key, AesGcmEngine, 'pkcs5'), nullable=False)
     description: Mapped[str] = mapped_column("cl_5c", StringEncryptedType(Text, _encryption_key, AesGcmEngine, 'pkcs5'), nullable=False)
-    milestone: Mapped[datetime.datetime] = mapped_column("cl_5d", DateTime, nullable=False)
+    # Number of clean days the streak must reach, not a calendar date — two users
+    # who started in different months share the same milestone (§8).
+    milestone: Mapped[int] = mapped_column("cl_5d", Integer, nullable=False)
     icon: Mapped[str] = mapped_column("cl_5e", StringEncryptedType(Text, _encryption_key, AesGcmEngine, 'pkcs5'), nullable=False)
     status: Mapped[int] = mapped_column("cl_5f", Integer, nullable=False)

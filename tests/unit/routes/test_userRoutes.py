@@ -16,7 +16,7 @@ _USER_ID = str(uuid4())
 
 def _make_user_mock():
     u = MagicMock()
-    u.id = uuid4()
+    u.id = _USER_ID
     u.username = "testuser"
     u.email = "test@example.com"
     u.status = 1

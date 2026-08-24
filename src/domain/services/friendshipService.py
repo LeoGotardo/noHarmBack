@@ -8,7 +8,7 @@ from exceptions.baseExceptions import NoHarmException
 from core.config import config
 from core.database import Database, database
 
-from typing import Optional
+from typing import Optional, overload
 
 
 class FriendshipService:
@@ -49,14 +49,25 @@ class FriendshipService:
         infoMap = self._fetchUsersInfo(ids)
         return [self._buildResponse(f, infoMap) for f in friendships]
 
-    def enrichPaginated(self, page: PaginatedResponse) -> PaginatedResponse:
+    def enrichPaginated(self, page: PaginatedResponse[Friendship]) -> PaginatedResponse[FriendshipResponse]:
         ids: set[str] = set()
         for f in page.items:
             ids.add(f.sender)
             ids.add(f.reciver)
         infoMap = self._fetchUsersInfo(ids)
         enriched = [self._buildResponse(f, infoMap) for f in page.items]
-        return page.model_copy(update={"items": enriched})
+        # model_copy would keep the receiver's PaginatedResponse[Friendship]
+        # type, and the generic is invariant, so the page is rebuilt around the
+        # enriched items instead.
+        return PaginatedResponse[FriendshipResponse](
+            items=enriched,
+            total=page.total,
+            page=page.page,
+            pageSize=page.pageSize,
+            totalPages=page.totalPages,
+            hasNext=page.hasNext,
+            hasPrevious=page.hasPrevious,
+        )
 
     @staticmethod
     def _buildResponse(friendship: Friendship, infoMap: dict[str, FriendUserInfo]) -> FriendshipResponse:
@@ -75,17 +86,33 @@ class FriendshipService:
         return self.friendshipRepository.findByUsers(userA, userB)
 
 
+    @overload
+    def getAll(self, userId: str, params: None = None) -> list[Friendship]: ...
+    @overload
+    def getAll(self, userId: str, params: PaginationParams) -> PaginatedResponse[Friendship]: ...
     def getAll(self, userId: str, params: Optional[PaginationParams] = None) -> list[Friendship] | PaginatedResponse[Friendship]:
         return self.friendshipRepository.findAllByUserId(userId, params)
 
 
+    @overload
+    def getPendingReceived(self, userId: str, params: None = None) -> list[Friendship]: ...
+    @overload
+    def getPendingReceived(self, userId: str, params: PaginationParams) -> PaginatedResponse[Friendship]: ...
     def getPendingReceived(self, userId: str, params: Optional[PaginationParams] = None) -> list[Friendship] | PaginatedResponse[Friendship]:
         return self.friendshipRepository.findPendingReceived(userId, params)
 
 
+    @overload
+    def getPendingSent(self, userId: str, params: None = None) -> list[Friendship]: ...
+    @overload
+    def getPendingSent(self, userId: str, params: PaginationParams) -> PaginatedResponse[Friendship]: ...
     def getPendingSent(self, userId: str, params: Optional[PaginationParams] = None) -> list[Friendship] | PaginatedResponse[Friendship]:
         return self.friendshipRepository.findPendingSent(userId, params)
 
+    @overload
+    def getBlockedUsers(self, userId: str, params: None = None) -> list[Friendship]: ...
+    @overload
+    def getBlockedUsers(self, userId: str, params: PaginationParams) -> PaginatedResponse[Friendship]: ...
     def getBlockedUsers(self, userId: str, params: Optional[PaginationParams] = None) -> list[Friendship] | PaginatedResponse[Friendship]:
         return self.friendshipRepository.findBlockedUsers(userId, params)
 

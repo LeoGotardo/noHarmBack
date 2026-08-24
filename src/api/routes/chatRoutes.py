@@ -8,6 +8,7 @@ from schemas.chatSchemas import ChatResponse, ChatListResponse
 from exceptions.baseExceptions import NoHarmException
 from security.limiter import limiter
 from pydantic import BaseModel
+from uuid import UUID
 
 
 router = APIRouter(prefix="/chats", tags=["Chats"])
@@ -47,7 +48,7 @@ def getMyChats(
 )
 @limiter.limit("60/minute")
 def getChatById(
-    chatId: str,
+    chatId: UUID,
     request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
@@ -102,7 +103,7 @@ def getOrCreateChat(
 )
 @limiter.limit("20/minute")
 def acceptChat(
-    chatId: str,
+    chatId: UUID,
     request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
@@ -129,7 +130,7 @@ def acceptChat(
 )
 @limiter.limit("10/minute")
 def endChat(
-    chatId: str,
+    chatId: UUID,
     request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
@@ -151,7 +152,7 @@ def endChat(
 )
 @limiter.limit("10/minute")
 def deleteChat(
-    chatId: str,
+    chatId: UUID,
     request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
@@ -175,7 +176,7 @@ def deleteChat(
 )
 @limiter.limit("20/minute")
 def rejectChat(
-    chatId: str,
+    chatId: UUID,
     request: Request,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)

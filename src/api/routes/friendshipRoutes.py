@@ -35,7 +35,6 @@ def getMyFriendships(
         if paginated:
             return service.enrichPaginated(service.getAll(currentUserId, paginatedParams))
         friendships = service.getAll(currentUserId)
-        assert isinstance(friendships, list)
         return FriendshipListResponse(friendships=service.enrichMany(friendships), total=len(friendships))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
@@ -60,7 +59,6 @@ def getPendingReceived(
         if paginated:
             return service.enrichPaginated(service.getPendingReceived(currentUserId, paginatedParams))
         friendships = service.getPendingReceived(currentUserId)
-        assert isinstance(friendships, list)
         return FriendshipListResponse(friendships=service.enrichMany(friendships), total=len(friendships))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
@@ -85,7 +83,6 @@ def getPendingSent(
         if paginated:
             return service.enrichPaginated(service.getPendingSent(currentUserId, paginatedParams))
         friendships = service.getPendingSent(currentUserId)
-        assert isinstance(friendships, list)
         return FriendshipListResponse(friendships=service.enrichMany(friendships), total=len(friendships))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
@@ -133,7 +130,6 @@ def getBlockedUser(
         if paginated:
             return service.enrichPaginated(service.getBlockedUsers(currentUserId, paginatedParams))
         friendships = service.getBlockedUsers(currentUserId)
-        assert isinstance(friendships, list)
         return FriendshipListResponse(friendships=service.enrichMany(friendships), total=len(friendships))
     except NoHarmException as e:        
         raise HTTPException(status_code=e.statusCode, detail=e.message)

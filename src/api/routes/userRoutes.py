@@ -9,7 +9,7 @@ from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.user import User
 from security.limiter import limiter
-from typing import Union
+from typing import Optional, Union
 
 
 
@@ -96,11 +96,17 @@ def getPublicProfile(
     "",
     response_model=Union[PaginatedResponse[User], UserListResponse],
     summary="Get all users",
-    description="Returns all users (admin use)."
+    description=(
+        "Returns the user directory. Pass `search` with a full username or email "
+        "to look one person up — matches are exact, since both columns are "
+        "encrypted and only their hashes are queryable (§5). "
+        "Deleted, banned and blocked accounts are never listed."
+    )
 )
 @limiter.limit("30/minute")
 def getAllUsers(
     request: Request,
+    search: Optional[str] = None,
     paginated: bool = False,
     paginatedParams: PaginationParams = Depends(),
     db: Session = Depends(getDbWithRLS),
@@ -108,10 +114,13 @@ def getAllUsers(
 ):
     try:
         service = UserService(db)
+
         if paginated:
+            if search:
+                return service.search(search, paginatedParams)
             return service.findAll(paginatedParams)
-        users = service.findAll()
-        assert isinstance(users, list)
+
+        users = service.search(search) if search else service.findAll()
         return UserListResponse(users=[UserResponse.model_validate(u) for u in users], total=len(users))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

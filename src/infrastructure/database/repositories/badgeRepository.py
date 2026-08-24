@@ -6,6 +6,7 @@ from schemas.paginationSchemas import PaginationParams, PaginatedResponse, creat
 
 from core.database import Database
 from core.config import config
+from core.statusCodes import resolveStatusCode
 
 from typing import Optional
 
@@ -50,17 +51,23 @@ class BadgeRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
-    def findAll(self, params: Optional[PaginationParams] = None) -> list[Badge] | PaginatedResponse[Badge]:
+    def findAll(self, params: Optional[PaginationParams] = None, includeDeleted: bool = False) -> list[Badge] | PaginatedResponse[Badge]:
         """Find all badges, optionally paginated
+
+        Soft-deleted badges are excluded by default — otherwise a removed badge
+        keeps showing in every user's grid.
 
         Args:
             params: Optional pagination parameters (page, pageSize)
+            includeDeleted: Include badges with status = deleted
 
         Returns:
             list[Badge] | PaginatedResponse[Badge]: List of Badges or paginated response
         """
         try:
             query = self.session.query(BadgeModel)
+            if not includeDeleted:
+                query = query.filter(BadgeModel.status != config.STATUS_CODES["deleted"])
             if params:
                 total = query.count()
                 offset = (params.page - 1) * params.pageSize
@@ -116,11 +123,18 @@ class BadgeRepository:
         try:
             badgeModel = self.findById(badge_id, returnModel=True)
             
-            badgeModel.name = updatedBadge.name if updatedBadge.name else badgeModel.name
-            badgeModel.description = updatedBadge.description if updatedBadge.description else badgeModel.description
-            badgeModel.milestone = updatedBadge.milestone if updatedBadge.milestone else badgeModel.milestone
-            badgeModel.icon = updatedBadge.icon if updatedBadge.icon else badgeModel.icon
-            badgeModel.status = updatedBadge.status if updatedBadge.status else badgeModel.status
+            # `is not None`, not truthiness: milestone 0 and status 0 (disabled)
+            # are legitimate values that a truthiness check would silently drop.
+            if updatedBadge.name is not None:
+                badgeModel.name = updatedBadge.name
+            if updatedBadge.description is not None:
+                badgeModel.description = updatedBadge.description
+            if updatedBadge.milestone is not None:
+                badgeModel.milestone = updatedBadge.milestone
+            if updatedBadge.icon is not None:
+                badgeModel.icon = updatedBadge.icon
+            if updatedBadge.status is not None:
+                badgeModel.status = resolveStatusCode(updatedBadge.status)
             
             self.session.commit()
             
@@ -132,21 +146,22 @@ class BadgeRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
-    def updateStatus(self, id: str, status: str) -> Badge:
+    def updateStatus(self, id: str, status: int) -> Badge:
         """Update a badge status
-        
+
         Args:
             id (str): Badge ID
-            status (int): New status
-            
+            status (int): New status code — a value of config.STATUS_CODES
+
         Returns:
             Badge: Badge with his full data
         """
         try:
+            statusCode = resolveStatusCode(status)
             badgeModel = self.findById(id, returnModel=True)
-            badgeModel.status = config.STATUS_CODES[status]
+            badgeModel.status = statusCode
             self.session.commit()
-            
+
             return self._toEntity(badgeModel)
         except Exception as e:
             self.session.rollback()
@@ -176,20 +191,20 @@ class BadgeRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
-    def softDelete(self, id: str) -> bool:
+    def softDelete(self, id: str) -> Badge:
         """Soft delete a badge
 
         Args:
             id (str): Badge ID
 
         Returns:
-            bool: True if badge was soft deleted, False if not
+            Badge: The badge, with status = deleted
         """
         try:
             badgeModel = self.findById(id, returnModel=True)
             badgeModel.status = config.STATUS_CODES["deleted"]
             self.session.commit()
-            return True
+            return self._toEntity(badgeModel)
         except Exception as e:
             self.session.rollback()
             if isinstance(e, NoHarmException):

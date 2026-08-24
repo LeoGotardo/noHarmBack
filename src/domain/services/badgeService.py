@@ -2,7 +2,7 @@ from infrastructure.database.repositories.badgeRepository import BadgeRepository
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from domain.entities.badge import Badge
 from core.database import Database
-from typing import Optional
+from typing import Optional, overload
 
 
 class BadgeService:
@@ -11,6 +11,10 @@ class BadgeService:
         self.badgeRepository = BadgeRepository(self.database)
     
     
+    @overload
+    def getAll(self, params: None = None) -> list[Badge]: ...
+    @overload
+    def getAll(self, params: PaginationParams) -> PaginatedResponse[Badge]: ...
     def getAll(self, params: Optional[PaginationParams] = None) -> list[Badge] | PaginatedResponse[Badge]:
         """
         Return all badges, optionally paginated.
@@ -63,23 +67,26 @@ class BadgeService:
         return self.badgeRepository.update(id, newBadge)  
     
     
-    def updateStatus(self, badgeId: str, status: str) -> Badge:
+    def updateStatus(self, badgeId: str, status: int) -> Badge:
         """
         Update the status of a badge.
-        
+
         Args:
             badgeId: ID of the badge
-            status: new status (ex: 1 enabled, 0 disabled)
+            status: new status code (ex: 1 enabled, 0 disabled)
         """
-        return self.badgeRepository.updateStatus(badgeId, status)  
-    
-    
-    def delete(self, badgeId: str) -> None:
+        return self.badgeRepository.updateStatus(badgeId, status)
+
+
+    def delete(self, badgeId: str) -> Badge:
         """
-        Delete a badge.
-        
+        Soft delete a badge.
+
         Args:
             badgeId: ID of the badge
+
+        Returns:
+            Badge: the badge, with status = deleted
         """
-        self.badgeRepository.softDelete(badgeId)
-        
+        return self.badgeRepository.softDelete(badgeId)
+

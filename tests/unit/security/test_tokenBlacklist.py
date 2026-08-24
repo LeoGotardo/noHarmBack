@@ -69,3 +69,51 @@ class TestTokenBlacklist:
         blacklist.add("jti", future)
         val = mock_redis_client.setex.call_args[0][2]
         assert val == "1"
+
+
+class TestTokenBlacklistOverRealRedis:
+    """The tests above drive a MagicMock, so they check the calls but never the
+    round trip: `isBlacklisted` returns whatever the test told `exists` to
+    return. fakeredis makes add → isBlacklisted an actual read-back, and covers
+    the naive-datetime branch that `JwtHandler.revokeToken` always takes."""
+
+    @pytest.fixture
+    def blacklist(self):
+        import fakeredis
+        from security.tokenBlacklist import TokenBlacklist
+        bl = TokenBlacklist.__new__(TokenBlacklist)
+        bl._redis = fakeredis.FakeStrictRedis(decode_responses=True)
+        return bl
+
+    def test_added_jti_reads_back_as_blacklisted(self, blacklist):
+        blacklist.add("jti-abc", datetime.now(timezone.utc) + timedelta(minutes=15))
+        assert blacklist.isBlacklisted("jti-abc") is True
+
+    def test_unknown_jti_is_not_blacklisted(self, blacklist):
+        blacklist.add("jti-abc", datetime.now(timezone.utc) + timedelta(minutes=15))
+        assert blacklist.isBlacklisted("jti-other") is False
+
+    def test_expired_entry_is_never_written(self, blacklist):
+        blacklist.add("jti-old", datetime.now(timezone.utc) - timedelta(minutes=1))
+        assert blacklist.isBlacklisted("jti-old") is False
+
+    def test_naive_expiry_is_treated_as_utc(self, blacklist):
+        """JwtHandler.revokeToken strips tzinfo before calling add. Without the
+        naive branch tagging it UTC, the subtraction under a non-UTC local clock
+        would produce a wrong (often negative) TTL and revocation would silently
+        do nothing."""
+        naive = (datetime.now(timezone.utc) + timedelta(minutes=15)).replace(tzinfo=None)
+        blacklist.add("jti-naive", naive)
+        assert blacklist.isBlacklisted("jti-naive") is True
+
+    def test_ttl_tracks_the_expiry_that_was_passed(self, blacklist):
+        blacklist.add("jti-ttl", datetime.now(timezone.utc) + timedelta(seconds=600))
+        ttl = blacklist._redis.ttl("jti:" + blacklist._hash("jti-ttl"))
+        assert 590 <= ttl <= 600
+
+    def test_entry_is_stored_under_the_hash_not_the_raw_jti(self, blacklist):
+        """The raw JTI must not be recoverable from a dump of the store."""
+        blacklist.add("jti-secret", datetime.now(timezone.utc) + timedelta(minutes=15))
+        keys = blacklist._redis.keys("*")
+        assert keys == ["jti:" + blacklist._hash("jti-secret")]
+        assert "jti-secret" not in keys[0]

@@ -135,8 +135,7 @@ class TestPaginationSchemas:
 class TestMessageSchemas:
     def test_message_create_valid(self):
         from schemas.messageSchemas import MessageCreate
-        uid = uuid4()
-        r = MessageCreate(chat=uid, sender=uid, message="hello")
+        r = MessageCreate(chat=uuid4(), sender="abc123XYZ", message="hello")
         assert r.status == 7
         assert r.message == "hello"
 
@@ -149,8 +148,7 @@ class TestMessageSchemas:
 class TestStreakSchemas:
     def test_streak_create_defaults(self):
         from schemas.streakSchemas import StreakCreate
-        uid = uuid4()
-        r = StreakCreate(owner_id=uid, start=datetime.now(timezone.utc))
+        r = StreakCreate(owner_id="abc123XYZ", start_at=datetime.now(timezone.utc))
         assert r.status == 1
         assert r.is_record is False
 
@@ -158,8 +156,7 @@ class TestStreakSchemas:
 class TestFriendshipSchemas:
     def test_friendship_update_all_optional(self):
         from schemas.friendshipSchemas import FriendshipUpdate
-        uid = uuid4()
-        r = FriendshipUpdate(sender=uid, reciver=uid, sendAt=datetime.now(timezone.utc), recivedAt=datetime.now(timezone.utc))
+        r = FriendshipUpdate(sender="uid-sender", reciver="uid-receiver", sendAt=datetime.now(timezone.utc), recivedAt=datetime.now(timezone.utc))
         assert r.status is None
 
     def test_friendship_create_required_fields(self):
@@ -170,9 +167,8 @@ class TestFriendshipSchemas:
 
     def test_friendship_create_valid(self):
         from schemas.friendshipSchemas import FriendshipCreate
-        uid = uuid4()
-        now =datetime.now(timezone.utc)
-        r = FriendshipCreate(sender=uid, reciver=uid, sendAt=now, recivedAt=now)
+        now = datetime.now(timezone.utc)
+        r = FriendshipCreate(sender="uid-sender", reciver="uid-receiver", sendAt=now, recivedAt=now)
         assert r.status == 1
 
     def test_friendship_list_response(self):
@@ -206,15 +202,15 @@ class TestUserSchemasFull:
 class TestStreakSchemasFull:
     def test_streak_create_with_status(self):
         from schemas.streakSchemas import StreakCreate
-        uid = uuid4()
-        r = StreakCreate(owner_id=uid, start=datetime.now(timezone.utc), status=1)
+        r = StreakCreate(owner_id="abc123XYZ", start_at=datetime.now(timezone.utc), status=1)
         assert r.status == 1
 
     def test_streak_update_all_optional(self):
         from schemas.streakSchemas import StreakUpdate
         r = StreakUpdate()
-        assert r.start is None
-        assert r.end is None
+        assert r.start_at is None
+        assert r.end_at is None
+        assert r.last_checkin is None
         assert r.status is None
         assert r.is_record is None
 
@@ -237,7 +233,7 @@ class TestBadgeSchemas:
         r = BadgeBase(
             name="First Step",
             description="Achieve 1 day clean",
-            milestone=now,
+            milestone=1,
             icon="https://example.com/icon.png",
             updated_at=now,
         )
@@ -294,9 +290,8 @@ class TestAuditLogSchemas:
 class TestChatSchemas:
     def test_chat_base_valid(self):
         from schemas.chatSchemas import ChatBase
-        uid = uuid4()
         now = datetime.now(timezone.utc)
-        r = ChatBase(sender=uid, reciver=uid, started_at=now, ended_at=now)
+        r = ChatBase(sender="uid-sender", reciver="uid-receiver", started_at=now, ended_at=now)
         assert r.status == 1
 
     def test_chat_base_missing_fields_raises(self):

@@ -219,6 +219,30 @@ class StreakRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
     
     
+    def unmarkRecord(self, id: str) -> Streak:
+        """Clear the record flag on a streak
+
+        Args:
+            id (str): Streak ID
+
+        Returns:
+            Streak: Streak with his full data
+        """
+        try:
+            streakModel = self.findById(id, returnModel=True)
+
+            streakModel.is_record = False
+
+            self.session.commit()
+
+            return self._toEntity(streakModel)
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
     def updateEnd(self, id: str, end: datetime) -> Streak:
         """Update a streak end
         

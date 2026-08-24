@@ -68,8 +68,11 @@ def test_softDelete_not_found_raises_404(repo):
 
 
 def test_softDelete_success(repo, session):
+    from core.config import config
     session.query.return_value.filter.return_value.first.return_value = MagicMock()
-    assert repo.softDelete("ubid") is True
+    result = repo.softDelete("ubid")
+    assert result is not None
+    assert result.status == config.STATUS_CODES["deleted"]
 
 
 def test_softDelete_sets_deleted_status(repo, session):
@@ -144,7 +147,7 @@ def test_grant_existing_badge_updates_given_at(repo, session):
     session.query.return_value.filter.return_value.first.return_value = mock_ub
     new_date =datetime.now(timezone.utc)
     result = repo.grant("uid", "bid", new_date)
-    assert result is True
+    assert result is not None
     assert mock_ub.given_at == new_date
     session.commit.assert_called()
 
@@ -154,7 +157,7 @@ def test_grant_new_badge_adds_to_session(repo, session):
         session.query.return_value.filter.return_value.first.return_value = None
         MockModel.return_value = MagicMock()
         result = repo.grant("uid", "bid",datetime.now(timezone.utc))
-    assert result is True
+    assert result is not None
     session.add.assert_called()
     session.commit.assert_called()
 
@@ -166,13 +169,15 @@ def test_revoke_found_sets_deleted_status(repo, session):
     mock_ub = MagicMock()
     session.query.return_value.filter.return_value.first.return_value = mock_ub
     result = repo.revoke("uid", "bid")
-    assert result is True
+    assert result is not None
     assert mock_ub.status == config.STATUS_CODES["deleted"]
 
 
-def test_revoke_not_found_returns_false(repo, session):
+def test_revoke_not_found_raises_404(repo, session):
     session.query.return_value.filter.return_value.first.return_value = None
-    assert repo.revoke("uid", "bid") is False
+    with pytest.raises(NoHarmException) as exc:
+        repo.revoke("uid", "bid")
+    assert exc.value.statusCode == 404
 
 
 def test_revoke_db_error_raises_500(repo, session):

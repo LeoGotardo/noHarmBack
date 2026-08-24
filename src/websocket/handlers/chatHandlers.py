@@ -14,7 +14,6 @@ Server → Client:
     chat_error             {code, message}
 """
 
-import dataclasses
 import socketio
 
 from core.database import database
@@ -24,17 +23,20 @@ from domain.services.messageService import MessageService
 from domain.services.chatService import ChatService
 from exceptions.baseExceptions import NoHarmException
 from websocket.rateLimiter import wsLimit
-from infrastructure.external import fcmService
 
 
-def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
+# python-socketio's `on()` returns the handler-setter only when called without
+# a handler, so its inferred type is `((handler) -> handler) | None` and every
+# `@sio.on(...)` decorator reads as "Object of type None cannot be called".
+# The library ships no annotations to narrow it, hence the per-line ignores.
+def register(sio: socketio.AsyncServer) -> None:
 
     async def _err(sid: str, code: str, msg: str) -> None:
         await sio.emit("chat_error", {"code": code, "message": msg}, to=sid)
 
     # ── join_chat ─────────────────────────────────────────────────────────────
 
-    @sio.on("join_chat")
+    @sio.on("join_chat")  # type: ignore[misc]
     async def joinChat(sid: str, data: dict):
         session = await sio.get_session(sid)
         userId: str = session.get("userId")
@@ -56,7 +58,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
 
     # ── leave_chat ────────────────────────────────────────────────────────────
 
-    @sio.on("leave_chat")
+    @sio.on("leave_chat")  # type: ignore[misc]
     async def leaveChat(sid: str, data: dict):
         chatId: str | None = (data or {}).get("chatId")
         if chatId:
@@ -64,7 +66,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
 
     # ── send_message ──────────────────────────────────────────────────────────
 
-    @sio.on("send_message")
+    @sio.on("send_message")  # type: ignore[misc]
     @wsLimit(maxCalls=30, windowSeconds=60)
     async def sendMessage(sid: str, data: dict):
         session = await sio.get_session(sid)
@@ -81,23 +83,9 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
         try:
             RLSContext.setUserId(db.session, userId)
 
-            message = MessageService(db).sendMessage(chatId, userId, content)
-            payload = {"message": dataclasses.asdict(message)}
-
-            # deliver to all sids in the chat room
-            await sio.emit("new_message", payload, room=f"chat_{chatId}")
-
-            # also push to the peer's personal room if not in the chat room
-            chat = ChatService(db).get(chatId, userId)
-            peerId = str(chat.reciver) if str(chat.sender) == userId else str(chat.sender)
-            peerSid = connectedUsers.get(peerId)
-            if peerSid:
-                roomMembers = sio.manager.get_participants("/", f"chat_{chatId}")
-                if peerSid not in roomMembers:
-                    await sio.emit("new_message", payload, room=f"user_{peerId}")
-
-            fcmService.sendPushToUser(peerId, "New message", content[:200])
-
+            # Broadcast + push happen inside MessageService.sendMessage so the
+            # REST and socket send paths stay identical.
+            MessageService(db).sendMessage(chatId, userId, content)
         except NoHarmException as e:
             await _err(sid, e.errorCode, e.message)
         finally:
@@ -105,7 +93,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
 
     # ── mark_read ─────────────────────────────────────────────────────────────
 
-    @sio.on("mark_read")
+    @sio.on("mark_read")  # type: ignore[misc]
     async def markRead(sid: str, data: dict):
         session = await sio.get_session(sid)
         userId: str = session.get("userId")
@@ -118,8 +106,8 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
         db = _DbProxy(database.session)
         try:
             RLSContext.setUserId(db.session, userId)
+            # markAllAsRead broadcasts `messages_read` itself.
             MessageService(db).markAllAsRead(chatId, userId)
-            await sio.emit("messages_read", {"chatId": chatId}, room=f"chat_{chatId}")
         except NoHarmException as e:
             await _err(sid, e.errorCode, e.message)
         finally:
@@ -127,7 +115,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
 
     # ── typing ────────────────────────────────────────────────────────────────
 
-    @sio.on("typing")
+    @sio.on("typing")  # type: ignore[misc]
     @wsLimit(maxCalls=60, windowSeconds=60)
     async def typing(sid: str, data: dict):
         session = await sio.get_session(sid)

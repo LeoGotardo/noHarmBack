@@ -48,7 +48,6 @@ def getAllAuditLogs(
             return logs
         else:
             logs = service.getAll()
-            assert isinstance(logs, list)
 
             return AuditLogsListResponse(
                 audit_logs=[AuditLogsResponse.model_validate(log) for log in logs],
@@ -126,7 +125,6 @@ def getAuditLogsByType(
             return logs
         else:
             logs = service.getByType(logType)
-            assert isinstance(logs, list)
 
             return AuditLogsListResponse(
                 audit_logs=[AuditLogsResponse.model_validate(log) for log in logs],
@@ -172,7 +170,6 @@ def getAuditLogsByCatalyst(
             return logs
         else:
             logs = service.getByCatalyst(catalystId)
-            assert isinstance(logs, list)
 
             return AuditLogsListResponse(
                 audit_logs=[AuditLogsResponse.model_validate(log) for log in logs],
@@ -218,7 +215,6 @@ def getAuditLogsByDateRange(
             return logs
         else:
             logs = service.getByDateRange(startDate, endDate)
-            assert isinstance(logs, list)
 
             return AuditLogsListResponse(
                 audit_logs=[AuditLogsResponse.model_validate(log) for log in logs],

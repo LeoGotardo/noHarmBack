@@ -21,9 +21,15 @@ Client → Server:
 
 import socketio
 
+from websocket import presence
+
 from infrastructure.external import fcmService
 
-def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
+# python-socketio's `on()` returns the handler-setter only when called without
+# a handler, so its inferred type is `((handler) -> handler) | None` and every
+# `@sio.on(...)` decorator reads as "Object of type None cannot be called".
+# The library ships no annotations to narrow it, hence the per-line ignores.
+def register(sio: socketio.AsyncServer) -> None:
     async def _err(sid: str, code: str, msg: str) -> None:
         await sio.emit("friend_error", {"code": code, "message": msg}, to=sid)
 
@@ -32,11 +38,11 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
         senderUserId: str = session.get("userId")
         await sio.emit(
             event,
-            {"userId": senderUserId, "online": senderUserId in connectedUsers},
+            {"userId": senderUserId, "online": await presence.isOnline(senderUserId)},
             room=f"user_{targetUserId}",
         )
 
-    @sio.on("friend_request")
+    @sio.on("friend_request")  # type: ignore[misc]
     async def friendRequest(sid: str, data: dict):
         userId: str | None = (data or {}).get("userId")
         if not userId:
@@ -45,7 +51,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
         await _notify("friend_request", sid, userId)
         fcmService.sendPushToUser(userId, "New friend request", "Someone wants to connect with you")
 
-    @sio.on("friend_accept")
+    @sio.on("friend_accept")  # type: ignore[misc]
     async def friendAccept(sid: str, data: dict):
         userId: str | None = (data or {}).get("userId")
         if not userId:
@@ -54,7 +60,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
         await _notify("friend_accept", sid, userId)
         fcmService.sendPushToUser(userId, "Friend request accepted", "Your friend request was accepted")
 
-    @sio.on("friend_reject")
+    @sio.on("friend_reject")  # type: ignore[misc]
     async def friendReject(sid: str, data: dict):
         userId: str | None = (data or {}).get("userId")
         if not userId:
@@ -62,7 +68,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
             return
         await _notify("friend_reject", sid, userId)
 
-    @sio.on("friend_remove")
+    @sio.on("friend_remove")  # type: ignore[misc]
     async def friendRemove(sid: str, data: dict):
         userId: str | None = (data or {}).get("userId")
         if not userId:
@@ -70,7 +76,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
             return
         await _notify("friend_remove", sid, userId)
 
-    @sio.on("friend_block")
+    @sio.on("friend_block")  # type: ignore[misc]
     async def friendBlock(sid: str, data: dict):
         userId: str | None = (data or {}).get("userId")
         if not userId:
@@ -78,7 +84,7 @@ def register(sio: socketio.AsyncServer, connectedUsers: dict[str, str]) -> None:
             return
         await _notify("friend_block", sid, userId)
 
-    @sio.on("friend_unblock")
+    @sio.on("friend_unblock")  # type: ignore[misc]
     async def friendUnblock(sid: str, data: dict):
         userId: str | None = (data or {}).get("userId")
         if not userId:

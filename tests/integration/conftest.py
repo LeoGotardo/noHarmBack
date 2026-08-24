@@ -5,8 +5,9 @@ Requirements:
     TEST_DATABASE_URL=postgresql://user:pass@localhost/noharm_test
     TEST_REDIS_URL=redis://localhost:6379/1   (optional — defaults to DB 1)
 
-The test DB must have all Alembic migrations applied and the RLS helper
-function set_current_user_id() installed.  Redis must be reachable.
+The test DB must have all Alembic migrations applied, including the RLS
+policies. No helper function is needed — RLSContext sets the session variable
+with `SELECT set_config('app.current_user_id', ...)`. Redis must be reachable.
 
 Run:
     TEST_DATABASE_URL=... pytest tests/integration/ -v
@@ -68,24 +69,63 @@ def clean_tables():
     yield
 
 
-# ── Reset in-memory rate limiters between tests ───────────────────────────────
+# ── Reset rate limiter state between tests ────────────────────────────────────
 @pytest.fixture(autouse=True)
 def reset_rate_limiters():
-    from security.middleware import _ipLimiter
-    _ipLimiter._windows.clear()
-    _ipLimiter._blocked.clear()
-    # Reset the slowapi per-route limiter (shared global instance)
+    """Both limiters keep their state in Redis, so flushing the test DB clears
+    the sliding windows (`rl:ip:*`), the login lockouts (`rl:login:*`), the JTI
+    blacklist (`jti:*`) and the WS counters (`ws:*`) in one go.
+
+    This used to clear `_ipLimiter._windows` and `._blocked` instead. Those
+    attributes disappeared when IpRateLimiter moved off in-process dicts, so
+    the fixture raised AttributeError before every single test and the whole
+    integration suite was unrunnable.
+    """
+    import redis as _redis
+    r = _redis.from_url(TEST_REDIS_URL, decode_responses=True)
+    r.flushdb()
+
+    # The slowapi limiter keeps its own `LIMITS:` keys; reset() also covers the
+    # in-memory fallback it uses when Redis was unreachable at import time.
     from security.limiter import limiter
     try:
         limiter.reset()
     except Exception:
         pass
-    # Flush the test Redis DB so no stale JTI or WS keys bleed between tests
-    import redis as _redis
-    r = _redis.from_url(TEST_REDIS_URL, decode_responses=True)
-    r.flushdb()
+
     yield
     r.flushdb()
+
+
+# ── Real account-status lookups ───────────────────────────────────────────────
+@pytest.fixture(autouse=True)
+def real_account_status_lookups():
+    """Point getAccountStatus at the test database.
+
+    The root conftest swaps `core.database` for a MagicMock, and
+    `api.dependencies.auth` imported the `database` singleton from it. The
+    status query therefore returned a MagicMock — never None, never a rejected
+    status — so §1.4 (a banned or deleted account must stop being able to use
+    an already-issued token) passed vacuously here too, not just in the unit
+    tests.
+    """
+    import api.dependencies.auth as authDeps
+
+    class _RealDatabase:
+        @property
+        def session(self):
+            return _SessionFactory()
+
+        @property
+        def engine(self):
+            return _engine
+
+    original = authDeps.database
+    authDeps.database = _RealDatabase()
+    try:
+        yield
+    finally:
+        authDeps.database = original
 
 
 # ── DB proxy: gives repositories the Database interface they expect ────────────
@@ -132,29 +172,9 @@ def client():
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
-def _new_user_payload():
-    uid = str(uuid.uuid4())
-    return {
-        "uid": uid,
-        "email": f"test_{uid[:8]}@example.com",
-        "username": f"user_{uid[:8]}",
-        "emailVerified": True,
-        "photoURL": None,
-    }
-
-
-def _register(client, payload=None):
-    payload = payload or _new_user_payload()
-    resp = client.post("/auth/register", json=payload)
-    assert resp.status_code == 201, resp.text
-    tokens = resp.json()
-    return {
-        "payload": payload,
-        "uid": payload["uid"],
-        "access": tokens["accessToken"],
-        "refresh": tokens["refreshToken"],
-        "headers": {"Authorization": f"Bearer {tokens['accessToken']}"},
-    }
+# Defined once, in helpers.py. They used to be duplicated here with a leading
+# underscore, and the two copies were already drifting apart.
+from helpers import new_user_payload as _new_user_payload, register as _register  # noqa: E402
 
 
 @pytest.fixture
@@ -182,11 +202,4 @@ def jwt_factory():
 
 
 # ── Friendship helper ─────────────────────────────────────────────────────────
-def _make_friends(client, a, b):
-    """Send + accept a friend request between user_a and user_b."""
-    resp = client.post(f"/friendships/{b['uid']}", headers=a["headers"])
-    assert resp.status_code == 201, resp.text
-    fid = resp.json()["id"]
-    resp = client.post(f"/friendships/{fid}/accept", headers=b["headers"])
-    assert resp.status_code == 200, resp.text
-    return fid
+from helpers import make_friends as _make_friends  # noqa: E402,F401

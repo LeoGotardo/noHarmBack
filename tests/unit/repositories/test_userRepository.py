@@ -37,6 +37,22 @@ def repo(db):
         yield UserRepository(db)
 
 
+@pytest.fixture
+def repo_and_model(db):
+    """Same repository, but the patched UserModel is handed back too.
+
+    Both the session and the model are mocks here, so `filter(...)` accepts any
+    expression and a wrong column or an inverted predicate goes unnoticed —
+    flipping `status.notin_(...)` to `status.in_(...)` in `search`, which makes
+    the directory return *only* banned and deleted accounts, left the whole
+    suite green. Asserting on the comparison the repository builds is the one
+    handle available without a real database.
+    """
+    with patch("infrastructure.database.repositories.userRepository.UserModel") as model:
+        from infrastructure.database.repositories.userRepository import UserRepository
+        yield UserRepository(db), model
+
+
 # ── findById ─────────────────────────────────────────────────────────────────
 
 def test_findById_not_found_raises_404(repo):
@@ -174,8 +190,10 @@ def test_findByUsername_success_returns_user(repo, session):
 
 def test_findAll_with_pagination_returns_paginated(repo, session):
     from schemas.paginationSchemas import PaginationParams
-    session.query.return_value.count.return_value = 5
-    session.query.return_value.offset.return_value.limit.return_value.all.return_value = []
+    # findAll hides deleted/banned accounts, so the chain goes through .filter()
+    filtered = session.query.return_value.filter.return_value
+    filtered.count.return_value = 5
+    filtered.offset.return_value.limit.return_value.all.return_value = []
     params = PaginationParams(page=1, pageSize=10)
     result = repo.findAll(params)
     assert hasattr(result, "total")
@@ -184,7 +202,7 @@ def test_findAll_with_pagination_returns_paginated(repo, session):
 
 def test_findAll_without_pagination_returns_list(repo, session):
     mock_users = [MagicMock(), MagicMock()]
-    session.query.return_value.all.return_value = mock_users
+    session.query.return_value.filter.return_value.all.return_value = mock_users
     result = repo.findAll()
     assert len(result) == len(mock_users)
     assert result[0].id is mock_users[0].id
@@ -243,3 +261,80 @@ def test_updateStatus_success_sets_status(repo, session):
     result = repo.updateStatus("uid", 2)
     assert mock_user.status == 2
     session.commit.assert_called()
+
+
+# ── search (§5 — exact match only, deleted/banned/blocked hidden) ─────────────
+
+def _hidden_statuses():
+    from core.config import config
+    return (
+        config.STATUS_CODES["deleted"],
+        config.STATUS_CODES["banned"],
+        config.STATUS_CODES["blocked"],
+    )
+
+
+def test_search_excludes_hidden_statuses(repo_and_model):
+    """A deleted or banned account must not stay findable in friend search."""
+    repo, model = repo_and_model
+    repo.search("someone")
+    model.status.notin_.assert_called_once_with(_hidden_statuses())
+
+
+def test_search_hidden_statuses_are_the_three_dead_states(repo_and_model):
+    repo, _ = repo_and_model
+    assert set(repo._HIDDEN_STATUSES) == set(_hidden_statuses())
+
+
+def test_search_matches_username_or_email_hash(repo_and_model):
+    """Both columns are encrypted, so only their SHA-256 hashes are queryable."""
+    from security.encryption import Encryption
+    repo, model = repo_and_model
+    repo.search("target@test.com")
+    expected = Encryption.hash("target@test.com")
+    model.username_hash.__eq__.assert_called_once_with(expected)
+    model.email_hash.__eq__.assert_called_once_with(expected)
+
+
+def test_search_strips_the_term_before_hashing(repo_and_model):
+    from security.encryption import Encryption
+    repo, model = repo_and_model
+    repo.search("  spaced  ")
+    model.username_hash.__eq__.assert_called_once_with(Encryption.hash("spaced"))
+
+
+def test_search_empty_term_returns_empty_without_querying(repo_and_model):
+    repo, _ = repo_and_model
+    assert repo.search("") == []
+    assert repo.search("   ") == []
+    assert repo.search(None) == []
+    repo.session.query.assert_not_called()
+
+
+def test_search_empty_term_returns_empty_page_when_paginated(repo_and_model):
+    from schemas.paginationSchemas import PaginationParams, PaginatedResponse
+    repo, _ = repo_and_model
+    result = repo.search("", PaginationParams(page=1, pageSize=20))
+    assert isinstance(result, PaginatedResponse)
+    assert result.items == [] and result.total == 0
+
+
+def test_search_paginated_applies_offset_and_limit(repo_and_model, session):
+    from schemas.paginationSchemas import PaginationParams
+    repo, _ = repo_and_model
+    query = session.query.return_value.filter.return_value.filter.return_value
+    query.count.return_value = 0
+    query.offset.return_value.limit.return_value.all.return_value = []
+
+    repo.search("someone", PaginationParams(page=3, pageSize=10))
+
+    query.offset.assert_called_once_with(20)  # (3 - 1) * 10
+    query.offset.return_value.limit.assert_called_once_with(10)
+
+
+def test_search_db_error_raises_500(repo_and_model, session):
+    repo, _ = repo_and_model
+    session.query.side_effect = Exception("db down")
+    with pytest.raises(NoHarmException) as exc:
+        repo.search("someone")
+    assert exc.value.statusCode == 500

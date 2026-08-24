@@ -8,8 +8,7 @@ from core.database import Database
 from core.config import config
 
 from typing import Optional
-
-import sys
+from uuid import UUID
 
 class MessageRepository:
     def __init__(self, db: Database):
@@ -32,11 +31,11 @@ class MessageRepository:
         )
         
     
-    def findById(self, id: str, returnModel: bool = False) -> Message | MessageModel:
+    def findById(self, id: UUID, returnModel: bool = False) -> Message | MessageModel:
         """Find a message by ID
         
         Args:
-            id (str): Message ID
+            id (UUID): Message ID
             
         Returns:
             Message: Message with his full data
@@ -53,7 +52,7 @@ class MessageRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
-    def findByChatId(self, chat_id: str, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
+    def findByChatId(self, chat_id: UUID, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
         """Find all messages by chat ID, optionally paginated
 
         Args:
@@ -81,7 +80,7 @@ class MessageRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
 
-    def findUnreadByChatId(self, chat_id: str, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
+    def findUnreadByChatId(self, chat_id: UUID, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
         """Find all unread messages by chat ID, optionally paginated
 
         Args:
@@ -112,7 +111,7 @@ class MessageRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
-    def findLastByChatId(self, chat_id: str) -> Optional[Message]:
+    def findLastByChatId(self, chat_id: UUID) -> Optional[Message]:
         """Return the most recent message in a chat, or None if the chat has none."""
         try:
             model = (
@@ -128,7 +127,7 @@ class MessageRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
 
-    def countUnreadByChatId(self, chat_id: str, recipient_id: str) -> int:
+    def countUnreadByChatId(self, chat_id: UUID, recipient_id: str) -> int:
         """Count unread messages in a chat addressed to recipient_id.
 
         Only messages sent by the *other* participant count — the user's own
@@ -182,11 +181,11 @@ class MessageRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
         
-    def markAsRead(self, id: str) -> Message:
+    def markAsRead(self, id: UUID) -> Message:
         """Mark a message as read
         
         Args:
-            id (str): Message ID
+            id (UUID): Message ID
             
         Returns:
             Message: Message with his full data
@@ -206,7 +205,7 @@ class MessageRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
-    def markAllAsRead(self, chat_id: str) -> bool:
+    def markAllAsRead(self, chat_id: UUID) -> bool:
         """Mark all messages as read
         
         Args:
@@ -228,11 +227,11 @@ class MessageRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
         
-    def updateStatus(self, id: str, status: int) -> Message:
+    def updateStatus(self, id: UUID, status: int) -> Message:
         """Update a message status
         
         Args:
-            id (str): Message ID
+            id (UUID): Message ID
             status (int): New status
             
         Returns:
@@ -252,11 +251,11 @@ class MessageRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
     
     
-    def update(self, id: str, updatedMessage: Message) -> Message:
+    def update(self, id: UUID, updatedMessage: Message) -> Message:
         """Update a message
 
         Args:
-            id (str): Message ID
+            id (UUID): Message ID
             updatedMessage (Message): Message with updated data
 
         Returns:
@@ -277,11 +276,11 @@ class MessageRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
     
         
-    def delete(self, id: str) -> bool:
+    def delete(self, id: UUID) -> bool:
         """Delete a message
         
         Args:
-            id (str): Message ID
+            id (UUID): Message ID
             
         Returns:
             bool: True if message was deleted, False if not
@@ -300,11 +299,11 @@ class MessageRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
         
-    def softDelete(self, id: str) -> bool:
+    def softDelete(self, id: UUID) -> bool:
         """Soft delete a message
 
         Args:
-            id (str): Message ID
+            id (UUID): Message ID
 
         Returns:
             bool: True if message was soft deleted, False if not

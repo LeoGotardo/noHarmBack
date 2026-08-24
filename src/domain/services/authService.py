@@ -189,6 +189,30 @@ class AuthService:
         _jwtHandler.revokeToken(payload["jti"], payload["exp"])
 
         userId = payload["sub"]
+
+        # §1.4 — a deleted/banned/blocked account must not be able to mint a new
+        # token pair. Without this, soft-deleting an account left it live for as
+        # long as the client kept refreshing.
+        try:
+            user = self.userRepository.findById(userId)
+        except NoHarmException:
+            raise NoHarmException(
+                statusCode=401,
+                errorCode="INVALID_TOKEN",
+                message="Invalid or expired refresh token."
+            )
+
+        if user.status in {
+            config.STATUS_CODES.get("banned"),
+            config.STATUS_CODES.get("blocked"),
+            config.STATUS_CODES.get("deleted"),
+        }:
+            raise NoHarmException(
+                statusCode=403,
+                errorCode="ACCOUNT_UNAVAILABLE",
+                message="Account is not active."
+            )
+
         return {
             "accessToken": _jwtHandler.createAccessToken(userId),
             "refreshToken": _jwtHandler.createRefreshToken(userId),

@@ -44,7 +44,11 @@ _DEFAULTS = {
     "REFRESH_TOKEN_EXPIRE_DAYS": "7",
     "STORAGE_PATH": _test_storage,
     "ALLOWED_ORIGINS": '["http://localhost:3000"]',
-    "REDIS_URL": "redis://localhost:6379",
+    # DB 15, never DB 0: security/limiter.py builds a Redis-backed slowapi
+    # limiter at import time, so the suite writes real rate-limit counters.
+    # Pointing them at a scratch DB keeps the developer's dev Redis intact.
+    "REDIS_URL": "redis://localhost:6379/15",
+    "TRUSTED_PROXIES": "[]",
 }
 
 for _key, _val in _DEFAULTS.items():
@@ -118,3 +122,36 @@ def patch_orm_models():
 
     for p in patches:
         p.stop()
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limit_state():
+    """Drop every rate-limit counter between tests.
+
+    `security/limiter.py` builds its slowapi Limiter at import time with
+    `storage_uri=REDIS_URL`, so the per-route ceilings are backed by a real
+    Redis and survive not just across tests but across whole pytest runs.
+    Without this the suite passed once and then started returning 429 on route
+    tests — green or red depended on how recently it had last been run.
+
+    Tolerant of Redis being unreachable: the limiter degrades to in-memory
+    storage there, and `reset()` still clears that.
+    """
+    try:
+        from security.limiter import limiter
+        limiter.reset()
+    except Exception:
+        pass
+
+    # The middleware's IpRateLimiter, the login lockout, the JTI blacklist and
+    # the WS counters all live in the same Redis. REDIS_URL is pinned to a
+    # scratch DB above, so wiping it wholesale is the cheapest way to give each
+    # test a clean slate.
+    try:
+        import redis
+        from core.config import config
+        redis.from_url(config.REDIS_URL).flushdb()
+    except Exception:
+        pass
+
+    yield

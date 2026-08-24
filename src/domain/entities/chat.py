@@ -5,11 +5,11 @@ from uuid import UUID
 
 @dataclass
 class Chat:
+    id: UUID
     sender: str
     reciver: str
     started_at: datetime
     status: int
-    id: Optional[UUID] = None
     ended_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

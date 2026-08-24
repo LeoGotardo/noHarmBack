@@ -8,7 +8,7 @@ from security.sanitizer import Sanitizer
 from exceptions.baseExceptions import NoHarmException
 from core.config import config
 from core.database import Database
-from typing import Optional
+from typing import Optional, overload
 
 import re
 
@@ -45,8 +45,20 @@ class UserService:
     def findByUsername(self, username: str) -> User:
         return self.userRepository.findByUsername(username)
 
+    @overload
+    def findAll(self, params: None = None) -> list[User]: ...
+    @overload
+    def findAll(self, params: PaginationParams) -> PaginatedResponse[User]: ...
     def findAll(self, params: Optional[PaginationParams] = None) -> list[User] | PaginatedResponse[User]:
         return self.userRepository.findAll(params)
+
+    @overload
+    def search(self, term: str, params: None = None) -> list[User]: ...
+    @overload
+    def search(self, term: str, params: PaginationParams) -> PaginatedResponse[User]: ...
+    def search(self, term: str, params: Optional[PaginationParams] = None) -> list[User] | PaginatedResponse[User]:
+        """Find users by exact username or email (§5 — exact matches only)."""
+        return self.userRepository.search(term, params)
 
     # ── profile (§1.3) ────────────────────────────────────────────────────────
 
@@ -77,7 +89,16 @@ class UserService:
             if e.statusCode != 404:
                 raise
 
-        return self.userRepository.findById(targetUserId)
+        user = self.userRepository.findById(targetUserId)
+
+        # Deleted / banned accounts are invisible to everyone but themselves.
+        if user.status in (
+            config.STATUS_CODES["deleted"],
+            config.STATUS_CODES["banned"],
+        ):
+            raise NoHarmException(statusCode=404, errorCode="NOT_FOUND", message="User not found.")
+
+        return user
 
     def updateProfile(self, userId: str, username: Optional[str], profilePicture: Optional[str]) -> User:
         """Update only the fields that users are allowed to change (§1.3).
@@ -86,7 +107,10 @@ class UserService:
         `email` changes require a separate verification flow (not implemented here).
         `status` changes are blocked at this endpoint — use admin endpoints.
         """
-        user = self.userRepository.findById(userId)
+        # returnModel=True is required: findById otherwise returns a detached
+        # domain entity, so the mutations below would never reach the database
+        # while the response still showed the new values.
+        userModel = self.userRepository.findById(userId, returnModel=True)
 
         if username is not None:
             # §9.3 — sanitise; §1.1 — validate format
@@ -97,12 +121,36 @@ class UserService:
                     errorCode="INVALID_USERNAME",
                     message="Username must be 3–50 characters and contain only letters, numbers, _ or -."
                 )
-            user.username = username
-        if profilePicture is not None:
-            user.profile_picture = profilePicture
 
-        self.userRepository.session.commit()
-        return user
+            # §1.1 — usernames are globally unique; only registration checked it
+            if username != userModel.username:
+                try:
+                    existing = self.userRepository.findByUsername(username)
+                    if str(existing.id) != str(userId):
+                        raise NoHarmException(
+                            statusCode=409,
+                            errorCode="USERNAME_TAKEN",
+                            message="That username is already taken."
+                        )
+                except NoHarmException as e:
+                    if e.statusCode != 404:
+                        raise
+                    # 404 → username is available
+
+            # UserModel's @validates('username') recomputes username_hash, which
+            # is what findByUsername looks up.
+            userModel.username = username
+
+        if profilePicture is not None:
+            userModel.profile_picture = profilePicture
+
+        try:
+            self.userRepository.session.commit()
+        except Exception:
+            self.userRepository.session.rollback()
+            raise
+
+        return self.userRepository._toEntity(userModel)
 
     # ── status / delete ───────────────────────────────────────────────────────
 

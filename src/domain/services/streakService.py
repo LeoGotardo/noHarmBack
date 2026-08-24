@@ -1,6 +1,7 @@
 from infrastructure.database.repositories.streakRepository import StreakRepository
 from infrastructure.database.repositories.auditLogsRepository import AuditLogsRepository
 from infrastructure.database.repositories.userBadgesRepository import UserBadgesRepository
+from infrastructure.database.repositories.badgeRepository import BadgeRepository
 from infrastructure.database.models.streakModel import StreakModel
 from infrastructure.database.models.auditLogsModel import AuditLogsModel
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
@@ -8,7 +9,7 @@ from domain.entities.streak import Streak
 from exceptions.baseExceptions import NoHarmException
 from core.config import config
 from core.database import Database
-from typing import Optional
+from typing import Optional, overload
 
 from datetime import datetime, timezone
 
@@ -19,6 +20,7 @@ class StreakService:
         self.streakRepository = StreakRepository(self.database)
         self.auditRepository = AuditLogsRepository(self.database)
         self.userBadgesRepository = UserBadgesRepository(self.database)
+        self.badgeRepository = BadgeRepository(self.database)
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -34,25 +36,71 @@ class StreakService:
         except Exception:
             pass
 
+    @staticmethod
+    def _asUtc(value: Optional[datetime]) -> Optional[datetime]:
+        """Coerce a datetime to timezone-aware UTC.
+
+        Encrypted DateTime columns (StringEncryptedType) decrypt to *naive*
+        datetimes, while everything written in-process is aware. Subtracting one
+        from the other raises TypeError, so both ends are normalised before any
+        arithmetic. Naive values are stored in UTC, so they are just tagged.
+        """
+        if value is None:
+            return None
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
     def _durationDays(self, streak) -> float:
-        end = streak.end_at if streak.end_at else datetime.now(timezone.utc)
-        if not streak.start_at:
+        start = self._asUtc(streak.start_at)
+        if not start:
             return 0
-        return (end - streak.start_at).total_seconds() / 86400
+        end = self._asUtc(streak.end_at) or datetime.now(timezone.utc)
+        return max(0.0, (end - start).total_seconds() / 86400)
 
     def _checkAndGrantBadges(self, userId: str) -> None:
-        """Placeholder for badge milestone checks (§7.2 — future release).
+        """Grant every badge whose milestone the user's active streak has reached (§7.1).
 
-        Called after every streak update per §7.1. Badge milestone rules
-        are deferred to a future release per rules.md §7.2.
+        `milestone` is a number of clean days. Badges already held are skipped,
+        and failures never break the streak operation that triggered the check.
         """
-        pass
+        try:
+            streak = self.streakRepository.findCurrentStreak(userId)
+        except NoHarmException:
+            return
+
+        cleanDays = self._durationDays(streak)
+
+        try:
+            badges = self.badgeRepository.findAll()
+        except Exception:
+            return
+
+        # findAll returns a PaginatedResponse when given params; guard explicitly
+        # rather than with an assert, which `python -O` strips out.
+        if not isinstance(badges, list):
+            return
+
+        for badge in badges:
+            if badge.status != config.STATUS_CODES["enabled"]:
+                continue
+            if badge.milestone is None or cleanDays < badge.milestone:
+                continue
+            try:
+                if self.userBadgesRepository.existsByUserAndBadge(userId, str(badge.id)):
+                    continue
+                self.userBadgesRepository.grant(userId, str(badge.id), datetime.now(timezone.utc))
+                self._logAudit(8, userId, f"Badge granted: {badge.name} ({badge.milestone} days)")
+            except Exception:
+                continue
 
     # ── reads ─────────────────────────────────────────────────────────────────
 
     def get(self, streakId: str) -> Streak:
         return self.streakRepository.findById(streakId)
 
+    @overload
+    def getAllByUserId(self, userId: str, params: None = None) -> list[Streak]: ...
+    @overload
+    def getAllByUserId(self, userId: str, params: PaginationParams) -> PaginatedResponse[Streak]: ...
     def getAllByUserId(self, userId: str, params: Optional[PaginationParams] = None) -> list[Streak] | PaginatedResponse[Streak]:
         return self.streakRepository.findAllByOwnerId(userId, params)
 
@@ -63,6 +111,11 @@ class StreakService:
             if e.statusCode == 404:
                 raise NoHarmException(statusCode=404, errorCode="NO_ACTIVE_STREAK", message="No active streak found.")
             raise e
+
+        # Clean days accrue with wall-clock time, not with user actions, so a
+        # milestone can be crossed with no request in between. This read is the
+        # one call every screen makes, so it doubles as the accrual trigger.
+        self._checkAndGrantBadges(userId)
 
         return streak
 
@@ -126,7 +179,9 @@ class StreakService:
         if str(streak.owner_id) != str(userId):
             raise NoHarmException(statusCode=403, errorCode="FORBIDDEN", message="Access denied.")
 
-        return self.streakRepository.updateLastCheckin(str(streak.id), datetime.now(timezone.utc))
+        updated = self.streakRepository.updateLastCheckin(str(streak.id), datetime.now(timezone.utc))
+        self._checkAndGrantBadges(userId)
+        return updated
 
     def markAsRecord(self, streakId: str) -> Streak:
         return self.streakRepository.markAsRecord(streakId)
@@ -147,8 +202,12 @@ class StreakService:
 
     def _closeAndReset(self, streak, userId: str, endAt: Optional[datetime] = None) -> Streak:
         """End a streak, check record, create new streak, audit. Returns new streak."""
-        now = endAt or datetime.now(timezone.utc)
-        endedDuration = self._durationDays(streak)
+        now = self._asUtc(endAt) or datetime.now(timezone.utc)
+
+        # Measure against the requested end, not "now" — the streak's own end_at
+        # is still unset at this point.
+        start = self._asUtc(streak.start_at)
+        endedDuration = max(0.0, (now - start).total_seconds() / 86400) if start else 0.0
 
         # Close the streak
         self.streakRepository.updateEnd(str(streak.id), now)
@@ -159,10 +218,9 @@ class StreakService:
             currentRecord = self.streakRepository.findCurrentRecord(userId)
             recordDuration = self._durationDays(currentRecord)
             if endedDuration > recordDuration and str(currentRecord.id) != str(streak.id):
-                # Unset old record
-                currentRecord.is_record = False
-                self.streakRepository.session.commit()
-                # Mark ended streak as new record
+                # findCurrentRecord returns a detached entity — mutating it and
+                # committing changed nothing, so the unset goes through the repo.
+                self.streakRepository.unmarkRecord(str(currentRecord.id))
                 self.streakRepository.markAsRecord(str(streak.id))
         except NoHarmException:
             # No previous record → mark this one if it lasted more than 0 days

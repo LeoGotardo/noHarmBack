@@ -50,7 +50,6 @@ def getMessagesByChatId(
         if paginated:
             return service.getByChatId(chatId, paginatedParams)
         messages = service.getByChatId(chatId)
-        assert isinstance(messages, list)
         return MessageListResponse(messages=[MessageResponse.model_validate(m) for m in messages], total=len(messages))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
@@ -76,7 +75,6 @@ def getUnreadMessagesByChatId(
         if paginated:
             return service.getUnreadByChatId(chatId, paginatedParams)
         messages = service.getUnreadByChatId(chatId)
-        assert isinstance(messages, list)
         return MessageListResponse(messages=[MessageResponse.model_validate(m) for m in messages], total=len(messages))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
@@ -125,8 +123,18 @@ def sendMessage(
 ):
     try:
         service = MessageService(db)
-        if body.chatId:
+        if body.chatId is not None:
             return service.sendMessage(body.chatId, currentUserId, body.content)
+        if body.recipientId is None:
+            # _exactly_one_target already rejects this, so it is unreachable in
+            # practice. Kept as a real check rather than an assert: `python -O`
+            # strips asserts, and a silent None here would surface as a
+            # TypeError deep in the service instead of a 400 at the edge.
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="INVALID_DATA",
+                message="Provide exactly one of 'chatId' or 'recipientId'."
+            )
         return service.sendMessageToUser(currentUserId, body.recipientId, body.content)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

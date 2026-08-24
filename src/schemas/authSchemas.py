@@ -1,10 +1,11 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, Field
+from schemas.types import Email
 from typing import Optional
 
 
 class AuthRegisterRequest(BaseModel):
     uid: str = Field(..., description="Firebase UID")
-    email: EmailStr = Field(..., description="User email")
+    email: Email = Field(..., description="User email")
     username: str = Field(..., min_length=3, max_length=50, description="Username (alphanumeric, _ and - only)")
     photoURL: Optional[str] = Field(None, description="Profile picture URL from Firebase")
     emailVerified: bool = Field(default=False, description="Whether Firebase confirmed email")
@@ -12,7 +13,7 @@ class AuthRegisterRequest(BaseModel):
 
 class AuthLoginRequest(BaseModel):
     uid: str = Field(..., description="Firebase UID")
-    email: EmailStr = Field(..., description="User email")
+    email: Email = Field(..., description="User email")
 
 
 class AuthRefreshRequest(BaseModel):

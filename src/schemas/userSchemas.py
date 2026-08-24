@@ -1,4 +1,5 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, Field
+from schemas.types import Email
 from typing import Optional
 from datetime import datetime
 
@@ -7,7 +8,7 @@ class UserBase(BaseModel):
     Schema base for the commun fields of the User.
     """
     username: str = Field(..., min_length=3, max_length=50, description="Unique username")
-    email: EmailStr = Field(..., description="Valid email address")
+    email: Email = Field(..., description="Valid email address")
     status: int = Field(default=1, description="Account status (ex: 1 enabled, 0 disabled)")
 
 class UserCreate(UserBase):
@@ -23,7 +24,7 @@ class UserUpdate(BaseModel):
     All fields are optional here.
     """
     username: Optional[str] = Field(None, min_length=3, max_length=50)
-    email: Optional[EmailStr] = None
+    email: Optional[Email] = None
     status: Optional[int] = None
     profile_picture: Optional[str] = None
     

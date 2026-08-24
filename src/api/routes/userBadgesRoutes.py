@@ -38,16 +38,15 @@ def getByUserId(
         return userBadges
     else:
         userBadges = service.findByUserId(currentUserId)
-        assert isinstance(userBadges, list)
         return UserBadgeListResponse(
             badges=[UserBadgeResponse.model_validate(ub) for ub in userBadges],
             total=len(userBadges)
         )
 
 
-@router.get("/{userBadgeId}",
+@router.get("/badge/{badgeId}",
             response_model=Union[PaginatedResponse[UserBadge], UserBadgeListResponse],
-            summary="Get user badge by badgeId",
+            summary="Get user badges by badgeId",
             description="Returns all user badges by badgeId.")
 @limiter.limit("60/minute")
 def getByBadgeId(
@@ -66,7 +65,6 @@ def getByBadgeId(
         return userBadges
     else:
         userBadges = service.findByBadgeId(badgeId)
-        assert isinstance(userBadges, list)
         return UserBadgeListResponse(
             badges=[UserBadgeResponse.model_validate(ub) for ub in userBadges],
             total=len(userBadges)
@@ -101,7 +99,7 @@ def updateUserBadge(
 
 
 @router.post("/{userId}/{badgeId}",
-             response_model=UserBadgeCreate,
+             response_model=UserBadgeResponse,
              status_code=200,
              summary="Grant a user badge",
              description="Grants a badge to a user.")
@@ -123,7 +121,7 @@ def grantUserBadge(
         except Exception:
             pass
 
-        return grantedUserBadge
+        return UserBadgeResponse.model_validate(grantedUserBadge)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -144,7 +142,7 @@ def revokeUserBadge(
     try:
         service = UserBadgeService(db)
         revokedUserBadge = service.revoke(userId, badgeId)
-        return revokedUserBadge
+        return UserBadgeResponse.model_validate(revokedUserBadge)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -156,7 +154,7 @@ def revokeUserBadge(
              description="Updates the status of an existing user badge.")
 @limiter.limit("10/minute")
 def updateUserBadgeStatus(
-    status: str,
+    status: int,
     userBadgeId: str,
     request: Request,
     db: Session = Depends(getDbWithRLS),
@@ -164,8 +162,8 @@ def updateUserBadgeStatus(
 ):
     try:
         service = UserBadgeService(db)
-        updatedUserBadge = service.updateStatus(userBadgeId, status)  
-        return updatedUserBadge
+        updatedUserBadge = service.updateStatus(userBadgeId, status)
+        return UserBadgeResponse.model_validate(updatedUserBadge)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 
@@ -185,6 +183,6 @@ def deleteUserBadge(
     try:
         service = UserBadgeService(db)
         deletedUserBadge = service.delete(userBadgeId)
-        return deletedUserBadge
+        return UserBadgeResponse.model_validate(deletedUserBadge)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

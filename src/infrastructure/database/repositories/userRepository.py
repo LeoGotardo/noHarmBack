@@ -96,17 +96,61 @@ class UserRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
 
-    def findAll(self, params: Optional[PaginationParams] = None) -> list[User] | PaginatedResponse[User]:
+    # Accounts in these states are excluded from the directory: a deleted or
+    # banned user must not remain findable in friend search.
+    _HIDDEN_STATUSES = (
+        config.STATUS_CODES["deleted"],
+        config.STATUS_CODES["banned"],
+        config.STATUS_CODES["blocked"],
+    )
+
+
+    def search(self, term: str, params: Optional[PaginationParams] = None) -> list[User] | PaginatedResponse[User]:
+        """Find users by an exact username or email match.
+
+        Both columns are encrypted, so only their SHA-256 hashes are queryable —
+        exact matches only, which is also what the privacy rule requires (§5).
+        Without this, clients had to page the whole directory to find one person.
+        """
+        try:
+            term = (term or "").strip()
+            if not term:
+                return [] if not params else createPaginatedResponse([], 0, params.page, params.pageSize)
+
+            termHash = Encryption.hash(term)
+            query = (
+                self.session.query(UserModel)
+                .filter(UserModel.status.notin_(self._HIDDEN_STATUSES))
+                .filter((UserModel.username_hash == termHash) | (UserModel.email_hash == termHash))
+            )
+
+            if params:
+                total = query.count()
+                offset = (params.page - 1) * params.pageSize
+                items = [self._toEntity(item) for item in query.offset(offset).limit(params.pageSize).all()]
+                return createPaginatedResponse(items, total, params.page, params.pageSize)
+
+            return [self._toEntity(item) for item in query.all()]
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
+    def findAll(self, params: Optional[PaginationParams] = None, includeInactive: bool = False) -> list[User] | PaginatedResponse[User]:
         """Find all users, optionally paginated
 
         Args:
             params: Optional pagination parameters (page, pageSize)
+            includeInactive: Include deleted / banned / blocked accounts
 
         Returns:
             list[User] | PaginatedResponse[User]: List of Users or paginated response
         """
         try:
             query = self.session.query(UserModel)
+            if not includeInactive:
+                query = query.filter(UserModel.status.notin_(self._HIDDEN_STATUSES))
             if params:
                 total = query.count()
                 offset = (params.page - 1) * params.pageSize

@@ -9,6 +9,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from infrastructure.external.storageService import Base
 from core.config import config as appConfig
 
+# Importados apenas para registrar as tabelas em Base.metadata — sem isto o
+# autogenerate não enxerga o model e passa a tratar a tabela existente como
+# órfã, emitindo um op.drop_table() para ela. refreshTokenModel (tb_8) e
+# notificationModel (tb_9) estavam de fora: um autogenerate rodado antes desta
+# correção teria apagado os refresh tokens e as notificações.
+# Deve espelhar a lista de core/database.py.
 from infrastructure.database.models import (
     friendshipModel,
     userBadgesModel,
@@ -18,6 +24,8 @@ from infrastructure.database.models import (
     messageModel,
     badgeModel,
     auditLogsModel,
+    refreshTokenModel,
+    notificationModel,
 )
 
 alembicConfig = context.config

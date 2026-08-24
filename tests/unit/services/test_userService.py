@@ -103,10 +103,26 @@ def test_getPublicProfile_accepted_friendship_allows_access(mock_db, mock_user):
 def test_updateProfile_success_returns_user(mock_db, mock_user):
     service = _make_service(mock_db)
     service.userRepository.findById.return_value = mock_user
+    # Username is free — findByUsername signals that with a 404.
+    service.userRepository.findByUsername.side_effect = NoHarmException(statusCode=404)
+    service.userRepository._toEntity.return_value = mock_user
 
     result = service.updateProfile("user-uid-001", username="newname", profilePicture=None)
     assert result is mock_user
     assert mock_user.username == "newname"
+    service.userRepository.session.commit.assert_called_once()
+
+
+def test_updateProfile_duplicate_username_raises_409(mock_db, mock_user):
+    service = _make_service(mock_db)
+    service.userRepository.findById.return_value = mock_user
+    other = MagicMock()
+    other.id = "someone-else"
+    service.userRepository.findByUsername.return_value = other
+
+    with pytest.raises(NoHarmException) as exc:
+        service.updateProfile("user-uid-001", username="newname", profilePicture=None)
+    assert exc.value.statusCode == 409
 
 
 def test_updateProfile_invalid_username_raises_400(mock_db, mock_user):

@@ -15,14 +15,17 @@ _USER_ID = str(uuid4())
 
 
 def _make_streak_mock():
+    now = datetime.now(timezone.utc)
     s = MagicMock()
     s.id = uuid4()
-    s.owner_id = uuid4()
-    s.start =datetime.now(timezone.utc)
-    s.end = None
+    s.owner_id = _USER_ID
+    s.start_at = now
+    s.end_at = None
+    s.last_checkin = None
     s.status = 1
     s.is_record = False
-    s.created_at =datetime.now(timezone.utc)
+    s.created_at = now
+    s.updated_at = now
     return s
 
 

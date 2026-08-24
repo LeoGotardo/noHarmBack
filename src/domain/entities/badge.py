@@ -8,7 +8,7 @@ from uuid import UUID
 class Badge:
     name: str
     description: str
-    milestone: datetime
+    milestone: int  # clean days required to earn the badge
     icon: str
     status: int
     id: Optional[UUID] = None
