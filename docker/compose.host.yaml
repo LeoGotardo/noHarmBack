@@ -1,0 +1,166 @@
+# Everything on one machine: app, Postgres and Redis.
+#
+# The sibling `compose.prod.yaml` deliberately has no database in it — it
+# assumes RDS and ElastiCache, which is what infra/ provisions. This file is
+# for the other shape: a single EC2 instance with no managed services, where
+# the datastores are containers beside the app.
+#
+# What that costs you, stated plainly: no automatic backups, no failover, and
+# one reboot takes the whole site down. The volumes below survive
+# `docker compose down`, but not the instance being terminated. Snapshot the
+# EBS volume, or move to infra/ when the data starts mattering.
+#
+# The image is NOT built here. A t3.micro has 913 MB of RAM and `vite build`
+# needs more than that, so the image is built elsewhere and loaded:
+#
+#     docker build -f noHarmBack/docker/Dockerfile -t noharm:latest .   # dev machine
+#     docker save noharm:latest | gzip | ssh <host> 'gunzip | docker load'
+#
+#     docker compose --env-file docker/prod.env \
+#                    -f docker/compose.host.yaml up -d                    # here
+#
+# The --env-file is not optional. Postgres needs the credentials at
+# interpolation time (`${DATABASE_USER}` below), and compose only reads a
+# service's `env_file` into that service's environment — never into the
+# substitutions. Without it the stack refuses to start, naming the variable,
+# which is the intended failure: a Postgres that silently came up with default
+# credentials would be worse.
+
+# Log rotation, applied to every service below.
+#
+# The json-file driver keeps everything forever by default. This machine has an
+# 8 GB disk with ~3 GB free, and one error loop writing a stack trace per
+# request fills that in hours — at which point Postgres cannot write either and
+# the whole box goes down, from a log file. 10 MB x 3 per container is a hard
+# ceiling of 90 MB for the stack.
+#
+# Declared here rather than only in /etc/docker/daemon.json so that it travels
+# with the deployment: rebuild the host and this comes with the compose file.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: noharm-postgres
+    restart: unless-stopped
+    logging: *logging
+
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:?set it in prod.env}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?set it in prod.env}
+      POSTGRES_DB: ${DATABASE_NAME:?set it in prod.env}
+      # Read by postgres-init/10-app-role.sh, not by Postgres itself.
+      DATABASE_APP_PASSWORD: ${DATABASE_APP_PASSWORD:?set it in prod.env}
+
+    # Tuned down for 913 MB of RAM shared with everything else. The defaults
+    # assume a machine where Postgres is the only tenant: 100 connections at
+    # ~10 MB of peak work_mem each is more than this box has in total.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=96MB
+      - -c
+      - max_connections=40
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Runs only on an empty data directory. Creates noharm_app — the role the
+      # application connects as, without the superuser bit that would make the
+      # RLS policies inert. See the script for why that matters.
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+    # Never published. The app reaches it over the compose network; exposing it
+    # would put a database on the public internet behind one password.
+    expose:
+      - "5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: noharm-redis
+    restart: unless-stopped
+    logging: *logging
+
+    # Not a cache: the JWT blacklist lives here, so a logout that Redis forgets
+    # silently un-revokes the token. appendonly survives a restart;
+    # noeviction refuses writes rather than dropping a key it was trusted with.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 96mb
+      - --maxmemory-policy
+      - noeviction
+
+    volumes:
+      - redis_data:/data
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    expose:
+      - "6379"
+
+  app:
+    image: noharm:latest
+    container_name: noharm
+    restart: unless-stopped
+    logging: *logging
+
+    env_file:
+      - ./prod.env
+
+    environment:
+      - APP_ENV=prod
+      # nginx holds the certificate here — there is no load balancer in front.
+      - TLS_MODE=container
+      # nginx reaches uvicorn over loopback inside the container, and uvicorn
+      # listens nowhere else, so the proxy is the only peer that can ever
+      # appear. Anything wider would let a peer that is not the proxy set
+      # X-Forwarded-For and mint itself a fresh rate-limit bucket per request.
+      - TRUSTED_PROXIES=["127.0.0.1/32","::1/128"]
+      # One host, one instance: nothing to race, so the container may migrate
+      # on boot. This is the case the warning in entrypoint.sh excludes.
+      - RUN_MIGRATIONS=true
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      # The entrypoint refuses to start without both files, so a bad mount
+      # fails immediately instead of restart-looping behind supervisor.
+      - ./certs:/etc/nginx/certs:ro
+      # certbot --webroot renewal target, served over plain :80 by nginx.
+      - ./certbot-www:/var/www/certbot
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:

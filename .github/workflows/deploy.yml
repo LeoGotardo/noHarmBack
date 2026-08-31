@@ -1,3 +1,20 @@
+# INACTIVE. This workflow deploys the ECS stack in infra/, and that stack is
+# not provisioned — nothing has run `terraform apply`.
+#
+# The live deployment is a single EC2 instance running docker/compose.host.yaml,
+# and it is deployed by docker/deploy-host.sh from a developer machine. There is
+# no CI in that path: the front-end bundle needs more RAM than the instance has,
+# so the image is built elsewhere and shipped over SSH.
+#
+# The trigger is workflow_dispatch only, deliberately. On `push` this ran on
+# every commit to main and failed at the first ECR call, because the registry it
+# names does not exist — a red X on every commit, for a deploy nobody asked for.
+#
+# To make this the deployment again: `terraform apply` in infra/, set the
+# repository variables listed in infra/README.md, and restore the `push`
+# trigger below.
+#
+# ── original description ────────────────────────────────────────────────────
 # Build the single image, push it, migrate, then roll the service.
 #
 # The image contains the front-end bundle, so this workflow checks out BOTH
@@ -8,11 +25,10 @@
 # Migrations run as their own ECS task and must finish before the new revision
 # rolls out: a task that boots against a schema it is newer than fails in ways
 # that are hard to read.
-name: deploy
+name: deploy (ECS — inactive)
 
 on:
-  push:
-    branches: [main]
+  # push: { branches: [main] }   ← restore when infra/ is the deployment again
   workflow_dispatch:
     inputs:
       skip_migrations:

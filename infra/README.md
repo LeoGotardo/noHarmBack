@@ -1,3 +1,18 @@
+> [!WARNING]
+> **This is not the current deployment.** Nothing here is provisioned — no
+> `terraform apply` has run against this configuration.
+>
+> The live site is a single EC2 instance (`54.204.219.47`, `noharm.site`)
+> running `docker/compose.host.yaml`: the app, Postgres and Redis as containers,
+> with nginx terminating TLS using a Let's Encrypt certificate. It is deployed
+> with `docker/deploy-host.sh` and costs about US$8/month against the ~US$62 of
+> the stack below.
+>
+> Running `terraform apply` today would build a second, parallel environment —
+> an ALB, an RDS instance and an ElastiCache cluster with nothing pointing at
+> them — and bill for it. Keep this configuration for the day the single
+> instance stops being enough; do not apply it by accident.
+
 # infra — NoHarm on AWS
 
 Terraform for the whole deployed stack: VPC, RDS, ElastiCache, ECR, ALB, ECS
