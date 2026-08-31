@@ -1,19 +1,17 @@
 from pydantic import BaseModel, ConfigDict, Field
-from schemas.types import Email
 from typing import Optional
 
 
 class AuthRegisterRequest(BaseModel):
-    uid: str = Field(..., description="Firebase UID")
-    email: Email = Field(..., description="User email")
+    # Identity comes from the token, never from the body: `uid`, `email` and
+    # `emailVerified` used to be client-supplied, which made both invented
+    # accounts and a bypass of email verification a matter of typing.
+    idToken: str = Field(..., description="Firebase ID token from the sign-in flow")
     username: str = Field(..., min_length=3, max_length=50, description="Username (alphanumeric, _ and - only)")
-    photoURL: Optional[str] = Field(None, description="Profile picture URL from Firebase")
-    emailVerified: bool = Field(default=False, description="Whether Firebase confirmed email")
 
 
 class AuthLoginRequest(BaseModel):
-    uid: str = Field(..., description="Firebase UID")
-    email: Email = Field(..., description="User email")
+    idToken: str = Field(..., description="Firebase ID token from the sign-in flow")
 
 
 class AuthRefreshRequest(BaseModel):

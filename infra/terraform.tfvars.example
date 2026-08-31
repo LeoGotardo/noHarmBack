@@ -1,0 +1,22 @@
+# cp terraform.tfvars.example terraform.tfvars and edit.
+# terraform.tfvars is gitignored — it names your domain and your zone.
+
+domain_name     = "app.noharm.com.br"
+
+# Terraform issues and validates the certificate when the zone is here.
+# Leave empty and set acm_certificate_arn instead if DNS is elsewhere.
+route53_zone_id = "Z0123456789ABCDEFGHIJ"
+# acm_certificate_arn = "arn:aws:acm:us-east-1:111122223333:certificate/..."
+
+region      = "us-east-1"
+environment = "prod"
+
+# Smallest shapes that work. Raise db_instance_class first — Postgres is what
+# runs out of room, not the tasks.
+db_instance_class = "db.t4g.micro"
+redis_node_type   = "cache.t4g.micro"
+db_multi_az       = false
+
+desired_count = 1
+task_cpu      = 512
+task_memory   = 1024

@@ -1,33 +1,8 @@
-import json
 import logging
 
+from infrastructure.external.firebaseApp import getFirebaseApp
+
 logger = logging.getLogger(__name__)
-
-_app = None
-
-
-def _getApp():
-    global _app
-    if _app is not None:
-        return _app
-
-    try:
-        import firebase_admin
-        from firebase_admin import credentials
-        from core.config import config
-
-        raw = getattr(config, "FIREBASE_SERVICE_ACCOUNT", None)
-
-        if raw:
-            cred = credentials.Certificate(json.loads(raw))
-        else:
-            return None
-
-        _app = firebase_admin.initialize_app(cred)
-        return _app
-    except Exception as e:
-        logger.warning(f"FCM init failed: {e}")
-        return None
 
 
 def sendPushToUser(user_id: str, title: str, body: str) -> None:
@@ -57,7 +32,7 @@ def sendPush(tokens: list[str], title: str, body: str) -> None:
     if not tokens:
         return
 
-    app = _getApp()
+    app = getFirebaseApp()
     if app is None:
         logger.debug("FCM not configured — skipping push")
         return

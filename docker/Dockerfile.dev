@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1
+#
+# Development image: backend only, no nginx, no TLS.
+#
+# In dev the front-end runs from `npm run dev`, whose Vite proxy mirrors the
+# nginx routes (/api stripped, /ws passed through) — so the app talks to
+# relative URLs in dev exactly as it does in production, without a certificate
+# or a bundle rebuild in the loop.
+#
+# Build context is the backend repo root:
+#     docker compose -f docker/compose.yaml up
+#
+# The production image is docker/Dockerfile — different context, see its header.
+FROM python:3.12.3-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libpq-dev gcc \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8080
+
+# Migrations first. `create_all` used to run on import and build the schema as a
+# side effect of starting; it was removed because it creates tables without the
+# row level security policies, which made a dev database quietly unlike a
+# deployed one. Alembic is now the only thing that builds a schema, here as
+# everywhere else.
+#
+# APP_ENV=dev (set in compose.yaml) points alembic at the compose Postgres.
+CMD ["sh", "-c", "alembic upgrade head && python ./src/run.py"]

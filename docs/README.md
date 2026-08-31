@@ -4,7 +4,7 @@ Backend of the **NoHarm** application — a mobile app for addiction recovery su
 
 **Stack:** Python · FastAPI · PostgreSQL · WebSocket (Socket.IO) · SQLAlchemy · JWT · Dynaconf
 
-**API Docs:** https://noharmapi.vercel.app/docs
+**API Docs:** `https://<domínio>/api/docs` (servido pelo backend atrás do nginx)
 
 ---
 
@@ -45,9 +45,9 @@ noHarmBack/
 │   └── run.py                  # Uvicorn startup script
 ├── .secrets.toml               # Environment secrets (never commit)
 ├── alembic.ini
-├── migrate.sh                  # Vercel migration script
+├── migrate.sh                  # alembic upgrade head
 ├── requirements.txt
-└── vercel.json
+└── docker/                     # imagem de produção: nginx + uvicorn
 ```
 
 ---
@@ -431,8 +431,9 @@ pip install -r requirements.txt
 cp .env.example .secrets.toml
 # Edit .secrets.toml with your values
 
-# Run database migrations
-ENV=development alembic upgrade head
+# Run database migrations — obrigatório, não opcional: nada mais cria o schema
+# no startup, e um banco sem elas fica sem as policies de RLS.
+APP_ENV=alembic alembic upgrade head
 
 # Start the server
 cd src && python run.py
@@ -442,11 +443,42 @@ uvicorn src.main:app --reload
 
 ---
 
-## Deployment (Vercel)
+## Deployment (AWS, container único)
 
-The project is configured for Vercel serverless deployment via `vercel.json`. Migrations are run automatically on build via `migrate.sh` (triggered by `package.json`'s `vercel-build` script).
+Front-end e back-end vivem na mesma imagem. O nginx termina TLS, serve o bundle
+do Vite e encaminha `/api` (sem o prefixo) e `/ws` para o uvicorn em
+`127.0.0.1:8080` — que não escuta em mais nenhum lugar, e é isso que impede
+qualquer um de forjar `X-Forwarded-For`.
 
-The database is hosted on **Neon** (serverless PostgreSQL). Alembic uses the unpooled connection URL because pgBouncer (pooled) is incompatible with Alembic's DDL operations.
+Onde o TLS termina é escolhido por `TLS_MODE`:
+
+- `alb` (padrão, ECS) — o ALB termina TLS com um certificado do ACM e o
+  container serve `:80` puro. Precisa de `TRUSTED_PROXY_CIDRS` (a faixa da VPC):
+  é com ela que o nginx recupera o IP real do cliente do `X-Forwarded-For`. Sem
+  isso o mundo inteiro cai no mesmo balde de rate limit.
+- `container` (compose.prod.yaml) — o nginx termina TLS e o par de certificados
+  em `/etc/nginx/certs` é dependência dura.
+
+Config em `docker/`; o detalhamento está no `CLAUDE.md` da raiz, seção
+Deployment. A stack AWS que roda isso é Terraform em `infra/` — VPC, RDS,
+ElastiCache, ECR, ALB, ECS Fargate, Secrets Manager e a role OIDC do GitHub.
+O passo a passo do primeiro deploy está em `infra/README.md`.
+
+Pontos que costumam morder:
+
+- O contexto de build é o **diretório pai dos dois repos** — `noHarm/` e
+  `noHarmBack/` precisam estar lado a lado, porque o stage 1 compila o bundle.
+  O workflow de deploy faz dois checkouts por causa disso.
+- O entrypoint recusa subir com `FIREBASE_AUTH_EMULATOR_HOST` definida, sem os
+  certificados em modo `container`, e sem `TRUSTED_PROXY_CIDRS` em modo `alb`.
+- Migrations não rodam sozinhas: `RUN_MIGRATIONS=true` em **uma** instância, ou
+  — o que o ECS faz — como task própria (`<imagem> migrate`, que roda o upgrade
+  e sai). N containers subindo juntos disputariam o mesmo upgrade.
+
+Postgres e Redis são externos (RDS / ElastiCache). O Alembic usa a URL unpooled
+porque pgBouncer é incompatível com operações DDL. As duas URLs podem ficar em
+branco: o entrypoint as monta a partir de `DATABASE_HOST`/`NAME`/`USER`/
+`PASSWORD`, que é o que permite ao RDS ser o único dono da senha.
 
 ---
 

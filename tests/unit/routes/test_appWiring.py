@@ -27,7 +27,11 @@ def app():
 
 @pytest.fixture
 def client(app):
-    return TestClient(app, raise_server_exceptions=False)
+    # A real peer address, not TestClient's default "testclient": the client-IP
+    # resolver only accepts values that parse as addresses, which is what the
+    # transport always hands it in production.
+    return TestClient(app, raise_server_exceptions=False,
+                      client=("203.0.113.7", 12345))
 
 
 # ── authentication is actually required ───────────────────────────────────────
@@ -321,7 +325,7 @@ def test_ip_middleware_runs_before_authentication(client):
     with patch("security.middleware._ipLimiter", tight):
         client.get("/users/me")
 
-    assert tight.seen == ["testclient"]
+    assert tight.seen == ["203.0.113.7"]
 
 
 def test_health_stays_reachable_while_the_ip_bucket_is_blocked(client):

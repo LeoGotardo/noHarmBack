@@ -7,6 +7,7 @@ from security.jwtHandler import JwtHandler
 from security.tokenBlacklist import TokenBlacklist
 from security.rateLimiter import LoginRateLimiter
 from security.sanitizer import Sanitizer
+from security.firebaseIdentity import verifyIdToken
 from exceptions.baseExceptions import NoHarmException
 from core.config import config
 from core.database import Database
@@ -46,9 +47,12 @@ class AuthService:
     # ── register ──────────────────────────────────────────────────────────────
 
     def register(self, request: AuthRegisterRequest) -> dict:
-        """Create a new user account using Firebase identity data.
+        """Create a new user account from a verified Firebase identity.
 
         Rules (§1.1):
+        - the ID token is verified first: uid, email and email_verified come
+          from its claims, so an account cannot be created for a UID the caller
+          does not control, and verification cannot be self-declared
         - username must match ^[a-zA-Z0-9_-]+$ and be 3–50 chars
         - username and email must be globally unique → 409 (generic message)
         - status = pending until email verification (enabled if Firebase already verified)
@@ -57,9 +61,20 @@ class AuthService:
         Returns:
             dict with accessToken, refreshToken, tokenType
         """
+        identity = verifyIdToken(request.idToken)
+
+        uid: str = identity.uid
         username: str = request.username
-        email: str = request.email
-        uid: str = request.uid
+        email: str | None = identity.email
+
+        # Google always sends one, but a provider that does not would leave the
+        # account without the field every uniqueness rule below keys on.
+        if not email:
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="EMAIL_REQUIRED",
+                message="This sign-in method does not provide an email address."
+            )
 
         # Rule 1.1 — username format (3–50 chars, ^[a-zA-Z0-9_-]+$)
         username = Sanitizer.cleanHtml(username)
@@ -71,6 +86,16 @@ class AuthService:
             )
 
         # Rule 1.1 — uniqueness (generic 409 to prevent enumeration)
+        # The UID is checked first: it is the primary key, so registering twice
+        # with the same Google account used to reach the INSERT and die there.
+        try:
+            self.userRepository.findById(uid)
+            raise NoHarmException(statusCode=409, errorCode="CONFLICT", message="Registration failed. Please check your details.")
+        except NoHarmException as e:
+            if e.statusCode != 404:
+                raise e
+            # 404 → uid is available, continue
+
         try:
             self.userRepository.findByEmail(email)
             raise NoHarmException(statusCode=409, errorCode="CONFLICT", message="Registration failed. Please check your details.")
@@ -87,8 +112,8 @@ class AuthService:
                 raise e
             # 404 → username is available, continue
 
-        photoUrl = request.photoURL
-        status = config.STATUS_CODES["enabled"] if request.emailVerified else config.STATUS_CODES["pending"]
+        photoUrl = identity.picture
+        status = config.STATUS_CODES["enabled"] if identity.emailVerified else config.STATUS_CODES["pending"]
 
         newUser = UserModel(
             id=uid,
@@ -114,6 +139,10 @@ class AuthService:
         """Authenticate via Firebase identity and issue token pair.
 
         Rules (§1.2, §1.4, §8.1):
+        - the ID token is verified before anything else — the UID is read from
+          its claims, never from the body, because the UID is public (it is the
+          user id the API returns in friend lists and search) and would
+          otherwise be a password anyone could look up
         - Rate-limited per UID (5 attempts / 15 min → 30 min lockout)
         - banned / blocked / deleted accounts → 403
         - On failure: generic 'Invalid credentials' response
@@ -122,7 +151,7 @@ class AuthService:
         Returns:
             dict with accessToken, refreshToken, tokenType
         """
-        uid: str = request.uid
+        uid: str = verifyIdToken(request.idToken).uid
 
         # Rate limiting (§9.6)
         allowed, reason = _loginLimiter.check(uid)

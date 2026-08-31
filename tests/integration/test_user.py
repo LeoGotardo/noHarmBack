@@ -6,8 +6,8 @@ class TestMyProfile:
         resp = client.get("/users/me", headers=user_a["headers"])
         assert resp.status_code == 200
         body = resp.json()
-        assert body["email"] == user_a["payload"]["email"]
-        assert body["username"] == user_a["payload"]["username"]
+        assert body["email"] == user_a["identity"]["email"]
+        assert body["username"] == user_a["identity"]["username"]
 
     def test_no_auth_returns_401(self, client):
         resp = client.get("/users/me")
@@ -30,10 +30,7 @@ class TestMyProfile:
         resp = client.delete("/users/me", headers=user_a["headers"])
         assert resp.status_code == 200
 
-        login_resp = client.post(
-            "/auth/login",
-            json={"uid": user_a["uid"], "email": user_a["payload"]["email"]},
-        )
+        login_resp = client.post("/auth/login", json={"idToken": user_a["idToken"]})
         assert login_resp.status_code == 403
 
 
@@ -41,7 +38,7 @@ class TestPublicProfile:
     def test_get_other_user_public_profile(self, client, user_a, user_b):
         resp = client.get(f"/users/{user_b['uid']}", headers=user_a["headers"])
         assert resp.status_code == 200
-        assert resp.json()["username"] == user_b["payload"]["username"]
+        assert resp.json()["username"] == user_b["identity"]["username"]
 
     def test_get_nonexistent_user_returns_404(self, client, user_a):
         import uuid

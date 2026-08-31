@@ -1,0 +1,30 @@
+# Paths are relative to the build context (the parent of both repos).
+
+**/node_modules
+**/venv
+**/.git
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.coverage
+
+# Built in stage 1 — a stale local copy must never win over it.
+noHarm/dist
+noHarm/test-results
+noHarm/playwright-report
+noHarm/android
+noHarm/ios
+
+# Secrets stay out of the image. Config arrives as environment variables; a
+# .secrets.toml baked into a layer is readable by anyone who pulls the image.
+**/.secrets.toml
+**/.env
+**/.env.*
+
+# Service-account keys. Stage 1 does `COPY noHarm/ ./`, so a key left in that
+# repo lands in the front-end build layer. The final stage only takes
+# /build/dist, so it never reaches the pushed image — but a build layer is not
+# the place to find out.
+**/*firebase-adminsdk*.json
+**/*service-account*.json

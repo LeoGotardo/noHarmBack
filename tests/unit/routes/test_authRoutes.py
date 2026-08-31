@@ -35,13 +35,10 @@ def client():
     return TestClient(_build_app(), raise_server_exceptions=False)
 
 
-_VALID_LOGIN = {"uid": "uid-001", "email": "user@test.com"}
-_VALID_REGISTER = {
-    "uid": "uid-001",
-    "email": "new@test.com",
-    "username": "newuser",
-    "emailVerified": True,
-}
+# The body carries the Firebase ID token and nothing else about who the user
+# is; AuthService is mocked here, so its contents never have to be valid.
+_VALID_LOGIN = {"idToken": "id-token"}
+_VALID_REGISTER = {"idToken": "id-token", "username": "newuser"}
 
 
 class TestLoginRoute:
@@ -70,12 +67,14 @@ class TestLoginRoute:
             res = client.post("/auth/login", json=_VALID_LOGIN)
         assert res.status_code == 403
 
-    def test_login_missing_uid_returns_422(self, client):
-        res = client.post("/auth/login", json={"email": "u@t.com"})
+    def test_login_missing_id_token_returns_422(self, client):
+        res = client.post("/auth/login", json={})
         assert res.status_code == 422
 
-    def test_login_invalid_email_returns_422(self, client):
-        res = client.post("/auth/login", json={"uid": "uid1", "email": "bad"})
+    def test_login_with_uid_instead_of_token_returns_422(self, client):
+        # The shape the API used to accept. Rejecting it is the whole point:
+        # a bare UID is not proof of anything.
+        res = client.post("/auth/login", json={"uid": "uid-001", "email": "u@t.com"})
         assert res.status_code == 422
 
     def test_login_rate_limit_returns_429(self, client):
@@ -109,8 +108,16 @@ class TestRegisterRoute:
         res = client.post("/auth/register", json=payload)
         assert res.status_code == 422
 
-    def test_register_missing_uid_returns_422(self, client):
-        res = client.post("/auth/register", json={"email": "u@t.com", "username": "user"})
+    def test_register_missing_id_token_returns_422(self, client):
+        res = client.post("/auth/register", json={"username": "user"})
+        assert res.status_code == 422
+
+    def test_register_with_uid_instead_of_token_returns_422(self, client):
+        res = client.post(
+            "/auth/register",
+            json={"uid": "uid-001", "email": "u@t.com", "username": "newuser",
+                  "emailVerified": True},
+        )
         assert res.status_code == 422
 
 

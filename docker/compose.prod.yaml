@@ -1,0 +1,61 @@
+# Production-shaped stack: the single container, over TLS.
+#
+# Postgres and Redis are NOT here — on AWS they are RDS and ElastiCache, and
+# pointing this file at local ones would hide the fact that the real URLs are
+# what the container is configured with. Set them in the env file.
+#
+# Build context is the parent of both repos (see docker/Dockerfile):
+#     docker compose -f noHarmBack/docker/compose.prod.yaml build
+#
+# Run from that parent directory, not from docker/.
+
+services:
+  app:
+    build:
+      context: ../../
+      dockerfile: noHarmBack/docker/Dockerfile
+      args:
+        # Baked into the bundle at build time — a change here needs a rebuild,
+        # not a restart. Relative URLs: the app and the API share an origin now.
+        VITE_API_URL: /api
+        VITE_SOCKET_URL: ""
+        VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY}
+        VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN}
+        VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID}
+        VITE_FIREBASE_STORAGE_BUCKET: ${VITE_FIREBASE_STORAGE_BUCKET}
+        VITE_FIREBASE_MESSAGING_SENDER_ID: ${VITE_FIREBASE_MESSAGING_SENDER_ID}
+        VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID}
+        VITE_STATUS_CONSTANTS: ${VITE_STATUS_CONSTANTS}
+    image: noharm:latest
+    container_name: noharm
+    restart: unless-stopped
+
+    # Everything the backend needs: DATABASE_URL, DATABASE_URL_UNPOOLED,
+    # REDIS_URL, ENCRYPTION_KEY, JWT_*, FIREBASE_SERVICE_ACCOUNT, and the rest
+    # of the required set in core/config.py. On AWS these come from the task
+    # definition / Secrets Manager instead of a file.
+    env_file:
+      - ./prod.env
+
+    environment:
+      - APP_ENV=prod
+      # This file publishes 443 directly, so nginx holds the certificate. The
+      # ECS task definition uses the default (alb) instead and never mounts one.
+      - TLS_MODE=container
+      # nginx reaches uvicorn over loopback, and uvicorn listens nowhere else,
+      # so the proxy is the only peer that can ever appear. Anything wider would
+      # let a peer that is not the proxy set X-Forwarded-For.
+      - TRUSTED_PROXIES=["127.0.0.1/32","::1/128"]
+      # One instance opts in; the rest must not race the same upgrade.
+      - RUN_MIGRATIONS=${RUN_MIGRATIONS:-false}
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      # nginx terminates TLS itself. The entrypoint refuses to start without
+      # both files, so a bad mount fails fast instead of restart-looping.
+      - ./certs:/etc/nginx/certs:ro
+      # certbot --webroot renewal target; served over plain :80 by nginx.
+      - ./certbot-www:/var/www/certbot

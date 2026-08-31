@@ -1,0 +1,166 @@
+# Build the single image, push it, migrate, then roll the service.
+#
+# The image contains the front-end bundle, so this workflow checks out BOTH
+# repos as siblings — the Dockerfile's build context is the directory that holds
+# them, and stage 1 compiles noHarm/ into the image. A build from this repo
+# alone fails at the first COPY.
+#
+# Migrations run as their own ECS task and must finish before the new revision
+# rolls out: a task that boots against a schema it is newer than fails in ways
+# that are hard to read.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_migrations:
+        description: "Skip the migration task (only when the deploy has no migration)"
+        type: boolean
+        default: false
+
+concurrency:
+  # Two deploys at once would race the same service and the same upgrade.
+  group: deploy-prod
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ECS_CLUSTER: noharm-prod
+  ECS_SERVICE: noharm-prod
+  ECS_TASK_FAMILY: noharm-prod
+  MIGRATE_TASK_FAMILY: noharm-prod-migrate
+  CONTAINER_NAME: app
+
+permissions:
+  contents: read
+  id-token: write   # required to exchange the OIDC token for the AWS role
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout backend
+        uses: actions/checkout@v4
+        with:
+          path: noHarmBack
+
+      # Same parent directory, because that is the build context.
+      - name: Checkout frontend
+        uses: actions/checkout@v4
+        with:
+          repository: LeoGotardo/noHarm
+          # This repo's default branch is `master`, not `main` — the two repos
+          # do not agree, and a wrong ref here fails the build at stage 1 with a
+          # missing package.json rather than anything that names the branch.
+          ref: master
+          path: noHarm
+          # A PAT with read access to the other repo. GITHUB_TOKEN is scoped to
+          # this one and cannot read it, even with both under the same owner.
+          token: ${{ secrets.FRONTEND_REPO_TOKEN }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        id: build
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPOSITORY: noharm-prod
+          # The commit SHA, never `latest`: the task definition records exactly
+          # what is running, and a rollback is a previous revision rather than a
+          # rebuild.
+          TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker build \
+            -f noHarmBack/docker/Dockerfile \
+            -t "$REGISTRY/$REPOSITORY:$TAG" \
+            --build-arg VITE_API_URL=/api \
+            --build-arg VITE_SOCKET_URL= \
+            --build-arg VITE_FIREBASE_API_KEY="${{ vars.VITE_FIREBASE_API_KEY }}" \
+            --build-arg VITE_FIREBASE_AUTH_DOMAIN="${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}" \
+            --build-arg VITE_FIREBASE_PROJECT_ID="${{ vars.VITE_FIREBASE_PROJECT_ID }}" \
+            --build-arg VITE_FIREBASE_STORAGE_BUCKET="${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}" \
+            --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID="${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}" \
+            --build-arg VITE_FIREBASE_APP_ID="${{ vars.VITE_FIREBASE_APP_ID }}" \
+            --build-arg VITE_STATUS_CONSTANTS="${{ vars.VITE_STATUS_CONSTANTS }}" \
+            .
+          docker push "$REGISTRY/$REPOSITORY:$TAG"
+          echo "image=$REGISTRY/$REPOSITORY:$TAG" >> "$GITHUB_OUTPUT"
+
+      # Both families get the new image. The migration one runs first and has to
+      # exit 0 before the service is touched.
+      - name: Render migration task definition
+        if: ${{ !inputs.skip_migrations }}
+        id: migrate_def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition-family: ${{ env.MIGRATE_TASK_FAMILY }}
+          container-name: migrate
+          image: ${{ steps.build.outputs.image }}
+
+      - name: Run migrations
+        if: ${{ !inputs.skip_migrations }}
+        env:
+          DEF_FILE: ${{ steps.migrate_def.outputs.task-definition }}
+        run: |
+          set -euo pipefail
+          revision=$(aws ecs register-task-definition \
+            --cli-input-json "file://$DEF_FILE" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "registered $revision"
+
+          task=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" \
+            --task-definition "$revision" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ vars.TASK_SUBNET_IDS }}],securityGroups=[${{ vars.APP_SECURITY_GROUP_ID }}],assignPublicIp=ENABLED}" \
+            --query 'tasks[0].taskArn' --output text)
+          echo "running $task"
+
+          aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$task"
+
+          exitCode=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$task" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+          reason=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$task" \
+            --query 'tasks[0].stoppedReason' --output text)
+
+          # Logs either way: a successful upgrade should say which revisions it
+          # applied, and a failed one is unreadable without them.
+          aws logs get-log-events \
+            --log-group-name "/ecs/noharm-prod" \
+            --log-stream-name "migrate/migrate/${task##*/}" \
+            --query 'events[].message' --output text || true
+
+          if [ "$exitCode" != "0" ]; then
+            echo "::error::migration task exited $exitCode ($reason)"
+            exit 1
+          fi
+
+      - name: Render service task definition
+        id: app_def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition-family: ${{ env.ECS_TASK_FAMILY }}
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build.outputs.image }}
+
+      - name: Deploy
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.app_def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          # Waits for the rollout. The service has a circuit breaker with
+          # rollback, so a bad image reverts itself and this step reports it.
+          wait-for-service-stability: true

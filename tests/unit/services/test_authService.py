@@ -3,8 +3,15 @@
 authService.py creates module-level singletons (_jwtHandler, _loginLimiter,
 _blacklist). Each test patches those singletons so the service logic can be
 exercised without a real JWT stack or rate limiter state.
+
+Firebase is stubbed the same way, by `stub_firebase` below: the identity a
+token resolves to is encoded in the token string itself, so a test can pick a
+UID without a Firebase project existing. What that stub replaces —
+signature, audience and issuer — is covered in
+`tests/unit/security/test_firebaseIdentity.py`.
 """
 
+import json
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -15,6 +22,29 @@ from schemas.authSchemas import AuthLoginRequest, AuthRegisterRequest
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+@pytest.fixture(autouse=True)
+def stub_firebase():
+    """Resolve a fake ID token to the identity encoded in it.
+
+    Autouse: every path through login and register starts with verification
+    now, so a test that forgot it would fail on a Firebase app that does not
+    exist rather than on what it is asserting.
+    """
+    from security.firebaseIdentity import FirebaseIdentity
+
+    def _verify(idToken):
+        claims = json.loads(idToken)
+        return FirebaseIdentity(
+            uid=claims["uid"],
+            email=claims.get("email"),
+            emailVerified=claims.get("emailVerified", True),
+            picture=claims.get("picture"),
+        )
+
+    with patch("domain.services.authService.verifyIdToken", side_effect=_verify) as mock:
+        yield mock
+
+
 def _make_service(mock_db):
     """Instantiate AuthService and replace repos with MagicMocks."""
     from domain.services.authService import AuthService
@@ -24,14 +54,17 @@ def _make_service(mock_db):
     return service
 
 
+def _token(uid="uid-001", email="user@test.com", **claims):
+    """A token the `stub_firebase` fixture knows how to resolve."""
+    return json.dumps({"uid": uid, "email": email, **claims})
+
+
 def _login_request(uid="uid-001", email="user@test.com"):
-    return AuthLoginRequest(uid=uid, email=email)
+    return AuthLoginRequest(idToken=_token(uid, email))
 
 
-def _register_request(uid="uid-001", email="new@test.com", username="newuser"):
-    return AuthRegisterRequest(
-        uid=uid, email=email, username=username, emailVerified=True
-    )
+def _register_request(uid="uid-001", email="new@test.com", username="newuser", **claims):
+    return AuthRegisterRequest(idToken=_token(uid, email, **claims), username=username)
 
 
 # ── login ─────────────────────────────────────────────────────────────────────
@@ -220,7 +253,8 @@ def test_register_success_returns_tokens(mock_db):
         mock_jwt.createRefreshToken.return_value = "refresh"
 
         service = _make_service(mock_db)
-        # email and username not taken → repos raise 404
+        # uid, email and username not taken → repos raise 404
+        service.userRepository.findById.side_effect = NoHarmException(statusCode=404)
         service.userRepository.findByEmail.side_effect = NoHarmException(statusCode=404)
         service.userRepository.findByUsername.side_effect = NoHarmException(statusCode=404)
 
@@ -244,6 +278,7 @@ def test_register_invalid_username_raises_400(mock_db):
 def test_register_duplicate_email_raises_409(mock_db):
     with patch("domain.services.authService._jwtHandler"):
         service = _make_service(mock_db)
+        service.userRepository.findById.side_effect = NoHarmException(statusCode=404)
         existing = MagicMock()
         service.userRepository.findByEmail.return_value = existing  # exists
 
@@ -255,9 +290,107 @@ def test_register_duplicate_email_raises_409(mock_db):
 def test_register_duplicate_username_raises_409(mock_db):
     with patch("domain.services.authService._jwtHandler"):
         service = _make_service(mock_db)
+        service.userRepository.findById.side_effect = NoHarmException(statusCode=404)
         service.userRepository.findByEmail.side_effect = NoHarmException(statusCode=404)
         service.userRepository.findByUsername.return_value = MagicMock()  # exists
 
         with pytest.raises(NoHarmException) as exc:
             service.register(_register_request())
         assert exc.value.statusCode == 409
+
+
+# ── identity comes from the token, not the body ───────────────────────────────
+
+def test_login_uses_uid_from_verified_token(mock_db, stub_firebase):
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler") as mock_jwt:
+
+        mock_limiter.check.return_value = (True, None)
+        mock_jwt.createAccessToken.return_value = "acc"
+        mock_jwt.createRefreshToken.return_value = "ref"
+
+        service = _make_service(mock_db)
+        mock_user = MagicMock()
+        mock_user.id = "uid-from-token"
+        mock_user.status = config.STATUS_CODES["enabled"]
+        service.userRepository.findById.return_value = mock_user
+
+        service.login(_login_request(uid="uid-from-token"))
+
+        service.userRepository.findById.assert_called_once_with("uid-from-token")
+
+
+def test_login_rejected_token_propagates_401(mock_db, stub_firebase):
+    stub_firebase.side_effect = NoHarmException(
+        statusCode=401, errorCode="INVALID_TOKEN", message="Invalid credentials."
+    )
+
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler"):
+        service = _make_service(mock_db)
+
+        with pytest.raises(NoHarmException) as exc:
+            service.login(_login_request())
+
+        assert exc.value.statusCode == 401
+        # Nothing was looked up: an unverified token never reaches the database,
+        # and it must not consume the per-UID rate-limit budget either.
+        service.userRepository.findById.assert_not_called()
+        mock_limiter.check.assert_not_called()
+
+
+def test_register_stores_uid_and_email_from_token(mock_db):
+    # UserModel is mocked out by the unit conftest, so the built row keeps no
+    # attributes — the kwargs it was constructed with are the assertion.
+    with patch("domain.services.authService._jwtHandler") as mock_jwt, \
+         patch("domain.services.authService.UserModel") as MockUserModel:
+        mock_jwt.createAccessToken.return_value = "acc"
+        mock_jwt.createRefreshToken.return_value = "ref"
+
+        service = _make_service(mock_db)
+        service.userRepository.findById.side_effect = NoHarmException(statusCode=404)
+        service.userRepository.findByEmail.side_effect = NoHarmException(statusCode=404)
+        service.userRepository.findByUsername.side_effect = NoHarmException(statusCode=404)
+
+        service.register(_register_request(
+            uid="uid-claimed", email="claimed@test.com", picture="https://pic"
+        ))
+
+        built = MockUserModel.call_args.kwargs
+        assert built["id"] == "uid-claimed"
+        assert built["email"] == "claimed@test.com"
+        assert built["profile_picture"] == "https://pic"
+
+
+def test_register_unverified_email_stays_pending(mock_db):
+    with patch("domain.services.authService._jwtHandler"), \
+         patch("domain.services.authService.UserModel") as MockUserModel:
+        service = _make_service(mock_db)
+        service.userRepository.findById.side_effect = NoHarmException(statusCode=404)
+        service.userRepository.findByEmail.side_effect = NoHarmException(statusCode=404)
+        service.userRepository.findByUsername.side_effect = NoHarmException(statusCode=404)
+
+        # The client used to send this flag. From the claims it cannot be
+        # self-declared, so an unverified Google account cannot skip `pending`.
+        service.register(_register_request(emailVerified=False))
+
+        assert MockUserModel.call_args.kwargs["status"] == config.STATUS_CODES["pending"]
+
+
+def test_register_duplicate_uid_raises_409(mock_db):
+    with patch("domain.services.authService._jwtHandler"):
+        service = _make_service(mock_db)
+        service.userRepository.findById.return_value = MagicMock()  # already registered
+
+        with pytest.raises(NoHarmException) as exc:
+            service.register(_register_request())
+        assert exc.value.statusCode == 409
+
+
+def test_register_without_email_claim_raises_400(mock_db):
+    with patch("domain.services.authService._jwtHandler"):
+        service = _make_service(mock_db)
+
+        with pytest.raises(NoHarmException) as exc:
+            service.register(_register_request(email=None))
+        assert exc.value.statusCode == 400

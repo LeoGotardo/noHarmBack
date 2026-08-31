@@ -7,40 +7,46 @@ from datetime import datetime, timezone
 class TestAuthSchemas:
     def test_register_valid(self):
         from schemas.authSchemas import AuthRegisterRequest
-        r = AuthRegisterRequest(uid="uid1", email="user@test.com", username="validuser")
-        assert r.uid == "uid1"
-        assert r.emailVerified is False
-        assert r.photoURL is None
+        r = AuthRegisterRequest(idToken="id-token", username="validuser")
+        assert r.idToken == "id-token"
+        assert r.username == "validuser"
 
     def test_register_username_too_short(self):
         from schemas.authSchemas import AuthRegisterRequest
         with pytest.raises(ValidationError):
-            AuthRegisterRequest(uid="u", email="a@b.com", username="ab")
+            AuthRegisterRequest(idToken="id-token", username="ab")
 
     def test_register_username_too_long(self):
         from schemas.authSchemas import AuthRegisterRequest
         with pytest.raises(ValidationError):
-            AuthRegisterRequest(uid="u", email="a@b.com", username="x" * 51)
+            AuthRegisterRequest(idToken="id-token", username="x" * 51)
 
-    def test_register_invalid_email(self):
-        from schemas.authSchemas import AuthRegisterRequest
-        with pytest.raises(ValidationError):
-            AuthRegisterRequest(uid="u", email="not-an-email", username="user")
-
-    def test_register_missing_required(self):
+    def test_register_missing_id_token(self):
         from schemas.authSchemas import AuthRegisterRequest
         with pytest.raises(ValidationError):
             AuthRegisterRequest(username="user")
 
+    def test_register_ignores_client_supplied_identity(self):
+        from schemas.authSchemas import AuthRegisterRequest
+        # These four used to be the account's identity. They are read from the
+        # token's claims now, so anything sent here is dead weight, not input.
+        r = AuthRegisterRequest(
+            idToken="id-token", username="validuser",
+            uid="someone-else", email="victim@test.com",
+            emailVerified=True, photoURL="https://evil",
+        )
+        assert not hasattr(r, "uid")
+        assert not hasattr(r, "emailVerified")
+
     def test_login_valid(self):
         from schemas.authSchemas import AuthLoginRequest
-        r = AuthLoginRequest(uid="uid1", email="u@t.com")
-        assert r.uid == "uid1"
+        r = AuthLoginRequest(idToken="id-token")
+        assert r.idToken == "id-token"
 
-    def test_login_invalid_email(self):
+    def test_login_missing_id_token(self):
         from schemas.authSchemas import AuthLoginRequest
         with pytest.raises(ValidationError):
-            AuthLoginRequest(uid="uid1", email="bad")
+            AuthLoginRequest(uid="uid1", email="u@t.com")
 
     def test_refresh_valid(self):
         from schemas.authSchemas import AuthRefreshRequest

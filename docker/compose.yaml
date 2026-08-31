@@ -31,9 +31,13 @@ services:
 
   # A sua Aplicação Python
   app:
-    build: 
+    build:
       context: ../
-      dockerfile: docker/Dockerfile
+      # Dockerfile.dev, not Dockerfile: the production image is multi-stage,
+      # builds the Vite bundle and fronts everything with nginx over TLS. None
+      # of that belongs in a hot-reload loop, and its build context is the
+      # parent of both repos rather than this one.
+      dockerfile: docker/Dockerfile.dev
     container_name: noharm-backend
     environment:
       - APP_ENV=dev
@@ -47,6 +51,22 @@ services:
       # to 192.168.0.0/16 or 10.0.0.0/8 would mark every machine on the LAN as a
       # proxy and let them forge X-Forwarded-For.
       - TRUSTED_PROXIES=["172.16.0.0/12","127.0.0.1/32"]
+      # /auth/* verifies a Firebase ID token, and neither the E2E suite nor a
+      # browser under Playwright can produce one signed by Google — the Google
+      # popup is blocked in automation.
+      #
+      # This makes firebase_admin skip the signature check. The `aud`, `iss` and
+      # `sub` claims are still enforced, so a token minted for another project is
+      # still refused, but expiry is not checked and anyone can authenticate as
+      # anyone. Nothing is contacted at the address below; the variable's
+      # presence is the switch.
+      #
+      # DEV AND TEST ONLY. Setting this in a deployed environment removes
+      # authentication entirely.
+      - FIREBASE_AUTH_EMULATOR_HOST=localhost:9099
+      # What tokens are matched against, real or minted. Real Google tokens for
+      # this project keep working, so interactive login still works locally.
+      - FIREBASE_PROJECT_ID=noharm-6cc9d
     ports:
       - "8080:8080"
     # run.py passa reload=DEBUG ao uvicorn, e em dev DEBUG é true. Sem este mount

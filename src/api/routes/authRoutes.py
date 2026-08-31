@@ -18,7 +18,9 @@ security = HTTPBearer()
     status_code=201,
     summary="Register a new user",
     description=(
-        "Creates a new account from Firebase identity data and returns a token pair. "
+        "Creates a new account from a verified Firebase ID token and returns a token pair. "
+        "The uid, email and email-verified flag are read from the token's claims — the body "
+        "carries only the token and the chosen username. "
         "Enforces username uniqueness, email uniqueness, and username format rules. "
         "Status is set to 'pending' until email is verified by Firebase."
     )
@@ -38,7 +40,7 @@ def register(request: Request, body: AuthRegisterRequest, db: Session = Depends(
     response_model=AuthResponse,
     summary="Login",
     description=(
-        "Authenticates the user via Firebase UID and issues a token pair. "
+        "Verifies the Firebase ID token and issues a token pair for the UID it carries. "
         "Rate-limited to 5 attempts / 15 min per UID. "
         "Banned, blocked, or deleted accounts are rejected with 403."
     )

@@ -56,7 +56,7 @@ Logout → revoke accessToken + revoke refreshToken → both added to blacklist
 
 **Blacklist implementation (`src/security/tokenBlacklist.py`):**
 
-The blacklist uses **Redis** (Upstash, serverless-compatible) via `redis.from_url`. Each `add` call computes TTL as `(expiresAt − now)` and stores the key via `SETEX` — Redis automatically removes expired keys, so no manual cleanup is needed. JTIs are stored as SHA-256 hashes (`jti:<hash>`) — plaintext JTIs are never written to the store. `isBlacklisted` is an O(1) Redis `EXISTS` check. This replaces the previous file-based `PersistentHashTable` approach, which was not suitable for Vercel's ephemeral filesystem and multi-instance deployments.
+The blacklist uses **Redis** (Upstash, serverless-compatible) via `redis.from_url`. Each `add` call computes TTL as `(expiresAt − now)` and stores the key via `SETEX` — Redis automatically removes expired keys, so no manual cleanup is needed. JTIs are stored as SHA-256 hashes (`jti:<hash>`) — plaintext JTIs are never written to the store. `isBlacklisted` is an O(1) Redis `EXISTS` check. This replaces the previous file-based `PersistentHashTable` approach, which was not suitable for an ephemeral container filesystem or for running more than one instance.
 
 ---
 
@@ -464,18 +464,28 @@ This exposes the server's file system layout and internal class names to any cli
 
 ---
 
-### 8.2 Rate Limit State Loss on Restart
+### 8.2 Rate Limit State Loss on Restart — resolvido
 
-**What it is:** All rate limiter state (`IpRateLimiter`, `LoginRateLimiter`) lives in Python dictionaries in memory. A server restart, worker crash, or deployment resets every IP block and login lockout instantly.
+**O que era:** todo o estado de rate limit (`IpRateLimiter`, `LoginRateLimiter`)
+vivia em dicionários Python. Um restart, um crash de worker ou um deploy zerava
+qualquer bloqueio de IP e qualquer lockout de login na hora — e num modelo
+serverless, onde a instância morre sozinha, esperar o reset era trivial.
 
-**Attack scenario:** An attacker performs 4 failed login attempts, waits for a deploy (common on Vercel's serverless model), then continues — the lockout counter resets to 0.
+**Estado atual:** ambos os limitadores são Redis, com TTL nas chaves
+(`rateLimiter.py`), e o `slowapi` usa o mesmo Redis como storage
+(`limiter.py`). O estado sobrevive a restart do container e é compartilhado
+entre instâncias. O `limiter.py` degrada para contagem em memória se o Redis
+estiver fora no boot — um limitador que não alcança o store não pode derrubar a
+API junto, mas nesse modo os tetos voltam a valer por instância.
 
-**Pending countermeasures:**
-- [ ] Persist rate limiter state to Redis with TTL-based keys (replaces in-memory dicts)
-- [ ] On Vercel serverless: consider rate limiting at the edge (Vercel's built-in rate limiting or Upstash Redis)
-- [ ] Alternatively, use a stateless approach: store a short-lived signed token in the response that encodes the attempt count — the client must echo it on the next request (works without shared state)
+**O que ficou dependendo de infra:**
+- [ ] O Redis precisa ser durável de verdade (ElastiCache com persistência, não
+      um container efêmero ao lado). Um Redis que reinicia limpo devolve o
+      problema inteiro, só que mais silenciosamente.
+- [ ] Alertar quando o fallback em memória disparar. Hoje ele só loga: os tetos
+      afrouxam sem nada visível de fora.
 
-**Where to implement:** `rateLimiter.py`, infrastructure config
+**Where to implement:** `rateLimiter.py`, `limiter.py`, infra do Redis
 
 ---
 
@@ -593,7 +603,10 @@ pip-audit -r requirements.txt
 - [ ] Run `git log --all -- .secrets.toml` to verify the file was never committed before the ignore was added
 - [ ] If it was committed, rotate all secrets immediately — assume compromised
 - [ ] Add a pre-commit hook (e.g. `detect-secrets` or `git-secrets`) that blocks commits containing high-entropy strings or known secret patterns
-- [ ] Consider using Vercel's encrypted environment variable storage instead of `.secrets.toml` for production deployments
+- [ ] Em produção, os secrets vêm de variável de ambiente (`docker/prod.env` ou
+      a task definition do ECS); `.secrets.toml` está no `.dockerignore` e não
+      entra na imagem. O passo que falta é tirá-los do arquivo em disco e pôr no
+      AWS Secrets Manager, injetado na task definition
 
 **Where to implement:** CI pre-commit hooks
 
@@ -634,18 +647,19 @@ pip-audit -r requirements.txt
 
 When paginating with `getDbWithRLS`, the `total` count reflects only rows the user can see per RLS policies:
 
-| Table | RLS Policy | Effect on Pagination |
-|-------|------------|---------------------|
-| `tb_0` (users) | users_own_data | Returns 1 row (self) |
-| `tb_1` (streaks) | streaks_own_data | Counts user's streaks only |
-| `tb_2` (friendships) | friendships_participant_data | Counts where user is sender/receiver |
-| `tb_3` (chats) | chats_participant_data | Counts user's conversations |
-| `tb_4` (messages) | messages_sender_data | Counts messages sent by user |
-| `tb_5` (badges) | badges_read_all | Global count (read-only) |
-| `tb_6` (user_badges) | user_badges_own_data | Counts user's earned badges |
-| `tb_7` (audit_logs) | audit_logs_own_data | Counts user's audit events |
+| Table | Policy | Effect on Pagination |
+|-------|--------|---------------------|
+| `tb_0` (users) | `tb_0_select_any` | **No effect** — every user row is readable; search needs it |
+| `tb_1` (streaks) | `tb_1_owner` | Counts the user's streaks only |
+| `tb_2` (friendships) | `tb_2_participant` | Counts where the user is sender or receiver |
+| `tb_3` (chats) | `tb_3_participant` | Counts the user's conversations |
+| `tb_4` (messages) | `tb_4_select_participant` | Counts messages in the user's chats — both sides, not only their own |
+| `tb_5` (badges) | none | Global catalogue, no RLS |
+| `tb_6` (user_badges) | `tb_6_owner` | Counts the user's earned badges |
+| `tb_7` (audit_logs) | `tb_7_select_own` | Counts entries whose catalyst is the user |
 
-RLS policies use `current_setting('app.current_user_id')` set by `getDbWithRLS`.
+Policies read `app_current_user_id()`, a helper over
+`current_setting('app.current_user_id', true)` created by the same migration.
 
 ---
 
@@ -656,7 +670,7 @@ Rules requiring changes outside routes/services (new tables, models, external se
 | Rule | Requirement | Why Blocked |
 |------|-------------|-------------|
 | 1.1 — Email Verification | Send verification email, middleware guard for `status=pending` | `emailService.py` is empty; needs new table for tokens |
-| 7.2 — Badge Milestones | Grant badges at 1w/1m/3m/6m/1y/comeback streaks | Badge seed data must exist in `tb_5` first (FK constraint) |
+| ~~7.2 — Badge Milestones~~ | Grant badges at streak milestones | Unblocked — migration `20260831_01` seeds `tb_5` |
 | 8.1 — Password/Email Change Audit | Log type=3 (password), type=4 (email) changes | Auth delegated to Firebase; no backend endpoints to instrument |
 
 ---
@@ -733,11 +747,28 @@ RLS ensures queries only return rows the authenticated user can see. Enforced at
 
 ### 12.2 How It Works
 1. JWT validated, Firebase UID extracted as `userId` (string)
-2. `getDbWithRLS` calls `SELECT set_config('app.current_user_id', userId, true)` in PostgreSQL session
-3. All queries automatically filter based on RLS policies
-4. If no user set, RLS returns no rows (fail-closed)
+2. `getDbWithRLS` calls `RLSContext.setUserId`, which records the user on
+   `Session.info` and stamps it onto the current transaction with
+   `set_config('app.current_user_id', userId, true)`
+3. An `after_begin` listener re-stamps it onto every later transaction the
+   session opens. Without that the context would be gone after the first
+   `commit()` a repository makes, and a Session releases its connection to the
+   pool at the end of each transaction, so session-scoped settings do not
+   survive either
+4. Queries then filter through the policies of migration `20260831_02`
 
-Note: no `set_current_user_id()` DB function is needed — `set_config` is a built-in PostgreSQL function.
+**If no user is set, policies pass — this is fail-open, deliberately.** Several
+paths legitimately touch rows belonging to other users and none of them has a
+context to set: `/auth/*` runs on `getDb`, `fcmService.sendPushToUser` reads the
+recipient's device tokens from its own session, and `userBadgesRepository` takes
+its session in the constructor rather than from the request. Fail-closed would
+break all three as empty results rather than errors. Setting the variable is
+what *turns RLS on* for a request; RLS is a floor under the service layer's own
+ownership checks, not a replacement for them.
+
+A role with `BYPASSRLS` or superuser ignores every policy. `FORCE ROW LEVEL
+SECURITY` covers the table owner, not that attribute — the application should
+connect as a `NOSUPERUSER`, `NOBYPASSRLS` role holding only DML grants.
 
 ### 12.3 Usage in Routes
 
@@ -765,26 +796,44 @@ def adminGetAllUsers(db: Session = Depends(getDb)):
 ```
 
 ### 12.5 Testing RLS
-```python
-from infrastructure.database.rlsContext import RLSContext
+`tests/integration/test_rls.py` asserts the policies against the tables
+directly, rather than through the API — the `TestXxxRLS` classes elsewhere in
+that suite would still pass with every policy dropped, because what they check
+is that the services scope their own queries.
 
-def testRLS():
-    db = next(getDb())
-    # Without RLS context - should return empty
-    count = db.query(StreakModel).count()
-    assert count == 0
+It **skips itself** when the connecting role bypasses RLS, which the superuser
+of a stock Postgres image does. To actually run it, point it at a role that
+does not:
 
-    # Set RLS context for specific user (Firebase UID string)
-    RLSContext.setUserId(db, "firebase_uid_abc123")
-    count = db.query(StreakModel).count()  # Returns user's streaks
+```sql
+CREATE ROLE noharm_app LOGIN PASSWORD '...' NOSUPERUSER NOBYPASSRLS;
+GRANT USAGE ON SCHEMA public TO noharm_app;
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public TO noharm_app;
 ```
+
+```bash
+RLS_TEST_DATABASE_URL=postgresql://noharm_app:...@localhost/noharm_test \
+TEST_DATABASE_URL=postgresql://noharm_app:...@localhost/noharm_test \
+  pytest tests/integration/test_rls.py -v
+```
+
+Note the absence of a "without context returns nothing" assertion: with no
+context the policies pass, and `test_no_context_sees_both` asserts exactly
+that.
 
 ### 12.6 Troubleshooting
 | Issue | Cause | Fix |
 |-------|-------|-----|
-| "permission denied" | RLS blocking | Use `getDbWithRLS`, ensure user authenticated |
-| Empty results | RLS context not set | Check `RLSContext.setUserId()` called |
-| Performance issues | Missing indexes | Ensure indexes on: `cl_1b`, `cl_2b`, `cl_2c`, `cl_3b`, `cl_3c`, `cl_4c`, `cl_6b`, `cl_7c` |
+| `new row violates row-level security policy` | A write naming another user — an INSERT whose owner column is not the session's user | Check what the service is writing; this is the policy doing its job |
+| An UPDATE or DELETE matches 0 rows | The row is invisible to this context, so there is nothing to update. Silent by design — Postgres does not error on a filtered-out row | Confirm the context is the row's owner |
+| Empty results everywhere | Wrong user in the context | `SELECT app_current_user_id()` on the same session |
+| Policies appear to do nothing | The connecting role has `BYPASSRLS` or is a superuser | `SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user` |
+| Nothing is filtered on `/auth/*` or in push | No context set — fail-open, by design (§12.2) | Expected |
+
+Indexes for the policy predicates (`cl_1b`, `cl_2b`, `cl_2c`, `cl_3b`, `cl_3c`,
+`cl_4b`, `cl_6b`, `cl_7c`, `cl_9b`) are created by migration `20260831_02`. They
+matter more than they look: a policy adds its predicate to *every* query against
+the table, so without them each read is a sequential scan.
 
 ---
 

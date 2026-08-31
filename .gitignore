@@ -6,5 +6,9 @@ CLAUDE.md
 .env.local
 .vscode
 tmp
-.vercel
 *firebase-adminsdk*.json
+# Deploy artefacts that must never be committed: the TLS key pair nginx
+# terminates with, and the file holding every backend secret.
+docker/certs/
+docker/certbot-www/
+docker/prod.env

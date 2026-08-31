@@ -54,10 +54,11 @@ class TestRateLimitMiddleware:
             mock_limiter.check = AsyncMock()
             mock_limiter.check.return_value = (True, None, 0)
             app = self._make_app()
-            client = TestClient(app, raise_server_exceptions=False)
+            client = TestClient(app, raise_server_exceptions=False,
+                                client=("203.0.113.7", 12345))
             client.get("/ping", headers={"X-Forwarded-For": "1.2.3.4, 5.6.7.8"})
             called_ip = mock_limiter.check.call_args[0][0]
-            assert called_ip == "testclient"
+            assert called_ip == "203.0.113.7"
 
     def test_forwarded_ip_used_from_trusted_peer(self):
         """Behind a trusted proxy, the rightmost untrusted hop is the real client."""
@@ -65,11 +66,12 @@ class TestRateLimitMiddleware:
         # isTrustedProxy as a module global inside security.clientIp.
         with patch("security.middleware._ipLimiter") as mock_limiter, \
              patch("security.clientIp.isTrustedProxy",
-                   lambda ip: ip in ("testclient", "5.6.7.8")):
+                   lambda ip: ip in ("203.0.113.7", "5.6.7.8")):
             mock_limiter.check = AsyncMock()
             mock_limiter.check.return_value = (True, None, 0)
             app = self._make_app()
-            client = TestClient(app, raise_server_exceptions=False)
+            client = TestClient(app, raise_server_exceptions=False,
+                                client=("203.0.113.7", 12345))
             client.get("/ping", headers={"X-Forwarded-For": "1.2.3.4, 9.9.9.9, 5.6.7.8"})
             called_ip = mock_limiter.check.call_args[0][0]
             assert called_ip == "9.9.9.9"
@@ -96,10 +98,11 @@ class TestRateLimitMiddleware:
             mock_limiter.check = AsyncMock()
             mock_limiter.check.return_value = (True, None, 0)
             app = self._make_app()
-            client = TestClient(app, raise_server_exceptions=False)
+            client = TestClient(app, raise_server_exceptions=False,
+                                client=("203.0.113.7", 12345))
             client.get("/ping")
             called_ip = mock_limiter.check.call_args[0][0]
-            assert called_ip == "testclient"
+            assert called_ip == "203.0.113.7"
 
 
 class TestSecurityHeadersMiddleware:

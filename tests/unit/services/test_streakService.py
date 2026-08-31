@@ -451,7 +451,7 @@ def test_endStreak_no_record_marks_first_completed_streak(mock_db):
     service.streakRepository.markAsRecord.assert_called_once_with("old-streak")
 
 
-def test_endStreak_closes_with_the_requested_end_time(mock_db):
+def test_endStreak_closes_with_the_requested_end_time(mock_db, patch_orm_models):
     service = _make_service(mock_db)
     old = _mock_streak(start=datetime(2024, 1, 1, tzinfo=timezone.utc))
     old.id = "old-streak"

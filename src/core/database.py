@@ -3,27 +3,27 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy import create_engine
 from core.config import config
 from typing import Generator
-from infrastructure.external.storageService import Base
 
-# Import all models so Base.metadata is populated before create_all
-import infrastructure.database.models.userModel
-import infrastructure.database.models.streakModel
-import infrastructure.database.models.friendshipModel
-import infrastructure.database.models.chatModel
-import infrastructure.database.models.messageModel
-import infrastructure.database.models.badgeModel
-import infrastructure.database.models.userBadgesModel
-import infrastructure.database.models.auditLogsModel
-import infrastructure.database.models.refreshTokenModel
-import infrastructure.database.models.notificationModel
+# Registers every model with SQLAlchemy. The package imports all ten — the
+# relationships are declared as strings and only resolve once the classes they
+# name have been imported (see models/__init__.py).
+import infrastructure.database.models  # noqa: F401
+
+# Schema creation is Alembic's, not this module's. `Base.metadata.create_all`
+# used to run here on import, which was quietly dangerous once the row level
+# security policies landed: create_all makes tables and knows nothing about
+# policies, so a database built that way came up with RLS switched off and
+# looked entirely normal. `alembic upgrade head` is the only path that produces
+# a correct schema — the dev container runs it before starting, and deployed it
+# is its own ECS task.
+
+
 
 
 class Database:
     def __init__(self):
         self._engine       = self._setupEngine()
         self._SessionLocal = self._setupSession()
-        
-        self._createTables()
 
 
     @property
@@ -64,10 +64,7 @@ class Database:
             yield db
         finally:
             db.close()
-            
-            
-    def _createTables(self):
-        Base.metadata.create_all(self._engine)
+
 
 
 database = Database()

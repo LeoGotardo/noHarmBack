@@ -89,16 +89,21 @@ def mock_user():
     return user
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def patch_orm_models():
-    """
-    Patch ORM model constructors used inside service methods.
+    """Replace the ORM constructors a service calls with mocks.
 
-    Services instantiate ORM models (StreakModel, MessageModel, …) to create
-    new DB rows. SQLAlchemy mapper initialisation fails in the test environment
-    because of the known UserBadgesModel relationship bug in the codebase.
-    Patching the model names in each service module prevents that error while
-    still letting the service logic run normally.
+    Opt in only when a test needs to assert on *how* a model was constructed —
+    `StreakModel.call_args.kwargs["start_at"]` and the like. Everything else
+    runs against the real classes.
+
+    It used to be autouse, to work around mapper initialisation failing with
+    "expression 'UserBadgesModel.user_id' failed to locate a name". That was
+    never a bug in the models: `UserModel` declares its relationship as a
+    string, and the class it names only reaches SQLAlchemy's registry when its
+    module is imported. `models/__init__.py` now imports all ten, so the
+    failure is gone and 757 of the 758 unit tests exercise the real
+    constructors — which is what they were written to do.
     """
     targets = [
         "domain.services.streakService.StreakModel",

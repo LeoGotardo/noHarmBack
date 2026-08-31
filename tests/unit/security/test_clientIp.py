@@ -204,9 +204,11 @@ def test_wildcard_is_announced(caplog):
 
 def test_wildcard_warning_names_its_precondition(caplog):
     """The wildcard is sound only while the perimeter holds. Someone reading
-    the log during an incident needs to know what to check."""
+    the log during an incident needs to know what to check — and the thing to
+    check is now the bind: uvicorn on loopback is what makes nginx the only
+    peer that can reach it."""
     clientIp.warnAboutTrustConfig(True, [])
-    assert "Deployment Protection" in caplog.text
+    assert "bound to loopback" in caplog.text
 
 
 def test_empty_config_is_announced(caplog):
@@ -225,3 +227,61 @@ def test_wildcard_wins_over_the_empty_network_list(caplog):
     would describe the opposite of what is configured."""
     clientIp.warnAboutTrustConfig(True, [])
     assert "TRUSTED_PROXIES is empty" not in caplog.text
+
+
+# --- Hop validation and normalisation -------------------------------------
+#
+# "Not a trusted proxy" was being read as "is the client", so a hop that was
+# not an address at all became the rate-limit key. Rotating junk therefore
+# bought a fresh bucket on every request — the same bypass the trusted-proxy
+# check exists to prevent, reached from a different direction.
+
+
+def test_junk_hop_is_skipped_not_returned():
+    """A hop that is not an address must never become the bucket key."""
+    with patch("security.clientIp.isTrustedProxy", lambda ip: ip == "10.0.0.1"):
+        ip = extractClientIp(_request(peer="10.0.0.1", forwarded="9.9.9.9, AAAA"))
+    assert ip == "9.9.9.9"
+
+
+def test_chain_of_only_junk_falls_back_to_peer():
+    """With nothing usable in the header, key on the address the socket saw."""
+    with patch("security.clientIp.isTrustedProxy", lambda ip: ip == "10.0.0.1"):
+        ip = extractClientIp(_request(peer="10.0.0.1", forwarded="AAAA, BBBB"))
+    assert ip == "10.0.0.1"
+
+
+def test_rotating_junk_cannot_mint_new_buckets():
+    """The whole point: N junk values must not produce N keys."""
+    with patch("security.clientIp.isTrustedProxy", lambda ip: ip == "10.0.0.1"):
+        keys = {
+            extractClientIp(_request(peer="10.0.0.1", forwarded=f"junk-{n}"))
+            for n in range(50)
+        }
+    assert keys == {"10.0.0.1"}
+
+
+def test_ipv4_mapped_ipv6_keys_the_same_as_plain_ipv4():
+    """One host, one bucket — regardless of how it spells itself."""
+    with patch("security.clientIp.isTrustedProxy", lambda ip: ip == "10.0.0.1"):
+        plain = extractClientIp(_request(peer="10.0.0.1", forwarded="1.2.3.4"))
+        mapped = extractClientIp(_request(peer="10.0.0.1", forwarded="::ffff:1.2.3.4"))
+    assert plain == mapped == "1.2.3.4"
+
+
+def test_ipv6_is_returned_in_canonical_form():
+    """Compressed and expanded literals are the same address, so one key."""
+    with patch("security.clientIp.isTrustedProxy", lambda ip: ip == "10.0.0.1"):
+        short = extractClientIp(_request(peer="10.0.0.1", forwarded="2001:db8::1"))
+        long = extractClientIp(
+            _request(peer="10.0.0.1", forwarded="2001:0db8:0000:0000:0000:0000:0000:0001")
+        )
+    assert short == long == "2001:db8::1"
+
+
+def test_bidi_override_does_not_reorder_the_chain():
+    """Unicode bidi marks are rendering, not data — the parser reads bytes."""
+    with patch("security.clientIp.isTrustedProxy", lambda ip: ip == "10.0.0.1"):
+        ip = extractClientIp(_request(peer="10.0.0.1", forwarded="9.9.9.9, ‮1.2.3.4"))
+    # The RLO-prefixed hop is not an address, so it is skipped like any junk.
+    assert ip == "9.9.9.9"

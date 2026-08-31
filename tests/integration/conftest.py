@@ -41,6 +41,19 @@ sys.path.insert(0, os.path.dirname(__file__))  # makes helpers.py importable
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["REDIS_URL"] = TEST_REDIS_URL
 
+# ── Firebase: emulator mode ───────────────────────────────────────────────────
+# /auth/register and /auth/login verify a Firebase ID token, and no test can
+# produce one signed by Google. With FIREBASE_AUTH_EMULATOR_HOST set,
+# firebase_admin skips the signature check while still enforcing `aud`, `iss`
+# and `sub`, which is what lets helpers.py mint identities. No emulator process
+# is contacted — verification is local.
+#
+# This is a full authentication bypass, so it lives here and nowhere near a
+# deployable config. What it turns off is tested directly in
+# tests/unit/security/test_firebaseIdentity.py.
+os.environ.setdefault("FIREBASE_AUTH_EMULATOR_HOST", "localhost:9099")
+os.environ.setdefault("FIREBASE_PROJECT_ID", "demo-noharm")
+
 # ── Build test engine (no sslmode=require) ────────────────────────────────────
 _DB_URL = TEST_DATABASE_URL.replace("postgres://", "postgresql://", 1)
 _engine = create_engine(_DB_URL, pool_pre_ping=True, echo=False)
@@ -51,13 +64,6 @@ from main import app  # noqa: E402
 from api.dependencies.database import getDb, getDbWithRLS  # noqa: E402
 from api.dependencies.auth import getCurrentUser  # noqa: E402
 from infrastructure.database.rlsContext import RLSContext  # noqa: E402
-
-
-# ── Override the root-conftest autouse fixture (unit-test only) ───────────────
-@pytest.fixture(autouse=True)
-def patch_orm_models():
-    """No-op for integration tests — real ORM models are used."""
-    yield
 
 
 # ── Wipe tables before every test ─────────────────────────────────────────────
