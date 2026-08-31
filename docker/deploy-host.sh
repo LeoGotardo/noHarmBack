@@ -19,7 +19,10 @@
 # script is the deploy.
 set -euo pipefail
 
-HOST="${NOHARM_HOST:-ec2-user@ec2-54-204-219-47.compute-1.amazonaws.com}"
+# The Elastic IP, not the ec2-*.compute-1.amazonaws.com name: that hostname
+# encodes the address it was issued for, so it dies the moment the instance
+# gets a different one. An Elastic IP is the thing that does not move.
+HOST="${NOHARM_HOST:-ec2-user@34.225.81.236}"
 KEY="${NOHARM_SSH_KEY:-noharm-ssh.pem}"
 REMOTE_DIR="~/noHarmBack/docker"
 

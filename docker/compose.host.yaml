@@ -16,6 +16,10 @@
 #     docker build -f noHarmBack/docker/Dockerfile -t noharm:latest .   # dev machine
 #     docker save noharm:latest | gzip | ssh <host> 'gunzip | docker load'
 #
+# Live at https://noharm.site — one t3.micro behind the Elastic IP
+# 34.225.81.236, which is what keeps the DNS records and the certificate valid
+# across a stop/start.
+#
 #     docker compose --env-file docker/prod.env \
 #                    -f docker/compose.host.yaml up -d                    # here
 #
