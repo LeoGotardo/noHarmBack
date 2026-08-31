@@ -25,7 +25,9 @@ locals {
     # The web bundle is same-origin with the API, so CORS only ever applies to
     # the Capacitor app. The https origin is here for a browser hitting the API
     # from the site itself after a future split.
-    { name = "ALLOWED_ORIGINS", value = jsonencode(concat(["https://${var.domain_name}"], var.mobile_origins)) },
+    { name = "ALLOWED_ORIGINS", value = jsonencode(concat(
+      [for host in concat([var.domain_name], var.additional_domain_names) : "https://${host}"],
+    var.mobile_origins)) },
 
     { name = "STATUS_CODES", value = jsonencode({
       disabled = 0, enabled = 1, deleted = 2, blocked = 3, pending = 4,

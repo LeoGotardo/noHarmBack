@@ -18,8 +18,9 @@ resource "terraform_data" "dns_inputs_check" {
 resource "aws_acm_certificate" "main" {
   count = local.create_certificate ? 1 : 0
 
-  domain_name       = var.domain_name
-  validation_method = "DNS"
+  domain_name               = var.domain_name
+  subject_alternative_names = var.additional_domain_names
+  validation_method         = "DNS"
 
   lifecycle {
     create_before_destroy = true
@@ -129,11 +130,14 @@ resource "aws_lb_listener" "http" {
   }
 }
 
+# One alias record per hostname. `A` with an alias rather than a CNAME because
+# the apex of a zone cannot hold a CNAME — that is a DNS rule, not an AWS one,
+# and the alias is Route 53's way around it.
 resource "aws_route53_record" "app" {
-  count = var.route53_zone_id != "" ? 1 : 0
+  for_each = var.route53_zone_id != "" ? toset(concat([var.domain_name], var.additional_domain_names)) : toset([])
 
   zone_id = var.route53_zone_id
-  name    = var.domain_name
+  name    = each.value
   type    = "A"
 
   alias {

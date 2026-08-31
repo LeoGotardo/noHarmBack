@@ -41,6 +41,18 @@ variable "domain_name" {
   type        = string
 }
 
+variable "additional_domain_names" {
+  description = <<-EOT
+    Extra hostnames the certificate must cover and that should point at the
+    load balancer — typically ["www.noharm.site"] when domain_name is the apex.
+    A visitor who types the www form of an apex-only site gets a certificate
+    error, not a redirect, so the name has to be on the certificate before
+    anything can answer for it.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "route53_zone_id" {
   description = <<-EOT
     Hosted zone for domain_name. When set, Terraform creates the ACM
