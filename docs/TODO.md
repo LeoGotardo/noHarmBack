@@ -14,11 +14,13 @@ This document tracks the current state of the backend architecture and component
 | **Configuration**          | Dynaconf multi-environment                                            | ✅ Complete |
 | **Database**               | SQLAlchemy engine + session                                           | ✅ Complete |
 | **Migrations**             | Alembic setup                                                         | ✅ Complete |
-| **Deployment**             | Container único: nginx + uvicorn (`docker/`), TLS via ALB ou próprio  | ✅ Complete |
-| **Infra as code**          | Terraform: VPC, RDS, ElastiCache, ECR, ALB, ECS, Secrets (`infra/`)   | ✅ Complete |
-| **CI/CD**                  | `deploy.yml`: build 2 repos → ECR → task de migration → serviço       | ✅ Complete |
-| **Badge seed**             | `20260831_01` popula tb_5 com 10 milestones (1d → 365d)               | ✅ Complete |
-| **RLS integration tests**  | `test_rls.py`: 12 testes direto nas tabelas, com papel sem bypass     | ✅ Complete |
+| **Deployment**             | Single container: nginx + uvicorn (`docker/`), TLS via ALB or its own | ✅ Complete |
+| **Deployment (live)**      | EC2 t3.micro, `compose.host.yaml`, `deploy-host.sh` (`docs/operations.md`) | ✅ Complete |
+| **Non-bypassing app role** | `noharm_app` NOSUPERUSER/NOBYPASSRLS via `postgres-init/10-app-role.sh` | ✅ Complete |
+| **Infra as code**          | Terraform: VPC, RDS, ElastiCache, ECR, ALB, ECS, Secrets (`infra/`)   | ⚠️ Written, **not provisioned** |
+| **CI/CD**                  | `deploy.yml`: build 2 repos → ECR → task de migration → serviço       | ⚠️ Written, `push` trigger disabled — not the current deploy |
+| **Badge seed**             | `20260831_01` seeds tb_5 with 10 milestones (1d → 365d)               | ✅ Complete |
+| **RLS integration tests**  | `test_rls.py`: 12 tests straight against the tables, with a non-bypassing role | ✅ Complete |
 | **Models**                 | All 9 SQLAlchemy models                                               | ✅ Complete |
 | **Encryption**             | AES-256 field-level encryption                                        | ✅ Complete |
 | **Repositories**           | All 9 repositories (full CRUD)                                        | ✅ Complete |
@@ -138,9 +140,9 @@ This document tracks the current state of the backend architecture and component
 
 | Component           | Status   | Notes                              |
 | ------------------- | -------- | ---------------------------------- |
-| `emailService.py`   | ⬜ Empty | Email verification, password reset |
-| `storageService.py` | ⬜ Empty | File uploads, profile pictures. `STORAGE_SERVICE_URI`, `STORAGE_SERVICE_KEY` e `STORAGE_PATH` agora são opcionais em `core/config.py` — voltam a ser obrigatórias quando algo passar a lê-las. |
-| Papel de app dedicado | ⬜ Missing | As policies de `20260831_02` são inertes para um papel com BYPASSRLS ou superuser. A app deveria conectar com um papel NOSUPERUSER/NOBYPASSRLS com GRANT de DML — hoje conecta com o master do RDS. A migration avisa no log quando detecta. |
+| `storageService.py` | ⬜ Empty | File uploads, profile pictures. `STORAGE_SERVICE_URI`, `STORAGE_SERVICE_KEY` and `STORAGE_PATH` are now optional in `core/config.py` — they become required again once something reads them. |
+| Backups off the database disk | ⬜ Missing | `backup-db.sh` writes to `~/backups`, on the **same EBS volume** as Postgres. It covers accidental deletion, not loss of the volume. Shipping to S3 requires an instance role — there is no AWS credential on the machine today. |
+| Monitoring / alerting | ⬜ Missing | Nothing warns when a container dies, the dump fails or the certificate renewal does not run. Both cron jobs only write to a log. |
 
 ---
 
@@ -206,7 +208,7 @@ Defined in `.secrets.toml` under `STATUS_CODES`:
 
 ## Known Issues
 
-1. ~~**Bug in `userBedgesModel.py`**~~ — não existe: `badge_id` referencia `tb_5.cl_5a` no model e na baseline. O erro real era `UserModel.user_badges` declarar a relationship por string: o nome só resolve se o módulo da classe tiver sido importado. `models/__init__.py` agora importa os dez, e `patch_orm_models` deixou de ser autouse.
+1. ~~**Bug in `userBedgesModel.py`**~~ — does not exist: `badge_id` references `tb_5.cl_5a` both in the model and in the baseline. The real error was `UserModel.user_badges` declaring the relationship by string: the name only resolves if the class's module has been imported. `models/__init__.py` now imports all ten, and `patch_orm_models` is no longer autouse.
 2. **User ID type**: `tb_0.cl_0a` (and all FK columns referencing it) use `String`/`VARCHAR`, not `UUID`. Firebase UID is the PK. Other tables (`tb_1`–`tb_8`) still use `UUID(as_uuid=True)` for their own PKs.
 
 ---
@@ -235,8 +237,8 @@ pip install -r requirements.txt
 cp .env.example .secrets.toml
 # Edit .secrets.toml with your values
 
-# Run migrations — obrigatório: nada cria o schema no startup, e sem elas o
-# banco fica sem as policies de RLS
+# Run migrations — mandatory: nothing creates the schema at startup, and
+# without them the database has no RLS policies
 APP_ENV=alembic alembic upgrade head
 
 # Start server

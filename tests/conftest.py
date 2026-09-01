@@ -24,7 +24,13 @@ _STATUS_CODES = (
 )
 
 _DEFAULTS = {
+    # APP_ENV defaults to "prod", which made the suite read the developer's
+    # .secrets.toml [prod] section for anything missing below. Pinning a section
+    # that does not exist keeps the tests self-contained: whatever is not in
+    # _DEFAULTS fails loudly here instead of silently picking up real values.
+    "APP_ENV": "test",
     "ENCRYPTION_KEY": "test-encryption-key-for-noharm-32b",
+    "DATABASE_ENCRYPTION_KEY": "test-database-encryption-key-32by",
     "DATABASE_URL": "postgresql://test:test@localhost/testdb",
     "DATABASE_HOST": "localhost",
     "DATABASE_NAME": "testdb",

@@ -4,7 +4,7 @@ Backend of the **NoHarm** application — a mobile app for addiction recovery su
 
 **Stack:** Python · FastAPI · PostgreSQL · WebSocket (Socket.IO) · SQLAlchemy · JWT · Dynaconf
 
-**API Docs:** `https://<domínio>/api/docs` (servido pelo backend atrás do nginx)
+**API Docs:** `https://<domain>/api/docs` (served by the backend behind nginx)
 
 ---
 
@@ -47,7 +47,7 @@ noHarmBack/
 ├── alembic.ini
 ├── migrate.sh                  # alembic upgrade head
 ├── requirements.txt
-└── docker/                     # imagem de produção: nginx + uvicorn
+└── docker/                     # production image: nginx + uvicorn
 ```
 
 ---
@@ -431,8 +431,8 @@ pip install -r requirements.txt
 cp .env.example .secrets.toml
 # Edit .secrets.toml with your values
 
-# Run database migrations — obrigatório, não opcional: nada mais cria o schema
-# no startup, e um banco sem elas fica sem as policies de RLS.
+# Run database migrations — mandatory, not optional: nothing else creates the
+# schema at startup, and a database without them has no RLS policies.
 APP_ENV=alembic alembic upgrade head
 
 # Start the server
@@ -443,42 +443,63 @@ uvicorn src.main:app --reload
 
 ---
 
-## Deployment (AWS, container único)
+## Deployment (AWS, single container)
 
-Front-end e back-end vivem na mesma imagem. O nginx termina TLS, serve o bundle
-do Vite e encaminha `/api` (sem o prefixo) e `/ws` para o uvicorn em
-`127.0.0.1:8080` — que não escuta em mais nenhum lugar, e é isso que impede
-qualquer um de forjar `X-Forwarded-For`.
+**What is live today**: a single EC2 t3.micro (`noharm.site`, `34.225.81.236`)
+running `docker/compose.host.yaml` — the application alongside Postgres and
+Redis in containers, with nginx terminating TLS using a Let's Encrypt
+certificate (`TLS_MODE=container`). The deploy is `docker/deploy-host.sh`, which
+builds the image on the developer's machine and ships it over SSH: `vite build`
+needs more RAM than the instance has. The runbook — addresses, the two cron
+jobs, migrations, restore and the accepted risks — is in
+[`operations.md`](operations.md).
 
-Onde o TLS termina é escolhido por `TLS_MODE`:
+The Terraform in `infra/` (ALB + Fargate + RDS + ElastiCache) describes a
+**different, unprovisioned** deployment, kept for when one instance stops being
+enough. `terraform apply` today would create a second parallel environment, and
+bill for it.
 
-- `alb` (padrão, ECS) — o ALB termina TLS com um certificado do ACM e o
-  container serve `:80` puro. Precisa de `TRUSTED_PROXY_CIDRS` (a faixa da VPC):
-  é com ela que o nginx recupera o IP real do cliente do `X-Forwarded-For`. Sem
-  isso o mundo inteiro cai no mesmo balde de rate limit.
-- `container` (compose.prod.yaml) — o nginx termina TLS e o par de certificados
-  em `/etc/nginx/certs` é dependência dura.
+Front end and back end live in the same image. nginx terminates TLS, serves the
+Vite bundle and forwards `/api` (without the prefix) and `/ws` to uvicorn on
+`127.0.0.1:8080` — which listens nowhere else, and that is what stops anyone
+from forging `X-Forwarded-For`.
 
-Config em `docker/`; o detalhamento está no `CLAUDE.md` da raiz, seção
-Deployment. A stack AWS que roda isso é Terraform em `infra/` — VPC, RDS,
-ElastiCache, ECR, ALB, ECS Fargate, Secrets Manager e a role OIDC do GitHub.
-O passo a passo do primeiro deploy está em `infra/README.md`.
+Where TLS terminates is chosen by `TLS_MODE`:
 
-Pontos que costumam morder:
+- `alb` (default, ECS) — the ALB terminates TLS with an ACM certificate and the
+  container serves plain `:80`. Requires `TRUSTED_PROXY_CIDRS` (the VPC range):
+  that is what lets nginx recover the real client IP from `X-Forwarded-For`.
+  Without it the whole world falls into the same rate-limit bucket.
+- `container` (compose.prod.yaml) — nginx terminates TLS and the certificate
+  pair in `/etc/nginx/certs` is a hard dependency.
 
-- O contexto de build é o **diretório pai dos dois repos** — `noHarm/` e
-  `noHarmBack/` precisam estar lado a lado, porque o stage 1 compila o bundle.
-  O workflow de deploy faz dois checkouts por causa disso.
-- O entrypoint recusa subir com `FIREBASE_AUTH_EMULATOR_HOST` definida, sem os
-  certificados em modo `container`, e sem `TRUSTED_PROXY_CIDRS` em modo `alb`.
-- Migrations não rodam sozinhas: `RUN_MIGRATIONS=true` em **uma** instância, ou
-  — o que o ECS faz — como task própria (`<imagem> migrate`, que roda o upgrade
-  e sai). N containers subindo juntos disputariam o mesmo upgrade.
+Config lives in `docker/`; the details are in the root `CLAUDE.md`, Deployment
+section. The step-by-step for the first deploy of the ECS stack — for the day it
+gets used — is in `infra/README.md`.
 
-Postgres e Redis são externos (RDS / ElastiCache). O Alembic usa a URL unpooled
-porque pgBouncer é incompatível com operações DDL. As duas URLs podem ficar em
-branco: o entrypoint as monta a partir de `DATABASE_HOST`/`NAME`/`USER`/
-`PASSWORD`, que é o que permite ao RDS ser o único dono da senha.
+Things that commonly bite:
+
+- The build context is the **parent directory of both repos** — `noHarm/` and
+  `noHarmBack/` must sit side by side, because stage 1 compiles the bundle. The
+  deploy workflow does two checkouts for that reason.
+- The entrypoint refuses to start with `FIREBASE_AUTH_EMULATOR_HOST` set,
+  without the certificates in `container` mode, and without
+  `TRUSTED_PROXY_CIDRS` in `alb` mode.
+- Migrations do not run on their own: `RUN_MIGRATIONS=true` on **one** instance,
+  or — what ECS does — as a dedicated task (`<image> migrate`, which runs the
+  upgrade and exits). N containers starting together would race for the same
+  upgrade. On the current instance this is a manual
+  `docker compose run --rm app migrate`.
+- The application connects as `noharm_app` (`NOSUPERUSER`, `NOBYPASSRLS`),
+  created by `docker/postgres-init/10-app-role.sh` when the volume is
+  initialized. That is what RLS depends on to be worth anything: `POSTGRES_USER`
+  is a superuser and would silently ignore every policy.
+
+On the ECS path, Postgres and Redis are external (RDS / ElastiCache). Alembic
+uses the unpooled URL because pgBouncer is incompatible with DDL operations.
+Both URLs can be left blank: the entrypoint builds them from `DATABASE_HOST` /
+`NAME` / `USER` / `PASSWORD`, which is what lets RDS be the sole owner of the
+password.
 
 ---
 
@@ -522,3 +543,5 @@ See `docs/security.md` for the complete security guide covering:
 | `docs/TODO.md` | Current implementation status |
 | `docs/TESTING.md` | Test suite guide — 505 unit tests, patterns, coverage |
 | `docs/security.md` | Security guide, audit checklist, RLS, pagination, and business rules |
+| `docs/operations.md` | Runbook of the live EC2 instance — access, cron jobs, deploy, migrations, backup/restore, accepted risks |
+| `infra/README.md` | Terraform stack (ECS/RDS/ElastiCache) — **not provisioned** |

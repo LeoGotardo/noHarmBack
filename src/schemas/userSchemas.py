@@ -45,6 +45,18 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
+class UserStatsResponse(BaseModel):
+    """Public activity numbers for a profile other than your own.
+
+    Visible to friends only: the screen offers "Add to see activity", and a
+    streak is recovery data, not a public counter. For everyone else the fields
+    come back None and the UI keeps showing its placeholder.
+    """
+    visible: bool = Field(..., description="False when the viewer is not a friend")
+    day_streak: Optional[int] = Field(None, description="Days of the active streak, or 0 when there is none")
+    badges_earned: Optional[int] = Field(None, description="How many badges the user holds")
+
+
 class UserListResponse(BaseModel):
     users: list[UserResponse]
     total: int

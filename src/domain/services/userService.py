@@ -1,6 +1,8 @@
 from infrastructure.database.repositories.userRepository import UserRepository
 from infrastructure.database.repositories.friendshipRepository import FriendshipRepository
 from infrastructure.database.repositories.auditLogsRepository import AuditLogsRepository
+from infrastructure.database.repositories.streakRepository import StreakRepository
+from infrastructure.database.repositories.userBadgesRepository import UserBadgesRepository
 from infrastructure.database.models.auditLogsModel import AuditLogsModel
 from domain.entities.user import User
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
@@ -9,6 +11,7 @@ from exceptions.baseExceptions import NoHarmException
 from core.config import config
 from core.database import Database
 from typing import Optional, overload
+from datetime import datetime, timezone
 
 import re
 
@@ -21,6 +24,8 @@ class UserService:
         self.userRepository = UserRepository(self.database)
         self.friendshipRepository = FriendshipRepository(self.database)
         self.auditRepository = AuditLogsRepository(self.database)
+        self.streakRepository = StreakRepository(self.database)
+        self.userBadgesRepository = UserBadgesRepository(self.database)
 
     def _logAudit(self, actionType: int, catalystId: str, description: str) -> None:
         try:
@@ -99,6 +104,69 @@ class UserService:
             raise NoHarmException(statusCode=404, errorCode="NOT_FOUND", message="User not found.")
 
         return user
+
+    def getPublicStats(self, requestingUserId: str, targetUserId: str) -> dict:
+        """Activity numbers for a profile: active-streak days and badges held.
+
+        Friends only. A streak is recovery data, not a public counter, and the
+        screen already says "Add to see activity" — so a non-friend gets
+        `visible=False` and no numbers rather than a 403, which the UI would
+        have to special-case.
+
+        `getPublicProfile` runs first so the blocked/deleted/banned rules stay in
+        one place: this endpoint must not become a side channel that answers for
+        a profile the caller cannot even open.
+
+        NOTE: reads another user's rows, so the route hands it a session with no
+        RLS context (`getDb`). The policies on the streak and user-badge tables
+        are owner-only; the friendship check below is what authorises this, and
+        it must stay in front of every read.
+        """
+        self.getPublicProfile(requestingUserId, targetUserId)
+
+        if requestingUserId != targetUserId:
+            try:
+                friendship = self.friendshipRepository.findByUsers(requestingUserId, targetUserId)
+            except NoHarmException as e:
+                if e.statusCode != 404:
+                    raise
+                return {"visible": False, "day_streak": None, "badges_earned": None}
+
+            if friendship.status != config.STATUS_CODES.get("accepted"):
+                return {"visible": False, "day_streak": None, "badges_earned": None}
+
+        return {
+            "visible": True,
+            "day_streak": self._activeStreakDays(targetUserId),
+            "badges_earned": self._badgeCount(targetUserId),
+        }
+
+    def _activeStreakDays(self, userId: str) -> int:
+        """Whole days of the user's active streak, or 0 when there is none.
+
+        Floor of the elapsed time, matching what the dashboard shows its owner:
+        streakService measures a streak as `end_at - start_at`, never as a count
+        of check-ins.
+        """
+        try:
+            streak = self.streakRepository.findCurrentStreak(userId)
+        except NoHarmException:
+            return 0
+        if not streak or not streak.start_at:
+            return 0
+
+        start = streak.start_at
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        elapsed = (datetime.now(timezone.utc) - start).total_seconds() / 86400
+        return max(0, int(elapsed))
+
+    def _badgeCount(self, userId: str) -> int:
+        try:
+            badges = self.userBadgesRepository.findByUserId(userId)
+        except NoHarmException:
+            return 0
+        return len(badges) if isinstance(badges, list) else 0
 
     def updateProfile(self, userId: str, username: Optional[str], profilePicture: Optional[str]) -> User:
         """Update only the fields that users are allowed to change (§1.3).

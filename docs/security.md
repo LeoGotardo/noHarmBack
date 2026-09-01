@@ -56,7 +56,9 @@ Logout → revoke accessToken + revoke refreshToken → both added to blacklist
 
 **Blacklist implementation (`src/security/tokenBlacklist.py`):**
 
-The blacklist uses **Redis** (Upstash, serverless-compatible) via `redis.from_url`. Each `add` call computes TTL as `(expiresAt − now)` and stores the key via `SETEX` — Redis automatically removes expired keys, so no manual cleanup is needed. JTIs are stored as SHA-256 hashes (`jti:<hash>`) — plaintext JTIs are never written to the store. `isBlacklisted` is an O(1) Redis `EXISTS` check. This replaces the previous file-based `PersistentHashTable` approach, which was not suitable for an ephemeral container filesystem or for running more than one instance.
+The blacklist uses **Redis** via `redis.from_url` — in the live deployment a
+container on the same host, reached over the compose network as
+`redis://redis:6379/0` and never published (see `docs/operations.md`). Each `add` call computes TTL as `(expiresAt − now)` and stores the key via `SETEX` — Redis automatically removes expired keys, so no manual cleanup is needed. JTIs are stored as SHA-256 hashes (`jti:<hash>`) — plaintext JTIs are never written to the store. `isBlacklisted` is an O(1) Redis `EXISTS` check. This replaces the previous file-based `PersistentHashTable` approach, which was not suitable for an ephemeral container filesystem or for running more than one instance.
 
 ---
 
@@ -217,7 +219,7 @@ Every HTTP endpoint carries a `@limiter.limit(...)` decorator. The shared `Limit
 | Write | create/update/delete mutations across all routes | 5–10/minute |
 | Read | all GET endpoints | 30–60/minute |
 
-Exceeding a per-route limit returns 429. The JWT blacklist already uses Redis (Upstash). To make `slowapi` per-route counters and `IpRateLimiter` / `LoginRateLimiter` also share state across workers, they need to be migrated to Redis as well — see §8.2.
+Exceeding a per-route limit returns 429. The JWT blacklist already uses Redis. To make `slowapi` per-route counters and `IpRateLimiter` / `LoginRateLimiter` also share state across workers, they need to be migrated to Redis as well — see §8.2.
 
 **Pending countermeasures:**
 - [ ] Burst protection (e.g. max 10 requests/second before sliding window kicks in)
@@ -769,6 +771,13 @@ ownership checks, not a replacement for them.
 A role with `BYPASSRLS` or superuser ignores every policy. `FORCE ROW LEVEL
 SECURITY` covers the table owner, not that attribute — the application should
 connect as a `NOSUPERUSER`, `NOBYPASSRLS` role holding only DML grants.
+
+In the live deployment it does: `docker/postgres-init/10-app-role.sh` creates
+`noharm_app` when the Postgres volume is first initialised, and the app connects
+as it. `ALTER DEFAULT PRIVILEGES` is part of that script because a later
+migration creating a table would otherwise produce one the app cannot read —
+and `pg_restore` does not recreate it, which is why `restore-db.sh` re-runs the
+grants. See [`operations.md`](operations.md).
 
 ### 12.3 Usage in Routes
 

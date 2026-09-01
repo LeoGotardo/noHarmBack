@@ -57,7 +57,10 @@ def runMigrationsOnline() -> None:
     connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",
-        poolclass=pool.NullPool,  # NullPool é essencial para Neon/serverless
+        # Migration é processo curto e único: um pool sobreviveria à conexão
+        # sem nunca ser reusado. NullPool abre e fecha, e evita deixar
+        # conexão ociosa presa no Postgres depois que o comando termina.
+        poolclass=pool.NullPool,
     )
 
     with connectable.connect() as connection:

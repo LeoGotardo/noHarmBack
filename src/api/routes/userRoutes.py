@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from api.dependencies.auth import getCurrentUser
 from api.dependencies.database import getDb, getDbWithRLS
 from domain.services.userService import UserService
-from schemas.userSchemas import UserResponse, UserListResponse, ProfileUpdateRequest
+from schemas.userSchemas import UserResponse, UserListResponse, ProfileUpdateRequest, UserStatsResponse
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.user import User
@@ -86,6 +86,35 @@ def getPublicProfile(
         service = UserService(db)
         user = service.getPublicProfile(currentUserId, userId)
         return UserResponse.model_validate(user)
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+
+
+@router.get(
+    "/{userId}/stats",
+    response_model=UserStatsResponse,
+    summary="Get a user's public activity numbers",
+    description=(
+        "Active-streak days and badges held, for friends only. A non-friend "
+        "gets `visible=false` with no numbers — the same answer a stranger's "
+        "profile shows in the app. Blocked and deleted accounts 403/404 exactly "
+        "as `GET /users/{userId}` does."
+    )
+)
+@limiter.limit("60/minute")
+def getPublicStats(
+    userId: str,
+    request: Request,
+    db: Session = Depends(getDb),
+    currentUserId: str = Depends(getCurrentUser)
+):
+    # getDb, not getDbWithRLS: the streak and user-badge policies are owner-only,
+    # so an RLS session scoped to the caller would read nothing for anyone else
+    # and every friend would look like they had no activity. The friendship check
+    # inside getPublicStats is what authorises the read.
+    try:
+        service = UserService(db)
+        return UserStatsResponse(**service.getPublicStats(currentUserId, userId))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 

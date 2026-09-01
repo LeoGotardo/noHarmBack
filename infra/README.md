@@ -2,11 +2,15 @@
 > **This is not the current deployment.** Nothing here is provisioned — no
 > `terraform apply` has run against this configuration.
 >
-> The live site is a single EC2 instance (`54.204.219.47`, `noharm.site`)
+> The live site is a single EC2 instance (`34.225.81.236`, `noharm.site`)
 > running `docker/compose.host.yaml`: the app, Postgres and Redis as containers,
 > with nginx terminating TLS using a Let's Encrypt certificate. It is deployed
 > with `docker/deploy-host.sh` and costs about US$8/month against the ~US$62 of
-> the stack below.
+> the stack below. Its runbook is [`../docs/operations.md`](../docs/operations.md).
+>
+> That address is an Elastic IP. An earlier `ec2-*.compute-1.amazonaws.com`
+> hostname is in older notes and is dead: that name encodes the address it was
+> issued for, so attaching the Elastic IP retired it.
 >
 > Running `terraform apply` today would build a second, parallel environment —
 > an ALB, an RDS instance and an ElastiCache cluster with nothing pointing at
