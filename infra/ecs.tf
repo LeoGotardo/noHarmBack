@@ -58,6 +58,7 @@ locals {
     for key in [
       "ENCRYPTION_KEY",
       "DATABASE_ENCRYPTION_KEY",
+      "BLIND_INDEX_KEY",
       "JWT_SECRET_KEY",
       "JWT_REFRESH_SECRET_KEY",
       "FIREBASE_SERVICE_ACCOUNT",

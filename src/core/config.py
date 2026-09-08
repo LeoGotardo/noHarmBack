@@ -76,6 +76,28 @@ class Config:
             self.DATABASE_PASSWORD: str = _require("DATABASE_PASSWORD")
             self.DATABASE_URL_UNPOOLED: str = _require("DATABASE_URL_UNPOOLED")
             self.DATABASE_ENCRYPTION_KEY: str = _require("DATABASE_ENCRYPTION_KEY")
+            # Key for the blind indexes (`cl_0b_h`, `cl_0c_h`, `cl_9c_h`) — the
+            # lookup columns that make an encrypted username/email/FCM token
+            # searchable by exact match.
+            #
+            # It has to be a *separate* secret from DATABASE_ENCRYPTION_KEY, and
+            # the reason is the whole point of the column: an attacker who reads
+            # the database holds the ciphertext and the index side by side. With
+            # an unkeyed digest the index is the weaker of the two by a wide
+            # margin — a wordlist of e-mail addresses recovers the column
+            # outright, and a username matching ^[a-zA-Z0-9_-]{3,30}$ falls to
+            # plain enumeration. Keying it means the index is worth nothing
+            # without a secret the database never holds.
+            #
+            # Storing it beside the encryption key would undo that the moment
+            # both leak together, which for a single Secrets Manager entry is
+            # the only way they leak at all — but they are separate values, so a
+            # future split (index key in the app, column key in a KMS) stays
+            # possible without a re-hash.
+            #
+            # Rotating it requires re-running the 20260902_01 migration: every
+            # stored index has to be recomputed or every lookup misses.
+            self.BLIND_INDEX_KEY: str = _require("BLIND_INDEX_KEY")
             # Optional, and read by nothing today: file uploads and profile
             # pictures are still unimplemented (`storageService.py` holds the
             # declarative Base and no storage code). They were `_require`d,
@@ -121,6 +143,23 @@ class Config:
             # our own proxy. Prefer naming the loopback addresses.
             self.TRUSTED_PROXIES: list = _optional_json("TRUSTED_PROXIES", [])
 
+            # Deleting an account is a soft delete plus a clock: the row is
+            # kept for this many days so the user can sign in again and undo
+            # it, and `purge-accounts` destroys it for good once the window
+            # closes. The window is disclosed in the delete confirmation UI —
+            # undisclosed retention is the thing users object to, not the
+            # window itself. Setting this to 0 makes the purge eligible
+            # immediately, which is a hard delete on the next cron run.
+            self.ACCOUNT_DELETION_GRACE_DAYS: int = _optional_int("ACCOUNT_DELETION_GRACE_DAYS", 30)
+
+            # UIDs allowed to call the admin endpoints — today that is
+            # `PUT /users/{id}/status/{status}`, which can ban, unban and
+            # undelete anyone. There is no role column and no admin UI, so an
+            # allowlist is the whole authorisation model. Empty (the default)
+            # means nobody can reach those routes, which is the right posture
+            # for an environment that has no administrators.
+            self.ADMIN_USER_IDS: list = _optional_json("ADMIN_USER_IDS", [])
+
             # Global IP floor. Per-route slowapi limits are the real ceilings.
             self.RATE_LIMIT_MAX_REQUESTS: int = _optional_int("RATE_LIMIT_MAX_REQUESTS", 240)
             self.RATE_LIMIT_WINDOW_SECONDS: int = _optional_int("RATE_LIMIT_WINDOW_SECONDS", 60)
@@ -129,7 +168,7 @@ class Config:
         except Exception as e:
             # Mirrors the _require calls above — the storage keys are absent
             # from both, deliberately.
-            missing = [k for k in ["ENCRYPTION_KEY","DATABASE_URL","DATABASE_HOST","DATABASE_NAME","DATABASE_USER","DATABASE_PASSWORD","DATABASE_URL_UNPOOLED","DATABASE_ENCRYPTION_KEY","EXEC_MODE","DEBUG","PORT","STATUS_CODES","JWT_SECRET_KEY","JWT_REFRESH_SECRET_KEY","JWT_ALGORITHM","ACCESS_TOKEN_EXPIRE_MINUTES","REFRESH_TOKEN_EXPIRE_DAYS","ALLOWED_ORIGINS","REDIS_URL"] if not os.environ.get(k)]
+            missing = [k for k in ["ENCRYPTION_KEY","DATABASE_URL","DATABASE_HOST","DATABASE_NAME","DATABASE_USER","DATABASE_PASSWORD","DATABASE_URL_UNPOOLED","DATABASE_ENCRYPTION_KEY","BLIND_INDEX_KEY","EXEC_MODE","DEBUG","PORT","STATUS_CODES","JWT_SECRET_KEY","JWT_REFRESH_SECRET_KEY","JWT_ALGORITHM","ACCESS_TOKEN_EXPIRE_MINUTES","REFRESH_TOKEN_EXPIRE_DAYS","ALLOWED_ORIGINS","REDIS_URL"] if not os.environ.get(k)]
             raise Exception(f"Configuration error: {e} | Missing keys: {missing}")
 
 config = Config()

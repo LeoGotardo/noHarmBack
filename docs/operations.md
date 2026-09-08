@@ -42,11 +42,48 @@ anything that runs a second Postgres. There is 2 GB of swap to absorb the rest.
 ```
 0 4 * * * /home/ec2-user/noHarmBack/docker/backup-db.sh >> /home/ec2-user/backup.log 2>&1
 0 3 * * 1 /home/ec2-user/noHarmBack/docker/issue-cert.sh <email> >> /home/ec2-user/noHarmBack/docker/certbot.log 2>&1
+30 4 * * * cd /home/ec2-user/noHarmBack/docker && docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-accounts >> /home/ec2-user/purge.log 2>&1
 ```
 
-Both are UTC. The backup runs nightly at 04:00; the certificate renewal runs
-Mondays at 03:00 — weekly against a 90-day certificate, so roughly twelve
+All three are UTC. The backup runs nightly at 04:00; the certificate renewal
+runs Mondays at 03:00 — weekly against a 90-day certificate, so roughly twelve
 chances to notice a failure before anything expires.
+
+### The account purge
+
+The third one is the only thing in the system that permanently deletes a user.
+Deleting an account from the app is a soft delete plus a clock
+(`tb_0.cl_0f`); this job is what stops the clock, `ACCOUNT_DELETION_GRACE_DAYS`
+(default 30) after the request. Until it runs, the user can sign in and restore
+everything — which is exactly what the delete confirmation screen promises them.
+
+**If this cron is not installed, nothing is ever really deleted.** The app keeps
+telling users their data is erased after 30 days and it never is. That is the
+failure mode to watch for, and it is silent: the API behaves identically either
+way, because a deleted account past its window already answers "Account not
+found." to everyone.
+
+It runs at 04:30, half an hour after the backup, so the night's dump still
+contains the accounts about to be destroyed — one more day of recovery room if a
+purge turns out to have been wrong.
+
+Exit code 0 means every eligible account was purged, or there were none;
+1 means at least one failed, and `~/purge.log` names it. A failing account does
+not block the others.
+
+To see what the next run would destroy, without destroying it:
+
+```bash
+docker exec postgres_db psql -U <owner> -d noharm-db -c \
+  "SELECT cl_0a, cl_0f FROM tb_0 WHERE cl_0e = 2 AND cl_0f <= NOW() - INTERVAL '30 days';"
+```
+
+Run it by hand the same way cron does:
+
+```bash
+cd ~/noHarmBack/docker
+docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-accounts
+```
 
 ## Deploying
 

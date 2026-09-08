@@ -134,10 +134,15 @@ def _extractToken(environ: dict, auth: dict | None) -> str | None:
 
 # ── Register handlers ─────────────────────────────────────────────────────────
 
+# There is no friendship handler. The `friend_*` events are server → client
+# only: they are published by FriendshipService through `emitter`, after the
+# authorisation it already performs. Accepting them client → server, which is
+# what handlers/friendHandlers.py used to do, let any account emit into any
+# user's personal room and fire a push at them — no friendship required, and a
+# block did not stop it. The front-end only ever listened for these
+# (services/ws/friendship.js) and drives every mutation over REST.
 from websocket.handlers.chatHandlers import register as _registerChat        # noqa: E402
 from websocket.handlers.presenceHandlers import register as _registerPresence  # noqa: E402
-from websocket.handlers.friendHandlers import register as _registerFriend     # noqa: E402
 
 _registerChat(sio)
 _registerPresence(sio)
-_registerFriend(sio)

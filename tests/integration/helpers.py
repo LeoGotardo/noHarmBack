@@ -102,3 +102,52 @@ def open_chat(client, a, b):
     chat_id = resp.json()["id"]
     client.post(f"/chats/{chat_id}/accept", headers=b["headers"])
     return chat_id
+
+
+# ── Account deletion window ──────────────────────────────────────────────────
+
+def _engine():
+    """A direct engine on the test database, for state no endpoint can set."""
+    from sqlalchemy import create_engine
+
+    url = os.environ["TEST_DATABASE_URL"].replace("postgres://", "postgresql://", 1)
+    return create_engine(url)
+
+
+def backdate_deletion(uid, days):
+    """Move an account's `deleted_at` back, to simulate a closed grace window.
+
+    There is no endpoint for this and there should not be: the only legitimate
+    writer of `cl_0f` is the delete itself. Waiting 30 days is not a test, so
+    the row is edited directly.
+    """
+    from sqlalchemy import text
+
+    with _engine().connect() as conn:
+        conn.execute(
+            text("UPDATE tb_0 SET cl_0f = NOW() - make_interval(days => :days) WHERE cl_0a = :uid"),
+            {"days": days, "uid": uid},
+        )
+        conn.commit()
+
+
+def set_status(uid, status):
+    """Force an account status directly — bans, without needing an admin."""
+    from sqlalchemy import text
+
+    with _engine().connect() as conn:
+        conn.execute(
+            text("UPDATE tb_0 SET cl_0e = :status WHERE cl_0a = :uid"),
+            {"status": status, "uid": uid},
+        )
+        conn.commit()
+
+
+def account_exists(uid):
+    """True while the row is still there — the purge is what makes it False."""
+    from sqlalchemy import text
+
+    with _engine().connect() as conn:
+        return conn.execute(
+            text("SELECT count(*) FROM tb_0 WHERE cl_0a = :uid"), {"uid": uid}
+        ).scalar() > 0

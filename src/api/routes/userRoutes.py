@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from api.dependencies.auth import getCurrentUser
+from api.dependencies.auth import getAdminUser, getCurrentUser
 from api.dependencies.database import getDb, getDbWithRLS
 from domain.services.userService import UserService
 from schemas.userSchemas import UserResponse, UserListResponse, ProfileUpdateRequest, UserStatsResponse
@@ -160,15 +160,24 @@ def getAllUsers(
     response_model=UserResponse,
     status_code=200,
     summary="Update a user status (admin)",
-    description="Updates the status of an existing user. Admin action — creates audit log type=5."
+    description=(
+        "Updates the status of an existing user. Admin action — creates audit log type=5. "
+        "Restricted to the UIDs in ADMIN_USER_IDS; any other caller gets a 404. This is the "
+        "route that bans, unbans and undeletes, so leaving it open to any signed-in user "
+        "would let anyone lift their own ban."
+    )
 )
 @limiter.limit("10/minute")
 def updateUserStatus(
     status: int,
     userId: str,
     request: Request,
-    db: Session = Depends(getDbWithRLS),
-    currentUserId: str = Depends(getCurrentUser)
+    # `getDb`, not `getDbWithRLS`: the RLS policy on tb_0 allows UPDATE only on
+    # your own row, so an admin acting on someone else under an RLS context
+    # would match no row and change nothing. Authorisation for this route is
+    # `getAdminUser` — the allowlist — not the database policy.
+    db: Session = Depends(getDb),
+    currentUserId: str = Depends(getAdminUser)
 ):
     try:
         service = UserService(db)

@@ -7,6 +7,7 @@ from core.database import Database
 from core.config import config
 from security.encryption import Encryption
 
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 class UserRepository:
@@ -24,7 +25,8 @@ class UserRepository:
             status=model.status,
             created_at=model.created_at,
             updated_at=model.updated_at,
-            profile_picture=model.profile_picture
+            profile_picture=model.profile_picture,
+            deleted_at=model.deleted_at
         )
         
     
@@ -285,10 +287,96 @@ class UserRepository:
         """
         try:
             userModel = self.findById(id, returnModel=True)
-            
+
             userModel.status = config.STATUS_CODES["deleted"]
+            # Starts the grace window. `purgeExpired` reads this, and nothing
+            # else does — leaving it unset would make the account undeletable
+            # rather than deleted, since the purge would never select it.
+            userModel.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
             self.session.commit()
-            
+
+            return True
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
+    def restore(self, id: str) -> User:
+        """Undo a soft delete: back to enabled, clock cleared.
+
+        Args:
+            id (str): User ID
+
+        Returns:
+            User: the restored user
+        """
+        try:
+            userModel = self.findById(id, returnModel=True)
+
+            userModel.status = config.STATUS_CODES["enabled"]
+            userModel.deleted_at = None
+            self.session.commit()
+
+            return self._toEntity(userModel)
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
+    def findExpiredDeleted(self, graceDays: int) -> list[str]:
+        """IDs of soft-deleted accounts whose grace window has closed.
+
+        A deleted row with no `deleted_at` is not returned: the timestamp is the
+        only evidence of when the window opened, and destroying a row on a guess
+        is not a mistake that can be walked back.
+
+        Args:
+            graceDays (int): days a deleted account is kept before purging
+
+        Returns:
+            list[str]: user IDs eligible for permanent deletion
+        """
+        try:
+            cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=graceDays)
+
+            rows = (
+                self.session.query(UserModel.id)
+                .filter(UserModel.status == config.STATUS_CODES["deleted"])
+                .filter(UserModel.deleted_at.isnot(None))
+                .filter(UserModel.deleted_at <= cutoff)
+                .all()
+            )
+
+            return [row[0] for row in rows]
+        except Exception as e:
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
+    def purge(self, id: str) -> bool:
+        """Permanently delete a user row.
+
+        Everything owned by the account goes with it, through the ON DELETE
+        actions added in migration `20260901_01` — streaks, friendships, chats
+        and their messages, user_badges, refresh and device tokens. Audit log
+        entries survive with a null catalyst, which is what keeps a record that
+        the deletion happened.
+
+        Args:
+            id (str): User ID
+
+        Returns:
+            bool: True when the row was removed
+        """
+        try:
+            userModel = self.findById(id, returnModel=True)
+
+            self.session.delete(userModel)
+            self.session.commit()
+
             return True
         except Exception as e:
             self.session.rollback()

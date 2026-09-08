@@ -57,14 +57,33 @@ class TestAuth:
 
 class TestGlobalRateLimit:
     def test_ip_rate_limit_returns_429(self, client):
-        """After 60 requests from the same IP, the 61st gets 429."""
+        """One request past the ceiling gets 429, with Retry-After.
+
+        The ceiling is lowered instead of the window being pre-filled. This
+        test used to seed `_ipLimiter._windows`, an in-process dict that
+        stopped existing when the limiter moved to a Redis sorted set — so it
+        failed with AttributeError before reaching a single assertion, and had
+        been testing nothing since. Driving real requests through the real
+        middleware is also the only version that would notice the Lua script
+        breaking.
+
+        It also has to stop asking `/health`, which is in the middleware's
+        `_EXEMPT_PATHS` — an orchestrator that gets a 429 from a health check
+        restarts the container. `/users/me` with no token is a request the
+        limiter actually counts; the 401 it returns is proof the middleware ran
+        and let it through, which is the state the last one has to change.
+        """
         from security.middleware import _ipLimiter
 
-        # Seed the window with 60 requests (one below the limit)
-        from datetime import datetime, timezone
-        ts = datetime.now(timezone.utc)
-        _ipLimiter._windows["testclient"] = [ts] * 60
+        original = _ipLimiter._maxRequests
+        _ipLimiter._maxRequests = 3
+        try:
+            for _ in range(3):
+                assert client.get("/users/me").status_code == 401
 
-        resp = client.get("/health", headers={"X-Forwarded-For": "testclient"})
+            resp = client.get("/users/me")
+        finally:
+            _ipLimiter._maxRequests = original
+
         assert resp.status_code == 429
         assert "Retry-After" in resp.headers

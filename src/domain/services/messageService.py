@@ -24,21 +24,44 @@ class MessageService:
 
     # ── reads ─────────────────────────────────────────────────────────────────
 
+    def _assertParticipant(self, chatId: UUID, requestingUserId: str) -> None:
+        """Refuse anyone who is not one of the chat's two participants (§5.3, §9.2).
+
+        The read endpoints used to take `currentUserId` and ignore it, leaving
+        the `tb_4` RLS policy as the *only* thing standing between a chat id and
+        someone else's conversation. That is the wrong shape for this codebase:
+        RLS is documented as defence in depth, not the access-control layer, and
+        here it was the entire layer. A role that bypasses RLS — a superuser, a
+        future migration that drops the policy, a query run outside a request —
+        turned `GET /messages/chat/{id}` into a way to read any conversation
+        from a public id. `markAsRead` and `markAllAsRead` already checked this;
+        the reads simply never did.
+        """
+        chat = self.chatRepository.findById(chatId)
+        if str(chat.sender) != str(requestingUserId) and str(chat.reciver) != str(requestingUserId):
+            raise NoHarmException(
+                statusCode=403,
+                errorCode="FORBIDDEN",
+                message="You are not a participant in this chat."
+            )
+
     @overload
-    def getByChatId(self, chatId: UUID, params: None = None) -> list[Message]: ...
+    def getByChatId(self, chatId: UUID, requestingUserId: str, params: None = None) -> list[Message]: ...
     @overload
-    def getByChatId(self, chatId: UUID, params: PaginationParams) -> PaginatedResponse[Message]: ...
-    def getByChatId(self, chatId: UUID, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
+    def getByChatId(self, chatId: UUID, requestingUserId: str, params: PaginationParams) -> PaginatedResponse[Message]: ...
+    def getByChatId(self, chatId: UUID, requestingUserId: str, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
+        self._assertParticipant(chatId, requestingUserId)
         return self.messageRepository.findByChatId(chatId, params)
 
     def get(self, messageId: UUID) -> Message:
         return self.messageRepository.findById(messageId)
 
     @overload
-    def getUnreadByChatId(self, chatId: UUID, params: None = None) -> list[Message]: ...
+    def getUnreadByChatId(self, chatId: UUID, requestingUserId: str, params: None = None) -> list[Message]: ...
     @overload
-    def getUnreadByChatId(self, chatId: UUID, params: PaginationParams) -> PaginatedResponse[Message]: ...
-    def getUnreadByChatId(self, chatId: UUID, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
+    def getUnreadByChatId(self, chatId: UUID, requestingUserId: str, params: PaginationParams) -> PaginatedResponse[Message]: ...
+    def getUnreadByChatId(self, chatId: UUID, requestingUserId: str, params: Optional[PaginationParams] = None) -> list[Message] | PaginatedResponse[Message]:
+        self._assertParticipant(chatId, requestingUserId)
         return self.messageRepository.findUnreadByChatId(chatId, params)
 
     # ── send (§5.1) ───────────────────────────────────────────────────────────

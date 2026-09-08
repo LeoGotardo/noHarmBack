@@ -128,9 +128,25 @@ def register(sio: socketio.AsyncServer) -> None:
             await _err(sid, "INVALID_DATA", "chatId required")
             return
 
+        # The only handler here that did not check participation, so any
+        # authenticated socket could put "<someone> is typing…" into a
+        # conversation between two other people just by naming its chatId —
+        # emitting to a room never required being in it.
+        #
+        # Room membership is the check, not a database read: `join_chat` is the
+        # only way into `chat_{chatId}` and it calls ChatService.get, which
+        # refuses a chat the caller is not part of. Typing fires on nearly every
+        # keystroke, so the alternative — asserting the participant again per
+        # event — would put a query on the hottest path in the app to re-derive
+        # something already established at join time.
+        room = f"chat_{chatId}"
+        if room not in sio.rooms(sid):
+            await _err(sid, "NOT_IN_CHAT", "Join the chat before sending typing updates.")
+            return
+
         await sio.emit(
             "typing_indicator",
             {"chatId": chatId, "userId": userId, "isTyping": isTyping},
-            room=f"chat_{chatId}",
+            room=room,
             skip_sid=sid,
         )

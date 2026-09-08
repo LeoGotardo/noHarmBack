@@ -18,7 +18,7 @@ This document tracks the current state of the backend architecture and component
 | **Deployment (live)**      | EC2 t3.micro, `compose.host.yaml`, `deploy-host.sh` (`docs/operations.md`) | ✅ Complete |
 | **Non-bypassing app role** | `noharm_app` NOSUPERUSER/NOBYPASSRLS via `postgres-init/10-app-role.sh` | ✅ Complete |
 | **Infra as code**          | Terraform: VPC, RDS, ElastiCache, ECR, ALB, ECS, Secrets (`infra/`)   | ⚠️ Written, **not provisioned** |
-| **CI/CD**                  | `deploy.yml`: build 2 repos → ECR → task de migration → serviço       | ⚠️ Written, `push` trigger disabled — not the current deploy |
+| **CI/CD**                  | `deploy.yml`: build 2 repos → ECR → migration task → service          | ⚠️ Written, `push` trigger disabled — not the current deploy |
 | **Badge seed**             | `20260831_01` seeds tb_5 with 10 milestones (1d → 365d)               | ✅ Complete |
 | **RLS integration tests**  | `test_rls.py`: 12 tests straight against the tables, with a non-bypassing role | ✅ Complete |
 | **Models**                 | All 9 SQLAlchemy models                                               | ✅ Complete |
@@ -33,7 +33,9 @@ This document tracks the current state of the backend architecture and component
 | **Services**               | All business logic services                                           | ✅ Complete |
 | **Routes**                 | All HTTP endpoints                                                    | ✅ Complete |
 | **WebSocket**              | Socket.IO + handlers                                                  | ✅ Complete |
-| **Row Level Security**     | Policies em `20260831_02` + contexto por transação                     | ✅ Complete |
+| **Row Level Security**     | Policies in `20260831_02` + per-transaction context                    | ✅ Complete |
+| **Account deletion window**| `20260901_01`: `deleted_at` + purgeable FKs, `POST /auth/reactivate`, `purge-accounts` cron | ✅ Complete |
+| **Admin authorisation**    | `ADMIN_USER_IDS` allowlist + `getAdminUser` on the status route        | ✅ Complete |
 | **Pagination**             | Generic pagination system                                             | ✅ Complete |
 | **Unit Tests**             | 505 tests, 0 failures                                                 | ✅ Complete |
 | **Pyright/Pylance config** | `pyrightconfig.json` + `.vscode/settings.json`                        | ✅ Complete |
@@ -142,7 +144,7 @@ This document tracks the current state of the backend architecture and component
 | ------------------- | -------- | ---------------------------------- |
 | `storageService.py` | ⬜ Empty | File uploads, profile pictures. `STORAGE_SERVICE_URI`, `STORAGE_SERVICE_KEY` and `STORAGE_PATH` are now optional in `core/config.py` — they become required again once something reads them. |
 | Backups off the database disk | ⬜ Missing | `backup-db.sh` writes to `~/backups`, on the **same EBS volume** as Postgres. It covers accidental deletion, not loss of the volume. Shipping to S3 requires an instance role — there is no AWS credential on the machine today. |
-| Monitoring / alerting | ⬜ Missing | Nothing warns when a container dies, the dump fails or the certificate renewal does not run. Both cron jobs only write to a log. |
+| Monitoring / alerting | ⬜ Missing | Nothing warns when a container dies, the dump fails, the certificate renewal does not run, or `purge-accounts` stops purging. All three cron jobs only write to a log — and a purge that never runs is invisible from outside, because a deleted account past its window answers "Account not found." either way. |
 
 ---
 

@@ -13,6 +13,7 @@ signature, audience and issuer — is covered in
 
 import json
 import pytest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 from core.config import config
@@ -152,21 +153,159 @@ def test_login_blocked_user_raises_403(mock_db):
         assert exc.value.statusCode == 403
 
 
-def test_login_deleted_user_raises_403(mock_db):
+def _deleted_user(daysAgo: float, userId: str = "uid-deleted"):
+    """A soft-deleted user whose deletion happened `daysAgo` days ago."""
+    user = MagicMock()
+    user.id = userId
+    user.status = config.STATUS_CODES["deleted"]
+    user.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=daysAgo)
+    return user
+
+
+def test_login_deleted_user_inside_grace_window_offers_restore(mock_db):
+    """Deleted but still restorable: the client needs to draw a different screen.
+
+    A flat 403 "Account not found." would leave the app unable to tell this from
+    a real rejection, and the user would never learn the account they deleted
+    yesterday is still there to reclaim.
+    """
     with patch("domain.services.authService._loginLimiter") as mock_limiter, \
          patch("domain.services.authService._jwtHandler"):
 
         mock_limiter.check.return_value = (True, None)
 
         service = _make_service(mock_db)
-        mock_user = MagicMock()
-        mock_user.id = "uid-deleted"
-        mock_user.status = config.STATUS_CODES["deleted"]
-        service.userRepository.findById.return_value = mock_user
+        service.userRepository.findById.return_value = _deleted_user(daysAgo=1)
 
         with pytest.raises(NoHarmException) as exc:
             service.login(_login_request())
+
         assert exc.value.statusCode == 403
+        assert exc.value.errorCode == "ACCOUNT_PENDING_DELETION"
+        assert "deletionScheduledAt" in exc.value.details
+
+
+def test_login_deleted_user_past_grace_window_is_gone(mock_db):
+    """Window closed: the purge has not run yet, but nobody outside needs to know."""
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler"):
+
+        mock_limiter.check.return_value = (True, None)
+
+        service = _make_service(mock_db)
+        service.userRepository.findById.return_value = _deleted_user(
+            daysAgo=config.ACCOUNT_DELETION_GRACE_DAYS + 1
+        )
+
+        with pytest.raises(NoHarmException) as exc:
+            service.login(_login_request())
+
+        assert exc.value.statusCode == 403
+        assert exc.value.errorCode == "ACCOUNT_DELETED"
+        assert exc.value.details is None
+
+
+def test_login_deleted_user_without_timestamp_is_gone(mock_db):
+    """No `deleted_at` means no statable deadline, so no restore is offered."""
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler"):
+
+        mock_limiter.check.return_value = (True, None)
+
+        service = _make_service(mock_db)
+        user = _deleted_user(daysAgo=1)
+        user.deleted_at = None
+        service.userRepository.findById.return_value = user
+
+        with pytest.raises(NoHarmException) as exc:
+            service.login(_login_request())
+
+        assert exc.value.errorCode == "ACCOUNT_DELETED"
+
+
+def test_reactivate_restores_inside_the_window(mock_db):
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler") as mock_jwt, \
+         patch("domain.services.authService.verifyIdToken") as mock_verify:
+
+        mock_limiter.check.return_value = (True, None)
+        mock_verify.return_value = MagicMock(uid="uid-deleted")
+        mock_jwt.createAccessToken.return_value = "tok"
+        mock_jwt.createRefreshToken.return_value = "ref"
+
+        service = _make_service(mock_db)
+        service.userRepository.findById.return_value = _deleted_user(daysAgo=2)
+        restored = MagicMock()
+        restored.id = "uid-deleted"
+        service.userRepository.restore.return_value = restored
+
+        result = service.reactivate("id-token")
+
+        service.userRepository.restore.assert_called_once_with("uid-deleted")
+        assert result["accessToken"] == "tok"
+
+
+def test_reactivate_past_the_window_is_refused(mock_db):
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler"), \
+         patch("domain.services.authService.verifyIdToken") as mock_verify:
+
+        mock_limiter.check.return_value = (True, None)
+        mock_verify.return_value = MagicMock(uid="uid-deleted")
+
+        service = _make_service(mock_db)
+        service.userRepository.findById.return_value = _deleted_user(
+            daysAgo=config.ACCOUNT_DELETION_GRACE_DAYS + 1
+        )
+
+        with pytest.raises(NoHarmException) as exc:
+            service.reactivate("id-token")
+
+        assert exc.value.errorCode == "ACCOUNT_DELETED"
+        service.userRepository.restore.assert_not_called()
+
+
+def test_reactivate_never_launders_a_ban(mock_db):
+    """A ban outranks a deletion — otherwise deleting is a way to shed one."""
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler"), \
+         patch("domain.services.authService.verifyIdToken") as mock_verify:
+
+        mock_limiter.check.return_value = (True, None)
+        mock_verify.return_value = MagicMock(uid="uid-banned")
+
+        service = _make_service(mock_db)
+        banned = MagicMock()
+        banned.id = "uid-banned"
+        banned.status = config.STATUS_CODES["banned"]
+        service.userRepository.findById.return_value = banned
+
+        with pytest.raises(NoHarmException) as exc:
+            service.reactivate("id-token")
+
+        assert exc.value.errorCode == "ACCOUNT_BANNED"
+        service.userRepository.restore.assert_not_called()
+
+
+def test_reactivate_on_an_active_account_is_a_conflict(mock_db):
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler"), \
+         patch("domain.services.authService.verifyIdToken") as mock_verify:
+
+        mock_limiter.check.return_value = (True, None)
+        mock_verify.return_value = MagicMock(uid="uid-active")
+
+        service = _make_service(mock_db)
+        active = MagicMock()
+        active.id = "uid-active"
+        active.status = config.STATUS_CODES["enabled"]
+        service.userRepository.findById.return_value = active
+
+        with pytest.raises(NoHarmException) as exc:
+            service.reactivate("id-token")
+
+        assert exc.value.statusCode == 409
+        assert exc.value.errorCode == "ACCOUNT_NOT_DELETED"
 
 
 def test_login_creates_audit_log_on_success(mock_db):

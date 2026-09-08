@@ -82,7 +82,14 @@ tests/
 │       ├── test_streakService.py        ✅
 │       ├── test_userBadgeService.py     ✅
 │       └── test_userService.py          ✅
-└── (integration/ — not yet implemented)
+└── integration/                     ✅ real Postgres + Redis, real HTTP
+    ├── conftest.py                   (test engine, Firebase emulator mode)
+    ├── helpers.py                    (identities, tokens, direct-SQL helpers)
+    ├── test_accountLifecycle.py      ✅ deletion window, bans, admin gate, purge
+    ├── test_auth.py                  ✅
+    ├── test_badges.py / test_chat.py / test_friendship.py / test_message.py
+    ├── test_rls.py / test_security.py / test_streak.py
+    ├── test_user.py / test_websocket.py
 ```
 
 ---
@@ -216,7 +223,7 @@ Covers all Pydantic DTOs — required fields, optional fields, validation errors
 | `tests/unit/routes/test_messageRoutes.py` | Medium |
 | `tests/unit/routes/test_badgesRoutes.py` | Low |
 | `tests/unit/routes/test_auditLogsRoutes.py` | Low |
-| `tests/integration/` — real Postgres, real HTTP | Low (needs test DB) |
+| `tests/integration/` — green (105 passed, 12 skipped) | — the 12 skips are `test_rls.py` against a superuser role |
 
 ---
 
@@ -245,6 +252,47 @@ pytest --tb=short -q
 
 ---
 
+## Running the integration suite
+
+It needs a real Postgres and a real Redis, and skips itself entirely when
+`TEST_DATABASE_URL` is unset — so a plain `pytest` run is unit-only and silent
+about it.
+
+```bash
+# 1. a database of its own, migrated to head
+docker exec postgres_db psql -U root -d postgres -c 'CREATE DATABASE noharm_test;'
+DATABASE_URL=postgresql://root:<pw>@localhost:5432/noharm_test \
+DATABASE_URL_UNPOOLED=postgresql://root:<pw>@localhost:5432/noharm_test \
+APP_ENV=alembic alembic upgrade head
+
+# 2. run
+TEST_DATABASE_URL=postgresql://root:<pw>@localhost:5432/noharm_test \
+TEST_REDIS_URL=redis://localhost:6379/1 \
+pytest tests/integration -q
+```
+
+Two things that will otherwise waste an afternoon:
+
+- **`python-dateutil` must actually be installed.** It is in `requirements.txt`,
+  but a venv built before it was added still runs the unit suite fine and fails
+  every streak and message test with
+  `ImproperlyConfigured: 'python-dateutil' is required to process datetimes` —
+  a 500 from inside the encrypted DateTime column, which reads like a code bug.
+- **`/health` is exempt from the IP rate limiter** (`_EXEMPT_PATHS`), so it can
+  never be used to provoke a 429 — an orchestrator that gets one from a health
+  check restarts the container. `test_security.py` drives `/users/me` instead.
+- **The RLS tests skip against a superuser.** `root` on a stock Postgres image
+  bypasses every policy, so `test_rls.py` skips rather than passing vacuously.
+  Point `RLS_TEST_DATABASE_URL` at a NOSUPERUSER, NOBYPASSRLS role to run them.
+
+`tests/conftest.py` pins `FIREBASE_SERVICE_ACCOUNT`, `FIREBASE_SERVICE_ACCOUNT_PATH`
+and `FIREBASE_PROJECT_ID` to empty/`demo-noharm` for the same reason it pins
+`APP_ENV=test`: `core.config` copies `.secrets.toml`'s `[default]` section into
+`os.environ` for anything not already set, and it is imported by that conftest.
+Without the pins, a developer with a real service account in `.secrets.toml`
+gets Firebase initialised against the live project, every locally minted token
+rejected, and 47 collection errors that do not reproduce anywhere else.
+
 ## Coverage Targets
 
 | Layer | Current State | Target |
@@ -253,4 +301,4 @@ pytest --tb=short -q
 | Services | Implemented | 85%+ |
 | Repositories | Implemented | 80%+ |
 | Routes | Partial (4/9 files) | 75%+ |
-| Integration | Not implemented | — |
+| Integration | Implemented and green | — |

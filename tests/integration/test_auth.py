@@ -128,6 +128,12 @@ class TestLogin:
         client.delete("/users/me", headers=headers)
         resp = client.post("/auth/login", json={"idToken": identity["idToken"]})
         assert resp.status_code == 403
+        # Named, not just the status: a fresh deletion is inside its grace
+        # window, so this is the restorable branch. Asserting 403 alone stayed
+        # green when the window landed and stopped testing what it says it
+        # tests. The closed-window and purge cases live in
+        # tests/integration/test_accountLifecycle.py.
+        assert resp.json()["errorCode"] == "ACCOUNT_PENDING_DELETION"
 
 
 class TestLogout:

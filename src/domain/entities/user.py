@@ -11,3 +11,6 @@ class User:
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     profile_picture: Optional[str] = None
+    # Set when the account is soft-deleted; the purge job destroys the row
+    # ACCOUNT_DELETION_GRACE_DAYS after this instant.
+    deleted_at: Optional[datetime] = None

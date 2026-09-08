@@ -13,7 +13,9 @@ class TestSendMessage:
         assert resp.status_code == 201
         body = resp.json()
         assert body["status"] == 7  # unread
-        assert body["content"] == "hello integration"
+        # Asymmetric on purpose or not, this is the contract: SendMessageRequest
+        # takes `content`, MessageResponse returns `message`.
+        assert body["message"] == "hello integration"
 
     def test_get_messages_by_chat(self, client, user_a, user_b):
         chat_id = open_chat(client, user_a, user_b)

@@ -39,11 +39,11 @@ def upgrade() -> None:
     sa.Column('cl_5a', sa.UUID(), nullable=False),
     sa.Column('cl_5b', sqlalchemy_utils.types.encrypted.encrypted_type.StringEncryptedType(), nullable=False),
     sa.Column('cl_5c', sqlalchemy_utils.types.encrypted.encrypted_type.StringEncryptedType(), nullable=False),
-    # Gerada a partir dos models atuais, onde já é Integer. Aqui fica
-    # DateTime de propósito: 20260812_01 é quem faz essa conversão, e
-    # ela roda logo depois desta. Os bancos que já existem estão
-    # carimbados naquela revisão, então precisam chegar no mesmo
-    # estado por este caminho.
+    # Generated from the current models, where it is already Integer. It stays
+    # DateTime here on purpose: 20260812_01 is what performs that conversion,
+    # and it runs right after this one. Databases that already exist are
+    # stamped at that revision, so they have to reach the same state through
+    # this path.
     sa.Column('cl_5d', sa.DateTime(), nullable=False),
     sa.Column('cl_5e', sqlalchemy_utils.types.encrypted.encrypted_type.StringEncryptedType(), nullable=False),
     sa.Column('cl_5f', sa.Integer(), nullable=False),

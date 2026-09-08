@@ -111,3 +111,52 @@ def test_encryptPass_different_hashes_same_input(enc):
     _, h1 = enc.encryptPass("password")
     _, h2 = enc.encryptPass("password")
     assert h1 != h2
+
+
+# ── blind index ───────────────────────────────────────────────────────────────
+#
+# `hash` was a bare sha256, which made the lookup columns (cl_0b_h, cl_0c_h,
+# cl_9c_h) weaker than the ciphertext they sit beside: reading the table was
+# enough to recover every e-mail from a wordlist and every username by
+# enumerating the 3-30 character alphanumeric space, without DATABASE_ENCRYPTION_KEY.
+
+def test_hash_is_not_a_bare_sha256_of_the_value():
+    """The regression that matters: a plain digest is reversible from the
+    database alone, so a precomputed table recovers the plaintext."""
+    from hashlib import sha256
+
+    assert Encryption.hash("leo@example.com") != sha256(b"leo@example.com").hexdigest()
+
+
+def test_hash_depends_on_the_blind_index_key():
+    import importlib
+    from security import encryption as module
+
+    original = module._BLIND_INDEX_KEY
+    try:
+        module._BLIND_INDEX_KEY = b"a-different-blind-index-key"
+        rekeyed = module.Encryption.hash("leo@example.com")
+    finally:
+        module._BLIND_INDEX_KEY = original
+
+    assert rekeyed != Encryption.hash("leo@example.com")
+
+
+def test_hash_is_not_keyed_on_the_column_encryption_key():
+    """Separate secrets on purpose — an attacker holding the database holds the
+    ciphertext and the index together, so one key protecting both is one leak."""
+    from core.config import config
+
+    assert config.BLIND_INDEX_KEY != config.DATABASE_ENCRYPTION_KEY
+
+
+def test_digest_is_the_unkeyed_digest():
+    """Kept for high-entropy values (JTIs). Rotating BLIND_INDEX_KEY must not
+    reach the JWT blacklist and silently un-revoke live tokens."""
+    from hashlib import sha256
+
+    assert Encryption.digest("jti-value") == sha256(b"jti-value").hexdigest()
+
+
+def test_digest_and_hash_disagree():
+    assert Encryption.digest("same-input") != Encryption.hash("same-input")

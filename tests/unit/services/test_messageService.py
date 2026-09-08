@@ -33,6 +33,53 @@ def _mock_message(chat_id="chat-001", sender="uid-sender", status=None):
     return m
 
 
+# ── reads ─────────────────────────────────────────────────────────────────────
+
+def test_getByChatId_participant_gets_the_messages(mock_db):
+    service = _make_service(mock_db)
+    service.chatRepository.findById.return_value = _mock_chat()
+    service.messageRepository.findByChatId.return_value = ["msg"]
+
+    assert service.getByChatId("chat-001", "uid-sender") == ["msg"]
+
+
+def test_getByChatId_non_participant_raises_403(mock_db):
+    """RLS used to be the only thing stopping this.
+
+    The route took `currentUserId` and never passed it on, so reading any
+    conversation was a matter of holding its id — which the API hands out. The
+    `tb_4` policy caught it in production and nothing caught it anywhere else,
+    including in a session run by a role that bypasses RLS.
+    """
+    service = _make_service(mock_db)
+    service.chatRepository.findById.return_value = _mock_chat()
+
+    with pytest.raises(NoHarmException) as exc:
+        service.getByChatId("chat-001", "uid-stranger")
+
+    assert exc.value.statusCode == 403
+    service.messageRepository.findByChatId.assert_not_called()
+
+
+def test_getUnreadByChatId_non_participant_raises_403(mock_db):
+    service = _make_service(mock_db)
+    service.chatRepository.findById.return_value = _mock_chat()
+
+    with pytest.raises(NoHarmException) as exc:
+        service.getUnreadByChatId("chat-001", "uid-stranger")
+
+    assert exc.value.statusCode == 403
+    service.messageRepository.findUnreadByChatId.assert_not_called()
+
+
+def test_getUnreadByChatId_receiver_is_a_participant(mock_db):
+    service = _make_service(mock_db)
+    service.chatRepository.findById.return_value = _mock_chat()
+    service.messageRepository.findUnreadByChatId.return_value = []
+
+    assert service.getUnreadByChatId("chat-001", "uid-receiver") == []
+
+
 # ── sendMessage ───────────────────────────────────────────────────────────────
 
 def test_sendMessage_success_creates_message(mock_db):

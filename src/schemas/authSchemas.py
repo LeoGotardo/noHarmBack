@@ -14,6 +14,14 @@ class AuthLoginRequest(BaseModel):
     idToken: str = Field(..., description="Firebase ID token from the sign-in flow")
 
 
+class AuthReactivateRequest(BaseModel):
+    # Same proof as login: the caller has to hold a Firebase ID token for the
+    # UID being restored. The UID itself is public — it shows up in friend
+    # lists and search — so accepting one in the body would let anyone undo
+    # anyone else's deletion.
+    idToken: str = Field(..., description="Firebase ID token for the account being restored")
+
+
 class AuthRefreshRequest(BaseModel):
     refreshToken: str = Field(..., description="Valid refresh token")
 

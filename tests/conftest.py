@@ -31,6 +31,9 @@ _DEFAULTS = {
     "APP_ENV": "test",
     "ENCRYPTION_KEY": "test-encryption-key-for-noharm-32b",
     "DATABASE_ENCRYPTION_KEY": "test-database-encryption-key-32by",
+    # Distinct from DATABASE_ENCRYPTION_KEY on purpose — reusing that value here
+    # would let a test pass that never checks the two are separate keys.
+    "BLIND_INDEX_KEY": "test-blind-index-key-for-unit-tests",
     "DATABASE_URL": "postgresql://test:test@localhost/testdb",
     "DATABASE_HOST": "localhost",
     "DATABASE_NAME": "testdb",
@@ -55,6 +58,19 @@ _DEFAULTS = {
     # Pointing them at a scratch DB keeps the developer's dev Redis intact.
     "REDIS_URL": "redis://localhost:6379/15",
     "TRUSTED_PROXIES": "[]",
+    # Not optional despite being empty, and not shadowable from the integration
+    # conftest: config.py copies `.secrets.toml`'s [default] section into
+    # os.environ for any key not already present, FIREBASE_SERVICE_ACCOUNT
+    # lives in [default], and this file imports `core.config` below — so by the
+    # time any other conftest runs, the real credential is already in the
+    # environment and the singleton is already built around it. The integration
+    # suite then initialises Firebase against the real project and rejects
+    # every token it mints for `demo-noharm`, which read as 47 collection
+    # errors on a developer machine and nothing at all on a clean one.
+    # Claiming the keys here, before the import, is the only place that works.
+    "FIREBASE_SERVICE_ACCOUNT": "",
+    "FIREBASE_SERVICE_ACCOUNT_PATH": "",
+    "FIREBASE_PROJECT_ID": "demo-noharm",
 }
 
 for _key, _val in _DEFAULTS.items():

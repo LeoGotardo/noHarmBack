@@ -28,6 +28,7 @@ resource "aws_secretsmanager_secret_version" "app" {
   secret_string = jsonencode({
     ENCRYPTION_KEY           = "REPLACE_ME"
     DATABASE_ENCRYPTION_KEY  = "REPLACE_ME"
+    BLIND_INDEX_KEY          = "REPLACE_ME"
     JWT_SECRET_KEY           = "REPLACE_ME"
     JWT_REFRESH_SECRET_KEY   = "REPLACE_ME"
     FIREBASE_SERVICE_ACCOUNT = "REPLACE_ME"

@@ -44,8 +44,19 @@ class TestJwtAuth:
         assert jwt_factory.verifyToken(refresh, "access") is None
 
 
+@pytest.mark.asyncio(loop_scope="module")
 class TestConnectionLimiter:
-    """WsConnectionLimiter exercised against real Redis."""
+    """WsConnectionLimiter exercised against real Redis.
+
+    Pinned to one event loop for the whole module. `websocket/rateLimiter.py`
+    builds its `redis.asyncio` client once, at import, and that client binds its
+    connection pool to the first loop that uses it — which is correct in
+    production, where the process has exactly one loop for its lifetime. Under
+    pytest-asyncio's default of a fresh loop per test, the first two tests here
+    passed and every later one died with `got Future attached to a different
+    loop`, then `Event loop is closed`. Nothing was wrong with the limiter; the
+    harness was handing a process-lifetime object a new loop each time.
+    """
 
     @pytest.fixture
     def uid(self):

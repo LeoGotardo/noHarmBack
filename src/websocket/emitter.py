@@ -143,3 +143,42 @@ def notifyNewMessage(message: Any, participantIds: Iterable[Any]) -> None:
 def notifyMessagesRead(chatId: Any, participantIds: Iterable[Any]) -> None:
     """Broadcast that a chat's unread messages were marked read."""
     emitToChat(chatId, "messages_read", {"chatId": str(chatId)}, participantIds)
+
+
+# ── friendship fan-out ────────────────────────────────────────────────────────
+
+async def _friendshipEmit(event: str, actorId: str, targetId: str) -> None:
+    from websocket import presence
+    from websocket.socketManager import sio
+
+    online = await presence.isOnline(actorId)
+    await sio.emit(event, {"userId": actorId, "online": online}, room=f"user_{targetId}")
+
+
+def notifyFriendship(event: str, actorId: Any, targetId: Any) -> None:
+    """Tell `targetId` that `actorId` acted on their friendship.
+
+    Called from FriendshipService, after the write that makes the event true.
+    That placement is the point of this function. These events used to be
+    emitted by Socket.IO handlers in `websocket/handlers/friendHandlers.py`,
+    which took the target's id straight from the client and emitted into that
+    user's personal room with no check that any friendship existed, that the
+    caller was part of it, or that the caller was not blocked — and two of them
+    sent a push notification as well. Any authenticated account could therefore
+    drive unlimited pushes at any user id it could name, and a block did nothing
+    to stop it. Emitting from the service means the notification cannot outrun
+    the authorisation that the service already performs.
+
+    Payload is unchanged from those handlers (`{userId, online}`), because the
+    front-end listeners in `services/ws/friendship.js` read that shape.
+
+    Fire-and-forget: a socket that cannot be reached must not roll back a
+    friendship that is already committed.
+    """
+    actor, target = str(actorId), str(targetId)
+    if not actor or not target or actor == target:
+        return
+    try:
+        _schedule(_friendshipEmit(event, actor, target))
+    except Exception:
+        logger.exception("failed to schedule '%s' emit to user %s", event, target)

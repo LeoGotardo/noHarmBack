@@ -48,8 +48,8 @@ def getMessagesByChatId(
     try:
         service = MessageService(db)
         if paginated:
-            return service.getByChatId(chatId, paginatedParams)
-        messages = service.getByChatId(chatId)
+            return service.getByChatId(chatId, currentUserId, paginatedParams)
+        messages = service.getByChatId(chatId, currentUserId)
         return MessageListResponse(messages=[MessageResponse.model_validate(m) for m in messages], total=len(messages))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
@@ -73,8 +73,8 @@ def getUnreadMessagesByChatId(
     try:
         service = MessageService(db)
         if paginated:
-            return service.getUnreadByChatId(chatId, paginatedParams)
-        messages = service.getUnreadByChatId(chatId)
+            return service.getUnreadByChatId(chatId, currentUserId, paginatedParams)
+        messages = service.getUnreadByChatId(chatId, currentUserId)
         return MessageListResponse(messages=[MessageResponse.model_validate(m) for m in messages], total=len(messages))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

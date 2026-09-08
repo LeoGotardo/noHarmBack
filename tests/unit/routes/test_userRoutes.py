@@ -29,7 +29,7 @@ def _make_user_mock():
 def _build_app():
     from api.routes.userRoutes import router
     from api.dependencies.database import getDbWithRLS
-    from api.dependencies.auth import getCurrentUser
+    from api.dependencies.auth import getAdminUser, getCurrentUser
 
     app = FastAPI()
     limiter = Limiter(key_func=get_remote_address, default_limits=[])
@@ -38,6 +38,10 @@ def _build_app():
     app.include_router(router)
     app.dependency_overrides[getDbWithRLS] = lambda: MagicMock()
     app.dependency_overrides[getCurrentUser] = lambda: _USER_ID
+    # PUT /users/{id}/status/{status} sits behind the ADMIN_USER_IDS allowlist.
+    # Overridden rather than populated in config so the route's own behaviour
+    # stays under test here; TestUpdateUserStatusRoute covers the gate itself.
+    app.dependency_overrides[getAdminUser] = lambda: _USER_ID
     return app
 
 
@@ -142,6 +146,35 @@ class TestUpdateUserStatusRoute:
                 statusCode=404, errorCode="NOT_FOUND", message="User not found."
             )
             res = client.put(f"/users/{uid}/status/2")
+        assert res.status_code == 404
+
+    def test_non_admin_is_refused(self):
+        """The gate itself: without the allowlist override, no admin exists.
+
+        This is the route that bans, unbans and undeletes. Behind
+        `getCurrentUser` alone it let any signed-in user lift their own ban,
+        which made every "banned accounts cannot sign in" rule elsewhere
+        decorative. 404 rather than 403 — whether an admin surface lives here is
+        not something an ordinary caller needs confirmed.
+        """
+        from api.dependencies.auth import getAdminUser, getCurrentUser
+        from api.dependencies.database import getDb, getDbWithRLS
+        from api.routes.userRoutes import router
+
+        app = FastAPI()
+        limiter = Limiter(key_func=get_remote_address, default_limits=[])
+        app.state.limiter = limiter
+        app.add_middleware(SlowAPIMiddleware)
+        app.include_router(router)
+        app.dependency_overrides[getDb] = lambda: MagicMock()
+        app.dependency_overrides[getDbWithRLS] = lambda: MagicMock()
+        app.dependency_overrides[getCurrentUser] = lambda: _USER_ID
+        # getAdminUser deliberately NOT overridden: it reads the real
+        # ADMIN_USER_IDS, which is empty in the test environment.
+
+        client = TestClient(app, raise_server_exceptions=False)
+        res = client.put(f"/users/{uuid4()}/status/1")
+
         assert res.status_code == 404
 
 

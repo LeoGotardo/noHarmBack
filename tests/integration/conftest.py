@@ -54,6 +54,12 @@ os.environ["REDIS_URL"] = TEST_REDIS_URL
 os.environ.setdefault("FIREBASE_AUTH_EMULATOR_HOST", "localhost:9099")
 os.environ.setdefault("FIREBASE_PROJECT_ID", "demo-noharm")
 
+# `FIREBASE_PROJECT_ID` and the two service-account keys are pinned in the root
+# conftest instead of here. They are read when `core.config` builds its
+# singleton, and the root conftest imports it — so anything set at this point is
+# already too late. Only the emulator flag above still works here, because
+# `getFirebaseApp()` is lazy and nothing has called it yet.
+
 # ── Build test engine (no sslmode=require) ────────────────────────────────────
 _DB_URL = TEST_DATABASE_URL.replace("postgres://", "postgresql://", 1)
 _engine = create_engine(_DB_URL, pool_pre_ping=True, echo=False)

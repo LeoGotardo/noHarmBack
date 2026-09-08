@@ -29,7 +29,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # A sua Aplicação Python
+  # The Python application
   app:
     build:
       context: ../
@@ -69,16 +69,18 @@ services:
       - FIREBASE_PROJECT_ID=noharm-6cc9d
     ports:
       - "8080:8080"
-    # run.py passa reload=DEBUG ao uvicorn, e em dev DEBUG é true. Sem este mount
-    # o reloader vigia a cópia congelada dentro da imagem, então nada recarrega:
-    # cada alteração exigia rebuild. .secrets.toml fica em /app, fora do mount.
+    # run.py passes reload=DEBUG to uvicorn, and DEBUG is true in dev. Without
+    # this mount the reloader watches the frozen copy inside the image, so
+    # nothing reloads: every change needed a rebuild. .secrets.toml lives in
+    # /app, outside the mount.
     volumes:
       - ../src:/app/src
-    # O 'depends_on' garante que o app só sobe após o banco e o redis estarem de pé.
-    # Vale só para container novo: se o app já estiver Running de uma tentativa
-    # anterior, o compose o deixa como está e a condição não é reavaliada. Use
-    # `docker compose down` (ou `up --force-recreate`) depois de uma subida que
-    # falhou, senão o app fica no ar sem o postgres ter existido na rede.
+    # 'depends_on' guarantees the app only starts after the database and redis
+    # are up. It only applies to a fresh container: if the app is already Running
+    # from a previous attempt, compose leaves it as is and the condition is not
+    # re-evaluated. Use `docker compose down` (or `up --force-recreate`) after a
+    # failed startup, otherwise the app runs without postgres ever having existed
+    # on the network.
     depends_on:
       postgres:
         condition: service_healthy

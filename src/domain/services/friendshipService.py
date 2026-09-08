@@ -5,6 +5,8 @@ from domain.entities.friendship import Friendship
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from schemas.friendshipSchemas import FriendshipResponse, FriendUserInfo
 from exceptions.baseExceptions import NoHarmException
+from infrastructure.external import fcmService
+from websocket import emitter
 from core.config import config
 from core.database import Database, database
 
@@ -15,6 +17,13 @@ class FriendshipService:
     def __init__(self, db):
         self.database: Database = db
         self.friendshipRepository = FriendshipRepository(self.database)
+
+    # ── notification ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _otherParticipant(friendship: Friendship, userId: str) -> str:
+        """The participant of `friendship` who is not `userId`."""
+        return str(friendship.sender) if str(friendship.reciver) == str(userId) else str(friendship.reciver)
 
     # ── enrichment (attach each participant's name + profile picture) ──────────
 
@@ -165,7 +174,17 @@ class FriendshipService:
             reciver=receiverId,
             status=config.STATUS_CODES["pending"]
         )
-        return self.friendshipRepository.create(newFriendship)
+        created = self.friendshipRepository.create(newFriendship)
+
+        # Only reached once the checks above have passed, which is what the
+        # socket handler that used to send this never did: it pushed to whatever
+        # id the client named. Everything before this line — not sending to
+        # yourself, no duplicate request, not blocked — is now a precondition of
+        # the notification too.
+        emitter.notifyFriendship("friend_request", senderId, receiverId)
+        fcmService.sendPushToUser(receiverId, "New friend request", "Someone wants to connect with you")
+
+        return created
 
 
     def accept(self, friendshipId: str, receiverId: str) -> Friendship:
@@ -191,7 +210,12 @@ class FriendshipService:
                 message="Only pending requests can be accepted."
             )
 
-        return self.friendshipRepository.updateStatus(friendshipId, "accepted")
+        accepted = self.friendshipRepository.updateStatus(friendshipId, "accepted")
+
+        emitter.notifyFriendship("friend_accept", receiverId, str(friendship.sender))
+        fcmService.sendPushToUser(str(friendship.sender), "Friend request accepted", "Your friend request was accepted")
+
+        return accepted
 
 
     def reject(self, friendshipId: str, receiverId: str) -> Friendship:
@@ -217,7 +241,13 @@ class FriendshipService:
                 message="Only pending requests can be rejected."
             )
 
-        return self.friendshipRepository.updateStatus(friendshipId, "ignored")
+        rejected = self.friendshipRepository.updateStatus(friendshipId, "ignored")
+
+        # No push, matching the previous behaviour: a rejection is delivered to
+        # an open app or not at all.
+        emitter.notifyFriendship("friend_reject", receiverId, str(friendship.sender))
+
+        return rejected
 
 
     def block(self, friendshipId: str, requestingUserId: str) -> Friendship:
@@ -234,7 +264,11 @@ class FriendshipService:
                 message="You are not a participant in this friendship."
             )
 
-        return self.friendshipRepository.updateStatus(friendshipId, "blocked")
+        blocked = self.friendshipRepository.updateStatus(friendshipId, "blocked")
+
+        emitter.notifyFriendship("friend_block", requestingUserId, self._otherParticipant(friendship, requestingUserId))
+
+        return blocked
 
 
     def unblock(self, friendshipId: str, requestingUserId: str) -> Friendship:
@@ -255,7 +289,11 @@ class FriendshipService:
                 message="Only blocked requests can be unblocked."
             )
 
-        return self.friendshipRepository.updateStatus(friendshipId, "disabled")
+        unblocked = self.friendshipRepository.updateStatus(friendshipId, "disabled")
+
+        emitter.notifyFriendship("friend_unblock", requestingUserId, self._otherParticipant(friendship, requestingUserId))
+
+        return unblocked
 
 
     def delete(self, id: str, requestingUserId: str) -> bool:
@@ -269,7 +307,15 @@ class FriendshipService:
                 message="You are not a participant in this friendship."
             )
 
-        return self.friendshipRepository.softDelete(id)
+        # Captured before the delete: `friendship` is the only handle on who the
+        # other participant was.
+        peerId = self._otherParticipant(friendship, requestingUserId)
+
+        removed = self.friendshipRepository.softDelete(id)
+
+        emitter.notifyFriendship("friend_remove", requestingUserId, peerId)
+
+        return removed
 
 
     # ── low-level passthrough (kept for admin/internal use) ───────────────────

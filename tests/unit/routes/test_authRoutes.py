@@ -7,6 +7,7 @@ Patches AuthService at the module level inside the route handler.
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -26,6 +27,16 @@ def _build_app():
     app.add_middleware(SlowAPIMiddleware)
     app.include_router(router)
     app.dependency_overrides[getDb] = lambda: MagicMock()
+
+    # /auth/login, /auth/register and /auth/reactivate let NoHarmException reach
+    # the app's handler instead of flattening it into an HTTPException, because
+    # ACCOUNT_PENDING_DELETION carries the restore deadline in `details`. This
+    # mirrors the handler main.py registers; without it the fixture answers 500
+    # to every domain error and the assertions below would be testing the gap,
+    # not the routes.
+    @app.exception_handler(NoHarmException)
+    def _noHarmHandler(request, exc: NoHarmException):
+        return JSONResponse(status_code=exc.statusCode, content=exc.toDict())
 
     return app
 

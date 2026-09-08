@@ -53,6 +53,14 @@ class FakeSio:
     async def leave_room(self, sid, room):
         self.rooms_left.append(room)
 
+    def rooms(self, sid, namespace=None):
+        """Rooms this sid has joined — synchronous, like the real AsyncServer's.
+
+        `typing` reads this instead of re-asserting participation per keystroke,
+        so the double has to model membership rather than just record the calls.
+        """
+        return [room for room in self.rooms_entered if room not in self.rooms_left]
+
     # assertions
     def errors(self):
         return [data for event, data, _ in self.emitted if event == "chat_error"]
@@ -242,7 +250,14 @@ async def test_mark_read_closes_the_session(sio, session):
 
 # ── typing ────────────────────────────────────────────────────────────────────
 
+async def _joined(sio, chatId="chat-9"):
+    """Put the socket in the chat room, as `join_chat` would after its own check."""
+    await sio.enter_room("sid-1", f"chat_{chatId}")
+
+
+
 async def test_typing_broadcasts_to_the_chat_room(sio):
+    await _joined(sio)
     await sio.handlers["typing"]("sid-1", {"chatId": "chat-9", "isTyping": True})
 
     event, data, kwargs = sio.emitted[-1]
@@ -252,18 +267,21 @@ async def test_typing_broadcasts_to_the_chat_room(sio):
 
 
 async def test_typing_does_not_echo_back_to_the_sender(sio):
+    await _joined(sio)
     await sio.handlers["typing"]("sid-1", {"chatId": "chat-9", "isTyping": True})
 
     assert sio.emitted[-1][2]["skip_sid"] == "sid-1"
 
 
 async def test_typing_defaults_to_not_typing(sio):
+    await _joined(sio)
     await sio.handlers["typing"]("sid-1", {"chatId": "chat-9"})
 
     assert sio.emitted[-1][1]["isTyping"] is False
 
 
 async def test_typing_coerces_a_truthy_value_to_bool(sio):
+    await _joined(sio)
     await sio.handlers["typing"]("sid-1", {"chatId": "chat-9", "isTyping": "yes"})
 
     assert sio.emitted[-1][1]["isTyping"] is True
@@ -276,8 +294,33 @@ async def test_typing_rejects_a_missing_chat_id(sio):
 
 
 async def test_typing_carries_the_session_user_not_the_payload(sio):
+    await _joined(sio)
     await sio.handlers["typing"](
         "sid-1", {"chatId": "chat-9", "isTyping": True, "userId": "victim"}
     )
 
     assert sio.emitted[-1][1]["userId"] == "uid-001"
+
+
+async def test_typing_refuses_a_chat_the_socket_has_not_joined(sio):
+    """The hole this closes: emitting to a room never required being in it, so
+    naming any chatId put a typing indicator into a stranger's conversation."""
+    await sio.handlers["typing"]("sid-1", {"chatId": "someone-elses-chat", "isTyping": True})
+
+    assert [event for event, _, _ in sio.emitted] == ["chat_error"]
+    assert sio.errors() == [
+        {"code": "NOT_IN_CHAT", "message": "Join the chat before sending typing updates."}
+    ]
+
+
+async def test_typing_stops_after_leaving_the_chat(sio):
+    """`leave_chat` takes the socket out of the room, and the guard reads live
+    membership — so it must start refusing again."""
+    await _joined(sio)
+    await sio.handlers["leave_chat"]("sid-1", {"chatId": "chat-9"})
+
+    await sio.handlers["typing"]("sid-1", {"chatId": "chat-9", "isTyping": True})
+
+    assert sio.errors() == [
+        {"code": "NOT_IN_CHAT", "message": "Join the chat before sending typing updates."}
+    ]

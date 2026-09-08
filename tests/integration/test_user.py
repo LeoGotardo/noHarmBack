@@ -32,6 +32,8 @@ class TestMyProfile:
 
         login_resp = client.post("/auth/login", json={"idToken": user_a["idToken"]})
         assert login_resp.status_code == 403
+        # Restorable, not gone — see test_accountLifecycle.py for the window.
+        assert login_resp.json()["errorCode"] == "ACCOUNT_PENDING_DELETION"
 
 
 class TestPublicProfile:

@@ -1,5 +1,5 @@
 #!/bin/bash
 set -e
-echo "Rodando migrations..."
+echo "Running migrations..."
 ENV=production alembic upgrade head
-echo "Migrations concluídas."
+echo "Migrations complete."

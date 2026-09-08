@@ -9,12 +9,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from infrastructure.external.storageService import Base
 from core.config import config as appConfig
 
-# Importados apenas para registrar as tabelas em Base.metadata — sem isto o
-# autogenerate não enxerga o model e passa a tratar a tabela existente como
-# órfã, emitindo um op.drop_table() para ela. refreshTokenModel (tb_8) e
-# notificationModel (tb_9) estavam de fora: um autogenerate rodado antes desta
-# correção teria apagado os refresh tokens e as notificações.
-# Deve espelhar a lista de core/database.py.
+# Imported only to register the tables on Base.metadata — without this,
+# autogenerate does not see the model and starts treating the existing table as
+# orphaned, emitting an op.drop_table() for it. refreshTokenModel (tb_8) and
+# notificationModel (tb_9) were left out: an autogenerate run before this fix
+# would have dropped the refresh tokens and the notifications.
+# Must mirror the list in core/database.py.
 from infrastructure.database.models import (
     friendshipModel,
     userBadgesModel,
@@ -35,7 +35,7 @@ if alembicConfig.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Usa a URL unpooled — pgbouncer (pooled) quebra o Alembic
+# Uses the unpooled URL — pgBouncer (pooled) breaks Alembic's DDL
 MIGRATION_URL = appConfig.DATABASE_URL_UNPOOLED
 
 
@@ -57,9 +57,10 @@ def runMigrationsOnline() -> None:
     connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",
-        # Migration é processo curto e único: um pool sobreviveria à conexão
-        # sem nunca ser reusado. NullPool abre e fecha, e evita deixar
-        # conexão ociosa presa no Postgres depois que o comando termina.
+        # A migration is a short, one-off process: a pool would outlive the
+        # connection without ever being reused. NullPool opens and closes, and
+        # avoids leaving an idle connection stuck in Postgres after the command
+        # finishes.
         poolclass=pool.NullPool,
     )
 

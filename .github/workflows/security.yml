@@ -1,0 +1,50 @@
+# Dependency vulnerability scan.
+#
+# Separate from deploy.yml on purpose. That workflow is workflow_dispatch-only
+# because the ECS stack it targets is not provisioned, so anything hung off it
+# never runs — and this is the one check that must keep running whether or not
+# a deploy ever happens.
+#
+# It is also on a schedule, which is the point: a dependency does not have to
+# change to become vulnerable. Every advisory found the first time this ran
+# (24 of them, across 7 packages, including six in PyJWT — the library that
+# validates every access token) landed in code nobody had touched for months.
+#
+# `pip-audit` resolves requirements.txt against the PyPI advisory database and
+# exits non-zero on any finding, so a vulnerable pin fails the check rather than
+# being reported into a log nobody reads.
+
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Mondays, 05:00 UTC — after the cert-renewal cron on the live host, so a
+    # Monday morning has one thing to look at, not two.
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    name: audit python dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: install pip-audit
+        run: pip install pip-audit
+
+      # --require-hashes is deliberately not used: requirements.txt pins
+      # versions but carries no hashes, and adding the flag would fail on
+      # every line rather than report a vulnerability.
+      - name: audit
+        run: pip-audit --requirement requirements.txt --progress-spinner off --strict

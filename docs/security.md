@@ -316,7 +316,9 @@ Exceeding a per-route limit returns 429. The JWT blacklist already uses Redis. T
 - `authService.login()` returns generic `"Invalid credentials."` (401) when the user is **not found** — attacker cannot confirm whether a UID is registered
 - `authService.register()` returns generic `"Registration failed. Please check your details."` (409) for both email and username conflicts — neither conflicting field is identified in the response
 
-**Note:** Banned, blocked, and deleted accounts return **specific 403 responses** (`ACCOUNT_BANNED`, `ACCOUNT_BLOCKED`, `ACCOUNT_DELETED`) after the user record is found. This is intentional — these are post-authentication status checks, not enumeration vectors, since an attacker must already possess the valid UID. The trade-off is accepted.
+**Note:** Banned, blocked, and deleted accounts return **specific 403 responses** (`ACCOUNT_BANNED`, `ACCOUNT_BLOCKED`, `ACCOUNT_DELETED`, `ACCOUNT_PENDING_DELETION`) after the user record is found. This is intentional — these are post-authentication status checks, not enumeration vectors, since an attacker must already possess the valid UID. The trade-off is accepted.
+
+`ACCOUNT_PENDING_DELETION` carries one extra field, `details.deletionScheduledAt`, and it is the only status response that tells the caller anything they did not already know: that the account they hold a verified Firebase token for is restorable, and until when. It requires the same proof as a login, so it leaks nothing to anyone who is not the account holder.
 
 **Known weakness (found via code audit):**
 `authService.register()` catches only `NoHarmException` during the email/username uniqueness checks. If `findByEmail` or `findByUsername` raises a non-`NoHarmException` (e.g. DB timeout → status 500), the except block silently proceeds to create the user without completing the uniqueness check.
@@ -466,28 +468,28 @@ This exposes the server's file system layout and internal class names to any cli
 
 ---
 
-### 8.2 Rate Limit State Loss on Restart — resolvido
+### 8.2 Rate Limit State Loss on Restart — resolved
 
-**O que era:** todo o estado de rate limit (`IpRateLimiter`, `LoginRateLimiter`)
-vivia em dicionários Python. Um restart, um crash de worker ou um deploy zerava
-qualquer bloqueio de IP e qualquer lockout de login na hora — e num modelo
-serverless, onde a instância morre sozinha, esperar o reset era trivial.
+**What it was:** all rate limit state (`IpRateLimiter`, `LoginRateLimiter`)
+lived in Python dictionaries. A restart, a worker crash or a deploy instantly
+cleared every IP block and every login lockout — and under a serverless model,
+where the instance dies on its own, waiting for the reset was trivial.
 
-**Estado atual:** ambos os limitadores são Redis, com TTL nas chaves
-(`rateLimiter.py`), e o `slowapi` usa o mesmo Redis como storage
-(`limiter.py`). O estado sobrevive a restart do container e é compartilhado
-entre instâncias. O `limiter.py` degrada para contagem em memória se o Redis
-estiver fora no boot — um limitador que não alcança o store não pode derrubar a
-API junto, mas nesse modo os tetos voltam a valer por instância.
+**Current state:** both limiters are Redis-backed, with TTLs on the keys
+(`rateLimiter.py`), and `slowapi` uses the same Redis as its storage
+(`limiter.py`). The state survives a container restart and is shared across
+instances. `limiter.py` degrades to in-memory counting if Redis is down at
+boot — a limiter that cannot reach its store must not take the API down with
+it, but in that mode the ceilings apply per instance again.
 
-**O que ficou dependendo de infra:**
-- [ ] O Redis precisa ser durável de verdade (ElastiCache com persistência, não
-      um container efêmero ao lado). Um Redis que reinicia limpo devolve o
-      problema inteiro, só que mais silenciosamente.
-- [ ] Alertar quando o fallback em memória disparar. Hoje ele só loga: os tetos
-      afrouxam sem nada visível de fora.
+**What is left depending on infra:**
+- [ ] Redis has to be genuinely durable (ElastiCache with persistence, not an
+      ephemeral container alongside). A Redis that restarts empty brings the
+      whole problem back, only more quietly.
+- [ ] Alert when the in-memory fallback kicks in. Today it only logs: the
+      ceilings loosen with nothing visible from outside.
 
-**Where to implement:** `rateLimiter.py`, `limiter.py`, infra do Redis
+**Where to implement:** `rateLimiter.py`, `limiter.py`, Redis infra
 
 ---
 
@@ -605,10 +607,11 @@ pip-audit -r requirements.txt
 - [ ] Run `git log --all -- .secrets.toml` to verify the file was never committed before the ignore was added
 - [ ] If it was committed, rotate all secrets immediately — assume compromised
 - [ ] Add a pre-commit hook (e.g. `detect-secrets` or `git-secrets`) that blocks commits containing high-entropy strings or known secret patterns
-- [ ] Em produção, os secrets vêm de variável de ambiente (`docker/prod.env` ou
-      a task definition do ECS); `.secrets.toml` está no `.dockerignore` e não
-      entra na imagem. O passo que falta é tirá-los do arquivo em disco e pôr no
-      AWS Secrets Manager, injetado na task definition
+- [ ] In production the secrets come from environment variables
+      (`docker/prod.env` or the ECS task definition); `.secrets.toml` is in
+      `.dockerignore` and never enters the image. The remaining step is moving
+      them off the on-disk file into AWS Secrets Manager, injected into the task
+      definition
 
 **Where to implement:** CI pre-commit hooks
 
@@ -734,11 +737,79 @@ Rules requiring changes outside routes/services (new tables, models, external se
 | Admin action | 9 |
 
 ### 11.9 Cross-Cutting Rules
-- **Soft Delete**: All entities use `status=deleted`, never hard delete
+- **Soft Delete**: All entities use `status=deleted`. User accounts are the one
+  exception to "never hard delete": a soft-deleted account is destroyed for real
+  by the `purge-accounts` job once `ACCOUNT_DELETION_GRACE_DAYS` (default 30)
+  have passed since `tb_0.cl_0f`. See 11.10.
 - **Ownership Checks**: Service layer verifies ownership before repository calls
 - **Input Sanitization**: All free-text passes through `Sanitizer.cleanHtml()`
 - **User ID**: `tb_0.cl_0a` uses Firebase UID (opaque string). All other PKs (`tb_1`–`tb_8`) are UUID v4. No sequential integers anywhere.
 - **Status Codes**: `disabled=0`, `enabled=1`, `deleted=2`, `blocked=3`, `pending=4`, `accepted=5`, `ignored=6`, `unread=7`, `read=8`, `banned=9`
+
+### 11.9.1 Reads are checked in the service, not only by RLS
+
+`GET /messages/chat/{chatId}` and `/messages/chat/{chatId}/unread` took the
+authenticated user id and never used it: `MessageService.getByChatId` went
+straight to the repository with the chat id. The `tb_4` policy was therefore the
+**only** control on them, which contradicts the posture stated for RLS
+everywhere else in this document — defence in depth, not the access-control
+layer. Chat ids are not secret (they appear in every chat-list response), so any
+context where the policy does not apply — a role with BYPASSRLS or superuser, a
+session with no RLS context, a future migration that drops the policy — turned
+those two endpoints into a way to read any conversation.
+
+Both now call `_assertParticipant` first and answer 403 `FORBIDDEN`, the same
+check `markAsRead` and `markAllAsRead` already performed. Covered in
+`tests/unit/services/test_messageService.py` and
+`tests/integration/test_message.py::TestMessageRLS`.
+
+### 11.10 Account Deletion and Reactivation
+
+Deleting an account is a soft delete plus a disclosed clock, not a status flip
+that lasts forever.
+
+| Stage | State | What the API answers |
+|-------|-------|----------------------|
+| `DELETE /users/me` | `status=deleted`, `cl_0f = now` | account invisible everywhere; access tokens rejected by `getCurrentUser`, refresh rejected by `AuthService.refresh` |
+| inside the window | unchanged | login/register → 403 `ACCOUNT_PENDING_DELETION` + `details.deletionScheduledAt`; `POST /auth/reactivate` restores it |
+| window closed | unchanged, awaiting purge | login/register/reactivate → 403 `ACCOUNT_DELETED`, "Account not found." |
+| purged | row gone | 401, as for any UID that was never registered |
+
+Three properties are deliberate:
+
+- **The window is disclosed, not hidden.** The delete confirmation names the
+  number of days and says signing in restores everything. Retention that users
+  are told about is ordinary; retention they discover is the thing they object
+  to, and GDPR Art. 17 reads the same way — a stated execution window is lawful,
+  silent retention is not.
+- **Reactivation is explicit.** `POST /auth/reactivate` exists rather than
+  login restoring the account on its own. Restoring puts a profile, a friend
+  list and a streak history back in front of other people; in a recovery app,
+  where deleting is often a response to a relapse, doing that because someone
+  tapped "sign in" would be a disclosure they never agreed to.
+- **A ban outranks a deletion.** Banned is checked before the deletion branch in
+  login, register and reactivate, so deleting an account is not a way to shed a
+  ban and come back.
+
+**The purge is the whole guarantee.** `docker compose run --rm app purge-accounts`
+(cron on the live host, see `docs/operations.md`) is the only code path that hard
+deletes a user. If it is not scheduled, the promise on the delete screen is
+never kept and nothing anywhere reports that — a deleted account past its window
+looks identical from outside whether the row still exists or not.
+
+The cascade that makes it possible is migration `20260901_01`: every FK into
+`tb_0` gained `ON DELETE CASCADE`, except `tb_7.cl_7c` (audit logs), which gained
+`ON DELETE SET NULL` so the record that the deletion happened outlives the
+account. One consequence to be aware of: both halves of a 1-on-1 chat live in one
+`tb_3` row, so purging an account also removes the other participant's copy of
+that conversation.
+
+**Admin surface.** `PUT /users/{id}/status/{status}` can set any account to any
+status — it is how a ban is applied, lifted, or a deletion undone. It sits
+behind `getAdminUser`, an allowlist of Firebase UIDs in `ADMIN_USER_IDS`, empty
+by default. Before that dependency existed the route was authenticated-only,
+which let any signed-in user unban themselves or ban anyone else, and made every
+banned-account check elsewhere unenforceable.
 
 ---
 

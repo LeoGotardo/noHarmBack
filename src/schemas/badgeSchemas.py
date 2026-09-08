@@ -6,16 +6,24 @@ from uuid import UUID
 from datetime import datetime
 
 class BadgeBase(BaseModel):
+    """The fields a badge actually has, minus anything the server owns.
+
+    `created_at` and `updated_at` used to live here, which made them required
+    on the *request* too — `BadgeCreate` inherits this and `POST /badges`
+    rejected every body without them. Nobody creating a badge can know those
+    values, and letting a client supply them means letting it backdate one.
+    `TimestampMixin` writes both, so they belong to the response alone.
+    """
+
     name: str = Field(..., min_length=3, max_length=50)
     description: str = Field(..., min_length=3, max_length=500)
     milestone: int = Field(..., ge=0, description="Clean days required to earn the badge")
     status: int = Field(default=1, description="Badge status (ex: 1 active, 0 inactive)")
     icon: str = Field(..., description="Icon image link")
-    updated_at: datetime = Field(..., description="Last updated timestamp")
-    
-    
+
+
 class BadgeCreate(BadgeBase):
-    created_at: datetime = Field(..., description="Created timestamp")
+    pass
 
     
 class BadgeUpdate(BaseModel):

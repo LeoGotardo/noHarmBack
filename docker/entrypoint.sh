@@ -71,6 +71,20 @@ if [[ "${1:-}" == "migrate" ]]; then
     exit 0
 fi
 
+# ── One-shot account purge ─────────────────────────────────────────────────
+# `docker compose run --rm app purge-accounts` permanently deletes accounts
+# whose deletion grace window has closed. Cron runs this on the live instance;
+# see docs/operations.md. Same placement as migrate, for the same reason: it
+# serves nothing and needs neither a certificate nor a load balancer.
+#
+# Its exit code is meaningful — non-zero means at least one account could not be
+# purged — so it must not be swallowed by the TLS branches below.
+if [[ "${1:-}" == "purge-accounts" ]]; then
+    log "purge task: deleting accounts past the deletion grace window"
+    cd /app/src && python -m jobs.purgeAccounts
+    exit $?
+fi
+
 # ── TLS shape ──────────────────────────────────────────────────────────────
 # alb       — TLS ends at an AWS load balancer (ACM certificate). The container
 #             serves plain :80 and never sees a certificate. This is the default

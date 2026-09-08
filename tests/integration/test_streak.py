@@ -6,7 +6,7 @@ class TestStreakLifecycle:
         resp = client.post("/streaks/start", headers=user_a["headers"])
         assert resp.status_code == 201
         body = resp.json()
-        assert body["owner"] == user_a["uid"]
+        assert body["owner_id"] == user_a["uid"]
         assert body["status"] is not None
 
     def test_start_streak_twice_returns_409(self, client, user_a):
@@ -18,7 +18,7 @@ class TestStreakLifecycle:
         client.post("/streaks/start", headers=user_a["headers"])
         resp = client.get("/streaks/current", headers=user_a["headers"])
         assert resp.status_code == 200
-        assert resp.json()["owner"] == user_a["uid"]
+        assert resp.json()["owner_id"] == user_a["uid"]
 
     def test_checkin_returns_200(self, client, user_a):
         client.post("/streaks/start", headers=user_a["headers"])

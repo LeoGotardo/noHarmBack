@@ -241,9 +241,20 @@ class TestBadgeSchemas:
             description="Achieve 1 day clean",
             milestone=1,
             icon="https://example.com/icon.png",
-            updated_at=now,
         )
         assert r.status == 1
+
+    def test_badge_create_does_not_ask_for_timestamps(self):
+        """A client cannot know them, and must not be able to choose them."""
+        from schemas.badgeSchemas import BadgeCreate
+        b = BadgeCreate(
+            name="First Step",
+            description="Achieve 1 day clean",
+            milestone=1,
+            icon="https://example.com/icon.png",
+        )
+        assert not hasattr(b, "created_at")
+        assert not hasattr(b, "updated_at")
 
     def test_badge_update_partial_override(self):
         from schemas.badgeSchemas import BadgeUpdate

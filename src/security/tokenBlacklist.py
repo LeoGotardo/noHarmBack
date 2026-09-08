@@ -34,4 +34,8 @@ class TokenBlacklist:
         return self._redis.exists(self._PREFIX + hashedJti) == 1
 
     def _hash(self, jti: str) -> str:
-        return Encryption.hash(jti)
+        # `digest`, not `hash`: a JTI is 128 bits of `secrets.token_urlsafe`, so
+        # a keyed index protects nothing here — and it would tie every stored
+        # revocation to BLIND_INDEX_KEY, so rotating that key would un-revoke
+        # every token still within its lifetime.
+        return Encryption.digest(jti)

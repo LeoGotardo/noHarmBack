@@ -56,3 +56,26 @@ def getCurrentUser(
         raise HTTPException(status_code=403, detail=message)
 
     return userId
+
+
+def getAdminUser(userId: str = Depends(getCurrentUser)) -> str:
+    """Authorise an admin-only endpoint.
+
+    There is no role column and no admin UI: authorisation is the
+    `ADMIN_USER_IDS` allowlist and nothing else. It defaults to empty, so an
+    environment that has named no administrators rejects every admin call
+    rather than falling open.
+
+    This matters more than it looks. `PUT /users/{id}/status/{status}` can set
+    any account to any status — it is the only way to ban someone, and equally
+    the only way to *unban* someone. Behind `getCurrentUser` alone, any signed-in
+    user could lift their own ban, or ban anyone else, which left every
+    "banned accounts cannot sign in" rule in the codebase decorative.
+
+    Returns 404 rather than 403 for a non-admin: whether an admin surface exists
+    here is not something an ordinary caller needs confirmed.
+    """
+    if userId not in config.ADMIN_USER_IDS:
+        raise HTTPException(status_code=404, detail="Not found.")
+
+    return userId

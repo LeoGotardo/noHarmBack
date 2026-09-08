@@ -18,7 +18,7 @@ import sqlalchemy as sa
 
 
 revision = "20260812_01"
-# Encadeada depois da baseline: antes disto ela era a única revisão e tinha
+# Chained after the baseline: before this, it was the only revision.
 down_revision = "c0781a0a5605"
 branch_labels = None
 depends_on = None

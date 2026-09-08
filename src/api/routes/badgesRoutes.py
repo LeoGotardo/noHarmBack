@@ -187,9 +187,7 @@ def createBadge(
             description=body.description,
             milestone=body.milestone,
             icon=body.icon,
-            status=body.status,
-            created_at=body.created_at,
-            updated_at=body.updated_at
+            status=body.status
         )
 
         createdBadge = service.create(newBadge)

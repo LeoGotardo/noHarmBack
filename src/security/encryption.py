@@ -1,9 +1,10 @@
-import base64, argon2, sys
+import base64, argon2, hmac, sys
 
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 from hashlib import sha256
-from Crypto.Cipher import AES
+
+from core.config import config
 
 
 def _exc_location() -> str:
@@ -126,4 +127,41 @@ class Encryption:
 
     @staticmethod
     def hash(value: str) -> str:
+        """Keyed blind index over a value that is stored encrypted.
+
+        This is what makes `WHERE email_hash = ...` possible against a column
+        the database cannot read. It is deliberately deterministic — equality
+        lookup is the entire feature — so the only thing standing between the
+        index and the plaintext is the key.
+
+        It used to be a bare `sha256(value)`, which made the index strictly
+        weaker than the ciphertext it sits next to: an attacker reading the
+        database recovers e-mails with a wordlist and usernames by enumerating
+        `^[a-zA-Z0-9_-]{3,30}$`, never touching DATABASE_ENCRYPTION_KEY. HMAC
+        with a key held outside the database closes exactly that gap and
+        nothing else — two identical values still produce identical indexes,
+        which is the property the lookups depend on.
+
+        Output stays 64 hex characters, so the String(64) columns are unchanged.
+
+        For high-entropy values that are not user data — a JTI, a nonce — use
+        `digest`: keying those buys nothing, and tying them to a rotatable key
+        means a rotation silently invalidates them.
+        """
+        return hmac.new(_BLIND_INDEX_KEY, value.encode('utf-8'), sha256).hexdigest()
+
+
+    @staticmethod
+    def digest(value: str) -> str:
+        """Unkeyed SHA-256, for values that are already unguessable.
+
+        Split out from `hash` so that rotating BLIND_INDEX_KEY cannot reach the
+        JWT blacklist. It would: every revoked JTI is stored under its hash, and
+        a key change makes those keys unreachable, which quietly un-revokes
+        every token still inside its lifetime — up to seven days for a refresh
+        token, and with no error anywhere to say so.
+        """
         return sha256(value.encode('utf-8')).hexdigest()
+
+
+_BLIND_INDEX_KEY: bytes = config.BLIND_INDEX_KEY.encode('utf-8')
