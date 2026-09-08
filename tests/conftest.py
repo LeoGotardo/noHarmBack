@@ -9,14 +9,12 @@ Responsibilities:
 
 import sys
 import os
-import tempfile
 from unittest.mock import MagicMock
 
 # ── 1. Path setup ─────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 # ── 2. Env vars (must be set before core.config is imported) ──────────────────
-_test_storage = tempfile.mkdtemp(prefix="noharm_test_")
 
 _STATUS_CODES = (
     '{"disabled":0,"enabled":1,"deleted":2,"blocked":3,'
@@ -40,8 +38,6 @@ _DEFAULTS = {
     "DATABASE_USER": "test",
     "DATABASE_PASSWORD": "test",
     "DATABASE_URL_UNPOOLED": "postgresql://test:test@localhost/testdb",
-    "STORAGE_SERVICE_URI": "http://localhost",
-    "STORAGE_SERVICE_KEY": "test-storage-key",
     "EXEC_MODE": "test",
     "DEBUG": "false",
     "PORT": "8000",
@@ -51,7 +47,6 @@ _DEFAULTS = {
     "JWT_ALGORITHM": "HS256",
     "ACCESS_TOKEN_EXPIRE_MINUTES": "15",
     "REFRESH_TOKEN_EXPIRE_DAYS": "7",
-    "STORAGE_PATH": _test_storage,
     "ALLOWED_ORIGINS": '["http://localhost:3000"]',
     # DB 15, never DB 0: security/limiter.py builds a Redis-backed slowapi
     # limiter at import time, so the suite writes real rate-limit counters.

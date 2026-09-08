@@ -328,7 +328,6 @@ JWT_REFRESH_SECRET_KEY  = "..."   # Refresh token signing key
 JWT_ALGORITHM           = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES  = 15
 REFRESH_TOKEN_EXPIRE_DAYS    = 7
-STORAGE_PATH            = "data"
 ALLOWED_ORIGINS         = ["*"]
 DEBUG                   = true
 PORT                    = 8080

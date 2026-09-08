@@ -98,15 +98,6 @@ class Config:
             # Rotating it requires re-running the 20260902_01 migration: every
             # stored index has to be recomputed or every lookup misses.
             self.BLIND_INDEX_KEY: str = _require("BLIND_INDEX_KEY")
-            # Optional, and read by nothing today: file uploads and profile
-            # pictures are still unimplemented (`storageService.py` holds the
-            # declarative Base and no storage code). They were `_require`d,
-            # which meant every deployment had to invent a value for a service
-            # that does not exist yet — a dummy string in the task definition
-            # standing in for configuration. They become required again on the
-            # day something reads them.
-            self.STORAGE_SERVICE_URI: str = os.environ.get("STORAGE_SERVICE_URI", "")
-            self.STORAGE_SERVICE_KEY: str = os.environ.get("STORAGE_SERVICE_KEY", "")
             self.EXEC_MODE: str = _require("EXEC_MODE")
             self.DEBUG: bool = _require_bool("DEBUG")
             self.PORT: int = _require_int("PORT")
@@ -116,13 +107,6 @@ class Config:
             self.JWT_ALGORITHM: str = _require("JWT_ALGORITHM")
             self.ACCESS_TOKEN_EXPIRE_MINUTES: int = _require_int("ACCESS_TOKEN_EXPIRE_MINUTES")
             self.REFRESH_TOKEN_EXPIRE_DAYS: int = _require_int("REFRESH_TOKEN_EXPIRE_DAYS")
-            # Where `security/persistentHashTable.py` would write its
-            # append-only log. Nothing imports that module: the JWT blacklist
-            # lives in Redis (`security/tokenBlacklist.py`), which is what makes
-            # revocation work across more than one instance. Kept with a default
-            # rather than removed, so the module still has a path if it is ever
-            # wired back in.
-            self.STORAGE_PATH: str = os.environ.get("STORAGE_PATH", "tmp/blacklist.jsonl")
             self.ALLOWED_ORIGINS: list = _require_json("ALLOWED_ORIGINS")
             self.REDIS_URL: str = _require("REDIS_URL")
             self.FIREBASE_SERVICE_ACCOUNT: str | None = os.environ.get("FIREBASE_SERVICE_ACCOUNT")

@@ -142,7 +142,7 @@ This document tracks the current state of the backend architecture and component
 
 | Component           | Status   | Notes                              |
 | ------------------- | -------- | ---------------------------------- |
-| `storageService.py` | ⬜ Empty | File uploads, profile pictures. `STORAGE_SERVICE_URI`, `STORAGE_SERVICE_KEY` and `STORAGE_PATH` are now optional in `core/config.py` — they become required again once something reads them. |
+| `storageService.py` | ⬜ Empty | File uploads, profile pictures. The module holds the declarative `Base` and nothing else. `STORAGE_SERVICE_URI`, `STORAGE_SERVICE_KEY` and `STORAGE_PATH` have been removed from `core/config.py`; whoever builds uploads adds the settings the implementation actually needs. |
 | Backups off the database disk | ⬜ Missing | `backup-db.sh` writes to `~/backups`, on the **same EBS volume** as Postgres. It covers accidental deletion, not loss of the volume. Shipping to S3 requires an instance role — there is no AWS credential on the machine today. |
 | Monitoring / alerting | ⬜ Missing | Nothing warns when a container dies, the dump fails, the certificate renewal does not run, or `purge-accounts` stops purging. All three cron jobs only write to a log — and a purge that never runs is invisible from outside, because a deleted account past its window answers "Account not found." either way. |
 
