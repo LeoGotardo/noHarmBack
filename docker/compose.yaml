@@ -67,6 +67,16 @@ services:
       # What tokens are matched against, real or minted. Real Google tokens for
       # this project keep working, so interactive login still works locally.
       - FIREBASE_PROJECT_ID=noharm-6cc9d
+      # Moderation is an allowlist of Firebase UIDs and nothing else, so a dev
+      # environment with an empty one cannot exercise the queue, the evidence
+      # endpoint or a resolution — every admin route answers 404 to everybody.
+      # This names one fixed uid the E2E suite registers as (helpers/api.js,
+      # `createAdmin`). Deployed, the value comes from prod.env and is a real
+      # person; here it is a throwaway account anyone with the compose file can
+      # become, which is exactly why it must never leave dev.
+      # Two of them: the report lock only means anything with more than one
+      # moderator, and a collision cannot be tested with a single uid.
+      - ADMIN_USER_IDS=["e2e-moderator","e2e-moderator-2", "XyeS5lvpHaRzod77qswzMYDIBlv2"]
     ports:
       - "8080:8080"
     # run.py passes reload=DEBUG to uvicorn, and DEBUG is true in dev. Without

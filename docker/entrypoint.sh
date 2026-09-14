@@ -85,6 +85,17 @@ if [[ "${1:-}" == "purge-accounts" ]]; then
     exit $?
 fi
 
+# ── One-shot evidence retention sweep ──────────────────────────────────────
+# `docker compose run --rm app purge-evidence` deletes the copied messages
+# behind reports a moderator closed over REPORT_EVIDENCE_RETENTION_DAYS ago.
+# The reports themselves stay; only the evidence is swept. Cron runs this
+# beside the account purge — see docs/operations.md.
+if [[ "${1:-}" == "purge-evidence" ]]; then
+    log "retention task: deleting evidence past the report retention window"
+    cd /app/src && python -m jobs.purgeEvidence
+    exit $?
+fi
+
 # ── TLS shape ──────────────────────────────────────────────────────────────
 # alb       — TLS ends at an AWS load balancer (ACM certificate). The container
 #             serves plain :80 and never sees a certificate. This is the default
