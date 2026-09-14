@@ -180,3 +180,87 @@ def test_updateStatus_calls_repo_and_returns_user(mock_db, mock_user):
     result = service.updateStatus("uid-001", status=config.STATUS_CODES["disabled"])
     assert result is mock_user
     service.userRepository.updateStatus.assert_called_once_with("uid-001", config.STATUS_CODES["disabled"])
+
+
+# ── suspension ────────────────────────────────────────────────────────────────
+
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+
+def test_suspend_bans_until_a_date(mock_db):
+    service = _make_service(mock_db)
+
+    service.suspend("uid-bad", 3, "uid-admin")
+
+    userId, until = service.userRepository.suspend.call_args[0]
+    assert userId == "uid-bad"
+    # Three days out, give or take the time the test took — measured in naive
+    # UTC, which is what the column holds.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    assert timedelta(days=2, hours=23) < (until - now) <= timedelta(days=3)
+
+
+def test_suspend_with_no_days_is_a_permanent_ban(mock_db):
+    """`days: null` has to be written out — a missing field must not mean
+    'for ever' by accident."""
+    service = _make_service(mock_db)
+
+    service.suspend("uid-bad", None, "uid-admin")
+
+    _, until = service.userRepository.suspend.call_args[0]
+    assert until is None
+
+
+def test_suspend_beyond_the_cap_is_refused(mock_db):
+    service = _make_service(mock_db)
+
+    with pytest.raises(NoHarmException) as exc:
+        service.suspend("uid-bad", config.MAX_SUSPENSION_DAYS + 1, "uid-admin")
+
+    assert exc.value.statusCode == 400
+    assert exc.value.errorCode == "INVALID_SUSPENSION"
+    service.userRepository.suspend.assert_not_called()
+
+
+def test_suspend_for_zero_days_is_refused(mock_db):
+    service = _make_service(mock_db)
+
+    with pytest.raises(NoHarmException):
+        service.suspend("uid-bad", 0, "uid-admin")
+    service.userRepository.suspend.assert_not_called()
+
+
+def test_a_moderator_cannot_suspend_themselves(mock_db):
+    service = _make_service(mock_db)
+
+    with pytest.raises(NoHarmException) as exc:
+        service.suspend("uid-admin", 7, "uid-admin")
+
+    assert exc.value.errorCode == "SELF_SUSPENSION"
+    service.userRepository.suspend.assert_not_called()
+
+
+def test_suspend_writes_an_audit_entry_naming_the_moderator(mock_db):
+    service = _make_service(mock_db)
+
+    service.suspend("uid-bad", 7, "uid-admin")
+
+    entry = service.auditRepository.create.call_args[0][0]
+    assert entry.type == 5
+    assert entry.catalyst_id == "uid-admin"
+
+
+def test_lifting_an_expired_suspension_is_audited(mock_db):
+    service = _make_service(mock_db)
+    service.userRepository.liftExpiredSuspension.return_value = MagicMock()
+
+    service.liftExpiredSuspension("uid-bad")
+    assert service.auditRepository.create.called
+
+
+def test_lifting_nothing_writes_nothing(mock_db):
+    service = _make_service(mock_db)
+    service.userRepository.liftExpiredSuspension.return_value = None
+
+    assert service.liftExpiredSuspension("uid-bad") is None
+    service.auditRepository.create.assert_not_called()

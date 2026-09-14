@@ -35,9 +35,10 @@ This document tracks the current state of the backend architecture and component
 | **WebSocket**              | Socket.IO + handlers                                                  | ✅ Complete |
 | **Row Level Security**     | Policies in `20260831_02` + per-transaction context                    | ✅ Complete |
 | **Account deletion window**| `20260901_01`: `deleted_at` + purgeable FKs, `POST /auth/reactivate`, `purge-accounts` cron | ✅ Complete |
-| **Admin authorisation**    | `ADMIN_USER_IDS` allowlist + `getAdminUser` on the status route        | ✅ Complete |
+| **Admin authorisation**    | `ADMIN_USER_IDS` allowlist + `getAdminUser` on the status and report routes | ✅ Complete |
+| **User reports**           | `20260909_01`: `tb_10` + RLS, `POST /reports/{userId}`, admin queue and resolutions | ✅ Complete |
 | **Pagination**             | Generic pagination system                                             | ✅ Complete |
-| **Unit Tests**             | 505 tests, 0 failures                                                 | ✅ Complete |
+| **Unit Tests**             | 836 tests, 0 failures                                                 | ✅ Complete |
 | **Pyright/Pylance config** | `pyrightconfig.json` + `.vscode/settings.json`                        | ✅ Complete |
 
 ---
@@ -57,6 +58,9 @@ This document tracks the current state of the backend architecture and component
 | `userBedgesModel.py`   | `tb_6` | User-badge associations             |
 | `auditLogsModel.py`    | `tb_7` | Audit trail                         |
 | `refreshTokenModel.py` | `tb_8` | Refresh token storage               |
+| `reportModel.py`       | `tb_10` | User reports (moderation)          |
+| `reportEvidenceModel.py` | `tb_11` | Evidence captured with a report   |
+| `moderationNoticeModel.py` | `tb_12` | Warnings and suspension notices  |
 
 ### Repositories (`src/infrastructure/database/repositories/`)
 
@@ -71,6 +75,7 @@ This document tracks the current state of the backend architecture and component
 | `userBadgesRepository.py`   | UserBadge    | findByUserId, findByBadgeId, existsByUserAndBadge, grant          |
 | `auditLogsRepository.py`    | AuditLogs    | findByType, findByCatalystId, findByDateRange                     |
 | `refreshTokenRepository.py` | RefreshToken | findByTokenHash, deleteByUserId, deleteExpired                    |
+| `reportRepository.py`       | Report       | findById, findOpenByPair, findByReporter, findAll, countByReported, create, updateStatus |
 
 ### Services (`src/domain/services/`)
 
@@ -84,6 +89,7 @@ This document tracks the current state of the backend architecture and component
 | `messageService.py`    | Message CRUD, read status                                 |
 | `badgeService.py`      | Achievement checking and granting                         |
 | `userBadgeService.py`  | User-badge management                                     |
+| `reportService.py`     | Filing reports, the reporter's own list, admin queue and resolutions |
 | `auditLogsService.py`  | Audit trail operations                                    |
 
 ### Routes (`src/api/routes/`)
@@ -98,6 +104,7 @@ This document tracks the current state of the backend architecture and component
 | `messageRoutes.py`    | GET /messages/chat/{chatId}, POST /messages, PUT /messages/{id}, DELETE /messages/{id} | Yes           |
 | `badgesRoutes.py`     | GET /badges, GET /badges/all                                                           | Yes           |
 | `userBadgesRoutes.py` | GET /user-badges, POST /user-badges, etc.                                              | Yes           |
+| `reportRoutes.py`     | POST /reports/{userId}, GET /reports/mine; admin: GET /reports, GET /reports/{id}, PUT /reports/{id}/resolve/{status} | Yes           |
 | `auditLogsRoutes.py`  | GET /logs, GET /logs/{logId}, GET /logs/type/{type}, etc.                              | Yes           |
 
 ### Schemas (`src/schemas/`)
@@ -112,6 +119,7 @@ This document tracks the current state of the backend architecture and component
 | `messageSchemas.py`    | MessageRequest, MessageResponse, MessageListResponse                            |
 | `badgeSchemas.py`      | BadgeResponse, BadgeListResponse                                                |
 | `userBadgeSchemas.py`  | UserBadgeResponse, UserBadgeCreate, UserBadgeListResponse                       |
+| `reportSchemas.py`     | ReportReason, ReportRequest, ReportResponse, ReportListResponse                 |
 | `auditLogsSchemas.py`  | AuditLogsResponse, AuditLogsCreate, AuditLogsListResponse                       |
 | `paginationSchemas.py` | PaginationParams, PaginatedResponse[T]                                          |
 
@@ -199,9 +207,9 @@ Defined in `.secrets.toml` under `STATUS_CODES`:
 | `enabled`  | 1     | User, streak        |
 | `deleted`  | 2     | Soft delete         |
 | `blocked`  | 3     | User account        |
-| `pending`  | 4     | Friendship request  |
-| `accepted` | 5     | Friendship          |
-| `ignored`  | 6     | Friendship          |
+| `pending`  | 4     | Friendship request · unreviewed report |
+| `accepted` | 5     | Friendship · report actioned |
+| `ignored`  | 6     | Friendship · report dismissed |
 | `unread`   | 7     | Message             |
 | `read`     | 8     | Message             |
 | `banned`   | 9     | User account        |

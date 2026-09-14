@@ -81,6 +81,22 @@ def clean_tables():
     yield
 
 
+# ── ...and once more when the session ends ────────────────────────────────────
+@pytest.fixture(scope="session", autouse=True)
+def clean_after_session():
+    """Leave the database as the run found it.
+
+    `clean_tables` truncates *before* each test, which keeps tests independent
+    but leaves the last one's rows sitting there until somebody runs the suite
+    again — accounts, reports, notices and the audit trail of a hundred
+    throwaway users. Truncating `tb_0` and `tb_5` cascades to everything else.
+    """
+    yield
+    with _engine.connect() as conn:
+        conn.execute(text("TRUNCATE tb_0, tb_5 CASCADE"))
+        conn.commit()
+
+
 # ── Reset rate limiter state between tests ────────────────────────────────────
 @pytest.fixture(autouse=True)
 def reset_rate_limiters():

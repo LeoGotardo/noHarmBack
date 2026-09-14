@@ -181,6 +181,82 @@ class TestUserVisibility:
         assert result.rowcount == 0
 
 
+class TestReportVisibility:
+    """tb_10: the reporter is the only party to the row.
+
+    Filed with no context, the same escape the seed above uses.
+    """
+
+    @pytest.fixture
+    def report(self, rls_engine, seeded):
+        reportId = uuid.uuid4()
+        with Session(rls_engine) as session:
+            session.execute(
+                text(
+                    "INSERT INTO tb_10 (cl_10a, cl_10b, cl_10c, cl_10g, cl_10d, cl_10f,"
+                    "                   created_at, updated_at)"
+                    " VALUES (:id, :reporter, :reported, :reported, 'harassment', 4, now(), now())"
+                ),
+                {"id": reportId, "reporter": USER_A, "reported": USER_B},
+            )
+            session.commit()
+
+        yield reportId
+
+        with Session(rls_engine) as session:
+            session.execute(text("DELETE FROM tb_10 WHERE cl_10a = :id"), {"id": reportId})
+            session.commit()
+
+    def test_reporter_reads_their_own_report(self, rls_engine, report):
+        with _asUser(rls_engine, USER_A) as session:
+            count = session.execute(
+                text("SELECT count(*) FROM tb_10 WHERE cl_10a = :id"), {"id": report}
+            ).scalar()
+
+        assert count == 1
+
+    def test_reported_user_reads_nothing(self, rls_engine, report):
+        """The one that matters: being reported must not be discoverable."""
+        with _asUser(rls_engine, USER_B) as session:
+            count = session.execute(
+                text("SELECT count(*) FROM tb_10 WHERE cl_10a = :id"), {"id": report}
+            ).scalar()
+
+        assert count == 0
+
+    def test_a_cannot_file_a_report_as_someone_else(self, rls_engine, seeded):
+        with _asUser(rls_engine, USER_A) as session:
+            with pytest.raises(Exception):
+                session.execute(
+                    text(
+                        "INSERT INTO tb_10 (cl_10a, cl_10b, cl_10c, cl_10g, cl_10d, cl_10f,"
+                        "                   created_at, updated_at)"
+                        " VALUES (:id, :reporter, :reported, :reported, 'spam', 4, now(), now())"
+                    ),
+                    {"id": uuid.uuid4(), "reporter": USER_B, "reported": USER_A},
+                )
+                session.commit()
+
+    def test_reporter_cannot_rewrite_a_filed_report(self, rls_engine, report):
+        """Only a session with no context — the admin routes' `getDb` — resolves one."""
+        with _asUser(rls_engine, USER_A) as session:
+            result = session.execute(
+                text("UPDATE tb_10 SET cl_10f = 6 WHERE cl_10a = :id"), {"id": report}
+            )
+            session.commit()
+
+        assert result.rowcount == 0
+
+    def test_a_context_free_session_resolves_it(self, rls_engine, report):
+        with Session(rls_engine) as session:
+            result = session.execute(
+                text("UPDATE tb_10 SET cl_10f = 6 WHERE cl_10a = :id"), {"id": report}
+            )
+            session.commit()
+
+        assert result.rowcount == 1
+
+
 class TestMessageScope:
     def test_participant_reads_the_message(self, rls_engine, seeded):
         with _asUser(rls_engine, USER_B) as session:
@@ -263,3 +339,177 @@ class TestContextLifetime:
 
         assert context == ""
         assert {USER_A, USER_B} <= owners
+
+
+class TestEvidenceVisibility:
+    """tb_11: the captured conversation is a moderator's to read and nobody else's.
+
+    The rows hold two users' private messages, copied for one purpose. The
+    reporter saw them already but has no business re-reading them here, and the
+    reported user must never learn the capture exists.
+    """
+
+    @pytest.fixture
+    def report_with_evidence(self, rls_engine, seeded):
+        reportId = uuid.uuid4()
+        evidenceId = uuid.uuid4()
+        with Session(rls_engine) as session:
+            session.execute(
+                text(
+                    "INSERT INTO tb_10 (cl_10a, cl_10b, cl_10c, cl_10g, cl_10d, cl_10f,"
+                    "                   created_at, updated_at)"
+                    " VALUES (:id, :reporter, :reported, :reported, 'harassment', 4, now(), now())"
+                ),
+                {"id": reportId, "reporter": USER_A, "reported": USER_B},
+            )
+            session.execute(
+                text(
+                    "INSERT INTO tb_11 (cl_11a, cl_11b, cl_11c, cl_11d, cl_11e, cl_11f,"
+                    "                   cl_11g, created_at, updated_at)"
+                    " VALUES (:id, :report, 'message', 'msg-1', :author, 'copied line',"
+                    "         'deadbeef', now(), now())"
+                ),
+                {"id": evidenceId, "report": reportId, "author": USER_B},
+            )
+            session.commit()
+
+        yield reportId, evidenceId
+
+        with Session(rls_engine) as session:
+            session.execute(text("DELETE FROM tb_10 WHERE cl_10a = :id"), {"id": reportId})
+            session.commit()
+
+    def test_the_reported_user_reads_nothing(self, rls_engine, report_with_evidence):
+        _, evidenceId = report_with_evidence
+        with _asUser(rls_engine, USER_B) as session:
+            count = session.execute(
+                text("SELECT count(*) FROM tb_11 WHERE cl_11a = :id"), {"id": evidenceId}
+            ).scalar()
+
+        assert count == 0
+
+    def test_the_reporter_reads_nothing_either(self, rls_engine, report_with_evidence):
+        _, evidenceId = report_with_evidence
+        with _asUser(rls_engine, USER_A) as session:
+            count = session.execute(
+                text("SELECT count(*) FROM tb_11 WHERE cl_11a = :id"), {"id": evidenceId}
+            ).scalar()
+
+        assert count == 0
+
+    def test_a_context_free_session_reads_it(self, rls_engine, report_with_evidence):
+        """What the admin routes get through `getDb`."""
+        _, evidenceId = report_with_evidence
+        with Session(rls_engine) as session:
+            count = session.execute(
+                text("SELECT count(*) FROM tb_11 WHERE cl_11a = :id"), {"id": evidenceId}
+            ).scalar()
+
+        assert count == 1
+
+    def test_a_user_cannot_attach_evidence_to_someone_elses_report(self, rls_engine, report_with_evidence):
+        reportId, _ = report_with_evidence
+        with _asUser(rls_engine, USER_B) as session:
+            with pytest.raises(Exception):
+                session.execute(
+                    text(
+                        "INSERT INTO tb_11 (cl_11a, cl_11b, cl_11c, cl_11f, cl_11g,"
+                        "                   created_at, updated_at)"
+                        " VALUES (:id, :report, 'message', 'invented', 'deadbeef', now(), now())"
+                    ),
+                    {"id": uuid.uuid4(), "report": reportId},
+                )
+                session.commit()
+
+    def test_nobody_rewrites_a_capture(self, rls_engine, report_with_evidence):
+        """There is no UPDATE policy at all, so the hash can never stop matching
+        because someone edited the row through the application."""
+        _, evidenceId = report_with_evidence
+        with _asUser(rls_engine, USER_A) as session:
+            result = session.execute(
+                text("UPDATE tb_11 SET cl_11f = 'rewritten' WHERE cl_11a = :id"),
+                {"id": evidenceId},
+            )
+            session.commit()
+
+        assert result.rowcount == 0
+
+
+class TestNoticeVisibility:
+    """tb_12: a moderation notice is the recipient's to read and nobody else's.
+
+    And nobody's to write except moderation — a notice that could be forged by
+    the account it is about would make the whole ladder decorative.
+    """
+
+    @pytest.fixture
+    def notice(self, rls_engine, seeded):
+        noticeId = uuid.uuid4()
+        with Session(rls_engine) as session:
+            session.execute(
+                text(
+                    "INSERT INTO tb_12 (cl_12a, cl_12b, cl_12c, cl_12d, cl_12e, cl_12f,"
+                    "                   created_at, updated_at)"
+                    " VALUES (:id, :user, 'warning', 'harassment', 'please stop',"
+                    "         'uid-moderator', now(), now())"
+                ),
+                {"id": noticeId, "user": USER_A},
+            )
+            session.commit()
+
+        yield noticeId
+
+        with Session(rls_engine) as session:
+            session.execute(text("DELETE FROM tb_12 WHERE cl_12a = :id"), {"id": noticeId})
+            session.commit()
+
+    def test_the_recipient_reads_it(self, rls_engine, notice):
+        with _asUser(rls_engine, USER_A) as session:
+            count = session.execute(
+                text("SELECT count(*) FROM tb_12 WHERE cl_12a = :id"), {"id": notice}
+            ).scalar()
+
+        assert count == 1
+
+    def test_nobody_else_does(self, rls_engine, notice):
+        with _asUser(rls_engine, USER_B) as session:
+            count = session.execute(
+                text("SELECT count(*) FROM tb_12 WHERE cl_12a = :id"), {"id": notice}
+            ).scalar()
+
+        assert count == 0
+
+    def test_the_recipient_can_acknowledge_it(self, rls_engine, notice):
+        with _asUser(rls_engine, USER_A) as session:
+            result = session.execute(
+                text("UPDATE tb_12 SET cl_12g = now() WHERE cl_12a = :id"), {"id": notice}
+            )
+            session.commit()
+
+        assert result.rowcount == 1
+
+    def test_but_cannot_write_themselves_one(self, rls_engine, seeded):
+        with _asUser(rls_engine, USER_A) as session:
+            with pytest.raises(Exception):
+                session.execute(
+                    text(
+                        "INSERT INTO tb_12 (cl_12a, cl_12b, cl_12c, cl_12d,"
+                        "                   created_at, updated_at)"
+                        " VALUES (:id, :user, 'warning', 'other', now(), now())"
+                    ),
+                    {"id": uuid.uuid4(), "user": USER_A},
+                )
+                session.commit()
+
+    def test_nor_one_for_somebody_else(self, rls_engine, seeded):
+        with _asUser(rls_engine, USER_A) as session:
+            with pytest.raises(Exception):
+                session.execute(
+                    text(
+                        "INSERT INTO tb_12 (cl_12a, cl_12b, cl_12c, cl_12d,"
+                        "                   created_at, updated_at)"
+                        " VALUES (:id, :user, 'suspension', 'harassment', now(), now())"
+                    ),
+                    {"id": uuid.uuid4(), "user": USER_B},
+                )
+                session.commit()

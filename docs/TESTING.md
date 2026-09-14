@@ -2,7 +2,12 @@
 
 ## Overview
 
-**505 unit tests implemented — 0 failures.**
+**905 unit tests implemented — 0 failures** (plus 3 xfailed). 196 integration tests.
+
+Integration tests truncate `tb_0` and `tb_5` (cascading to everything else)
+before each test *and once when the session ends* — otherwise the last test's
+accounts, reports and audit trail sat in the database until somebody ran the
+suite again.
 
 Architecture: `Route → Service → Repository → DB`. Each layer is tested in isolation with mocked dependencies.
 
@@ -60,10 +65,16 @@ tests/
 │   ├── routes/
 │   │   ├── test_authRoutes.py           ✅
 │   │   ├── test_friendshipRoutes.py     ✅
+│   │   ├── test_reportRoutes.py         ✅
 │   │   ├── test_streakRoutes.py         ✅
 │   │   └── test_userRoutes.py           ✅
 │   ├── schemas/
 │   │   └── test_schemas.py              ✅ all Pydantic DTOs
+│   ├── infrastructure/
+│   │   └── test_firebaseApp.py          ✅ one app per process, cold-start race
+│   ├── jobs/
+│   │   ├── test_purgeAccounts.py        ✅
+│   │   └── test_purgeEvidence.py        ✅ evidence retention sweep
 │   ├── security/
 │   │   ├── test_encryption.py           ✅
 │   │   ├── test_jwtHandler.py           ✅
@@ -79,6 +90,8 @@ tests/
 │       ├── test_chatService.py          ✅
 │       ├── test_friendshipService.py    ✅
 │       ├── test_messageService.py       ✅
+│       ├── test_noticeService.py        ✅
+│       ├── test_reportService.py        ✅
 │       ├── test_streakService.py        ✅
 │       ├── test_userBadgeService.py     ✅
 │       └── test_userService.py          ✅
@@ -88,6 +101,11 @@ tests/
     ├── test_accountLifecycle.py      ✅ deletion window, bans, admin gate, purge
     ├── test_auth.py                  ✅
     ├── test_badges.py / test_chat.py / test_friendship.py / test_message.py
+    ├── test_reports.py                ✅ filing, duplicates, reporter-only reads
+    ├── test_reportEvidence.py         ✅ capture, admin-only reads, surviving a purge, retention
+    ├── test_moderationQueue.py        ✅ the review lock: claim, collision, expiry, release
+    ├── test_suspensions.py            ✅ timed bans, the date in the refusal, lifting itself
+    ├── test_notices.py                ✅ warnings, suspension notices, acknowledgement, what they never name
     ├── test_rls.py / test_security.py / test_streak.py
     ├── test_user.py / test_websocket.py
 ```
@@ -198,6 +216,8 @@ Every repository is tested for:
 | `test_messageService.py` | Send (empty content, non-participant, pending chat), markAsRead, markAllAsRead |
 | `test_badgeService.py` | Grant and list |
 | `test_userBadgeService.py` | Association management |
+| `test_reportService.py` | Report self/unknown reason/deleted account, duplicate while open, sanitised details, admin resolution, evidence capture (profile + both sides of a named chat), a chat the reporter is not in refused before anything is filed, a capture failure never failing the report, audited evidence reads, the review lock (claim/release/resolve, collisions, stale locks) |
+| `test_noticeService.py` | Warnings (conduct named, reporter never), `self_harm` refused with the crisis-resources reason, self-warning, deleted accounts, suspension notices that never undo the suspension, acknowledgement being the recipient's only |
 | `test_auditLogsService.py` | Paginated queries, create |
 
 ### Routes (`tests/unit/routes/`)
@@ -205,9 +225,10 @@ Every repository is tested for:
 | File | Endpoints covered |
 |------|------------------|
 | `test_authRoutes.py` | POST /auth/register, /auth/login, /auth/refresh, /auth/logout |
-| `test_userRoutes.py` | GET /users/me, PUT /users/me, GET /users/{id}, DELETE /users/me |
+| `test_userRoutes.py` | GET /users/me, PUT /users/me, GET /users/{id}, DELETE /users/me, and the admin gate on PUT /users/{id}/status/{status} and PUT /users/{id}/suspend |
 | `test_streakRoutes.py` | GET /streaks/current, /streaks/record, /streaks/history, POST /streaks/start, /streaks/end, /streaks/checkin |
 | `test_friendshipRoutes.py` | POST /friendships, PUT /friendships/{id}/accept, /reject, /block, DELETE /friendships/{id} |
+| `test_reportRoutes.py` | POST /reports/{userId} (including `chatId` forwarding and the refusal of any body field carrying message text), GET /reports/mine (which never names the reviewing moderator), and the admin gate on GET /reports, GET /reports/{id}/evidence, POST/DELETE /reports/{id}/claim and PUT /reports/{id}/resolve/{status} |
 
 ### Schemas (`tests/unit/schemas/`)
 
@@ -223,7 +244,7 @@ Covers all Pydantic DTOs — required fields, optional fields, validation errors
 | `tests/unit/routes/test_messageRoutes.py` | Medium |
 | `tests/unit/routes/test_badgesRoutes.py` | Low |
 | `tests/unit/routes/test_auditLogsRoutes.py` | Low |
-| `tests/integration/` — green (105 passed, 12 skipped) | — the 12 skips are `test_rls.py` against a superuser role |
+| `tests/integration/` — green (122 passed, 17 skipped; 139 passed with `RLS_TEST_DATABASE_URL` on a NOBYPASSRLS role) | — the 17 skips are `test_rls.py` against a superuser role |
 
 ---
 

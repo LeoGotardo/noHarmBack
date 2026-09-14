@@ -1,4 +1,4 @@
-"""Unit tests for LoginRateLimiter and IpRateLimiter.
+"""Unit tests for LoginRateLimiter, IpRateLimiter and ReportQuotaLimiter.
 
 Both limiters are Redis-backed, so these run against fakeredis — no live server
 needed, and the Lua scripts are exercised for real rather than mocked away.
@@ -8,7 +8,7 @@ import fakeredis
 import fakeredis.aioredis
 import pytest
 
-from security.rateLimiter import LoginRateLimiter, IpRateLimiter
+from security.rateLimiter import IpRateLimiter, LoginRateLimiter, ReportQuotaLimiter
 
 
 # ── LoginRateLimiter ──────────────────────────────────────────────────────────
@@ -223,3 +223,123 @@ async def test_ip_store_down_fails_open():
     assert allowed is True
     assert reason is None
     assert retryAfter == 0
+
+
+# ── ReportQuotaLimiter ────────────────────────────────────────────────────────
+
+_REPORT_HOUR_MAX = 3
+_REPORT_DAY_MAX = 5
+
+
+@pytest.fixture
+def report_limiter():
+    return ReportQuotaLimiter(
+        client=fakeredis.FakeStrictRedis(decode_responses=True),
+        shortMax=_REPORT_HOUR_MAX,
+        longMax=_REPORT_DAY_MAX,
+    )
+
+
+def test_report_first_filing_allowed(report_limiter):
+    allowed, reason = report_limiter.check("uid-1")
+    assert allowed is True
+    assert reason is None
+
+
+def test_report_checking_does_not_spend(report_limiter):
+    """Checking is free — otherwise every refused request costs the user a unit."""
+    for _ in range(20):
+        allowed, _ = report_limiter.check("uid-1")
+        assert allowed is True
+
+    assert report_limiter.remaining("uid-1") == (_REPORT_HOUR_MAX, _REPORT_DAY_MAX)
+
+
+def test_report_hourly_ceiling_refuses_the_next_one(report_limiter):
+    for _ in range(_REPORT_HOUR_MAX):
+        assert report_limiter.check("uid-1")[0] is True
+        report_limiter.spend("uid-1")
+
+    allowed, reason = report_limiter.check("uid-1")
+    assert allowed is False
+    assert reason is not None
+    assert "hour" in reason
+
+
+def test_report_daily_ceiling_refuses_past_the_hourly_one(report_limiter):
+    """Spend the day's allowance without the hour ever filling up.
+
+    Only the hourly zset is rolled forward, so each burst starts a fresh hour
+    while the day's tally keeps accumulating — which is the drip an hourly cap
+    alone would never catch.
+    """
+    redis = report_limiter._redis
+
+    for _ in range(2):
+        for _ in range(_REPORT_HOUR_MAX):
+            report_limiter.spend("uid-1")
+        redis.delete("rl:report:hour:uid-1")
+
+    allowed, reason = report_limiter.check("uid-1")
+    assert allowed is False
+    assert reason is not None
+    assert "day" in reason
+
+
+def test_report_quota_is_per_account(report_limiter):
+    for _ in range(_REPORT_HOUR_MAX):
+        report_limiter.spend("uid-1")
+
+    assert report_limiter.check("uid-1")[0] is False
+    assert report_limiter.check("uid-2")[0] is True
+
+
+def test_report_remaining_counts_down_with_spending(report_limiter):
+    report_limiter.spend("uid-1")
+    report_limiter.spend("uid-1")
+
+    assert report_limiter.remaining("uid-1") == (_REPORT_HOUR_MAX - 2, _REPORT_DAY_MAX - 2)
+
+
+def test_report_refusal_says_when_the_window_frees_up(report_limiter):
+    for _ in range(_REPORT_HOUR_MAX):
+        report_limiter.spend("uid-1")
+
+    _, reason = report_limiter.check("uid-1")
+    assert reason is not None
+    assert "Try again in" in reason
+
+
+def test_report_quota_is_shared_between_instances(report_limiter):
+    """Two app instances must not each hand out a full allowance."""
+    other = ReportQuotaLimiter(
+        client=report_limiter._redis,
+        shortMax=_REPORT_HOUR_MAX,
+        longMax=_REPORT_DAY_MAX,
+    )
+
+    for _ in range(_REPORT_HOUR_MAX):
+        report_limiter.spend("uid-1")
+
+    assert other.check("uid-1")[0] is False
+
+
+def test_report_store_down_fails_open():
+    """Redis blinking must not stop someone reporting harassment."""
+    class DeadRedis:
+        def eval(self, *a, **k):
+            raise ConnectionError("redis is down")
+
+    limiter = ReportQuotaLimiter(client=DeadRedis())
+    allowed, reason = limiter.check("uid-1")
+    assert allowed is True
+    assert reason is None
+
+
+def test_report_spend_swallows_a_dead_store():
+    """The report is already filed; losing its accounting must not raise."""
+    class DeadRedis:
+        def eval(self, *a, **k):
+            raise ConnectionError("redis is down")
+
+    ReportQuotaLimiter(client=DeadRedis()).spend("uid-1")

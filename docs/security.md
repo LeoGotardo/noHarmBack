@@ -266,7 +266,7 @@ Exceeding a per-route limit returns 429. The JWT blacklist already uses Redis. T
 **What it is:** A user accesses another user's resources by guessing or iterating resource IDs.
 
 **Countermeasures implemented:**
-- User PKs (`tb_0.cl_0a`) are **Firebase UIDs** (opaque strings, not guessable). All other PKs (`tb_1`–`tb_8`) are **UUID v4**.
+- User PKs (`tb_0.cl_0a`) are **Firebase UIDs** (opaque strings, not guessable). All other PKs (`tb_1`–`tb_10`) are **UUID v4**.
 - `getCurrentUser` dependency injects the authenticated user's ID into every protected route
 - Ownership checks implemented in all `Service` methods:
   - `ChatService._assertParticipant()` — enforced on `get`, `activate`, `endChat`, `delete`
@@ -423,12 +423,16 @@ POST /auth/refresh
 | 5 | `userService` | Account status changed |
 | 6 | `authService` | Token revocation on logout |
 | 7 | `streakService` | Streak reset |
+| 8 | `streakService` | Badge granted |
+| 10 | `reportService` | User reported another user · report resolved |
+| 11 | `reportService` | Moderator read the evidence behind a report |
+| 12 | `noticeService` | Warning or suspension notice sent to a user |
 
 **Pending:**
 - [ ] Define a `LOG_TYPES` enum (e.g. `LOGIN_SUCCESS=1`, `LOGIN_FAILURE=2`, ...) to replace bare integer literals
-- [ ] Extend audit logging to friendship, chat, message, and badge events (types 3, 4, 8, 9 unused)
+- [ ] Extend audit logging to friendship, chat and message events (types 3, 4, 9 unused)
 
-**Where implemented:** `auditLogsService.py`, `auditLogsRoutes.py`, `auditLogsRepository.py`, `authService.py`, `userService.py`, `streakService.py`
+**Where implemented:** `auditLogsService.py`, `auditLogsRoutes.py`, `auditLogsRepository.py`, `authService.py`, `userService.py`, `streakService.py`, `reportService.py`
 
 ---
 
@@ -662,6 +666,9 @@ When paginating with `getDbWithRLS`, the `total` count reflects only rows the us
 | `tb_5` (badges) | none | Global catalogue, no RLS |
 | `tb_6` (user_badges) | `tb_6_owner` | Counts the user's earned badges |
 | `tb_7` (audit_logs) | `tb_7_select_own` | Counts entries whose catalyst is the user |
+| `tb_10` (reports) | `tb_10_select_own` | Counts reports the user filed — never reports filed about them |
+| `tb_11` (report evidence) | `tb_11_select_admin` | Nothing: readable only by a context-free (admin) session |
+| `tb_12` (moderation notices) | `tb_12_select_own` | Counts the notices sent to the user themselves |
 
 Policies read `app_current_user_id()`, a helper over
 `current_setting('app.current_user_id', true)` created by the same migration.
@@ -735,6 +742,103 @@ Rules requiring changes outside routes/services (new tables, models, external se
 | Streak reset | 7 |
 | Badge granted | 8 |
 | Admin action | 9 |
+| User reported / report resolved | 10 |
+| Moderator read report evidence | 11 |
+| Warning or suspension notice sent | 12 |
+
+### 11.8.1 Reports
+
+- A report names another account: `POST /reports/{userId}`, one of six reasons,
+  optional free text capped at 1000 characters (sanitised, then encrypted at
+  rest in `tb_10.cl_10e`).
+- Cannot report yourself; cannot report an account that does not exist or is
+  deleted; one **open** report per (reporter, reported) pair — a second before
+  the first is reviewed is 409 `REPORT_ALREADY_OPEN`. Rate limited to 5/minute.
+- **Only the reporter can read a report.** `GET /reports/mine` returns their own;
+  the reported user has no way to learn a report exists or who filed it, in the
+  service and in the `tb_10_select_own` policy both.
+- Reporting is silent: no socket event, no push, no change to the friendship.
+  Blocking stays the separate, visible action the reporter can also take.
+- Moderation (`GET /reports`, `GET /reports/{id}`,
+  `PUT /reports/{id}/resolve/{status}`) is behind `getAdminUser` — the
+  `ADMIN_USER_IDS` allowlist — and runs on `getDb`, because the table's policies
+  are reporter-scoped. Resolving never changes an account: banning is still
+  `PUT /users/{id}/status/{status}`.
+- Reports are append-only from the application: `tb_10` has an UPDATE policy
+  that only a context-free session satisfies, and no DELETE policy at all.
+  Purging **either** account keeps the record: `cl_10b` (reporter) and `cl_10c`
+  (reported) are both ON DELETE SET NULL, and `cl_10g`/`cl_10h` hold the
+  reported uid and username copied at filing time. Deleting an account is
+  therefore not a way to unfile a complaint, nor to erase the complaints about
+  you — which it was while `cl_10c` cascaded.
+
+### 11.8.2 Report evidence (`tb_11`)
+
+- A report carries a copy of what it is about, captured when it is filed: the
+  reported profile as it was, and the last 20 messages of the conversation when
+  the request named one (`ReportRequest.chatId`).
+- **The request body carries an id, never content.** Message bodies are read out
+  of `tb_4` by the server, under the reporter's own RLS context, so a reporter
+  can only ever capture a conversation they are in — and cannot attribute
+  invented lines to the account they are reporting. `extra="forbid"` refuses any
+  field that would carry text.
+- Content is encrypted at rest like a message body (`cl_11f`) and carries a
+  keyed hash of the plaintext (`cl_11g`, `Encryption.hash`), so a row altered
+  after capture no longer matches its own hash.
+- **Admin-only to read**: `GET /reports/{id}/evidence`, behind `getAdminUser`,
+  and every call writes an audit entry of type 11. Neither the reported user nor
+  the reporter can read the table — `tb_11_select_admin` passes only for a
+  context-free session. There is no UPDATE policy at all, and DELETE is
+  context-free only.
+- Snapshots outlive the accounts they name: `cl_11d`/`cl_11e` are plain strings
+  with no foreign key, so evidence survives the purge of the account it is
+  about, which is when it matters most.
+- Retention: `purge-evidence` (cron) deletes evidence whose report has been
+  resolved for `REPORT_EVIDENCE_RETENTION_DAYS` (default 180). The report itself
+  is permanent; the copied prose is not. Open reports are never swept.
+
+### 11.8.3 Suspensions and the review lock
+
+- `PUT /users/{id}/suspend` (admin) bans an account until a date —
+  `{days: null}` bans it permanently, spelled out so a missing field cannot
+  mean "for ever". `days` is capped at `MAX_SUSPENSION_DAYS` (365).
+- A suspension is `status = banned` (9) plus `tb_0.cl_0g`, so every existing
+  refusal — login, register, reactivate, refresh, and the status check on every
+  authenticated request — applies to it with no new branch.
+- It **lifts itself** at the first sign-in past the date
+  (`AuthService._liftExpiredSuspension`). No scheduled job: an account nobody
+  is signing in to needs no unbanning, and one more cron is one more thing that
+  can silently stop.
+- The refusal names the date: 403 `ACCOUNT_SUSPENDED` with
+  `details.suspendedUntil`. A permanent ban stays plain `ACCOUNT_BANNED`.
+- Lifting a ban through `PUT /users/{id}/status/{status}` clears the date with
+  it. A stale `cl_0g` would make a later permanent ban expire on its own.
+- **The review lock** (`tb_10.cl_10i`/`cl_10j`, `POST`/`DELETE /reports/{id}/claim`)
+  stops two moderators acting on one report: a live claim by someone else is
+  409 on claim, release and resolve. It expires after `REPORT_LOCK_MINUTES`
+  (30) so a closed tab cannot park a report for ever. `locked_by` reaches the
+  admin queue only — `GET /reports/mine` never names the moderator reading a
+  report.
+- Resolving a report never changes an account, and suspending never closes a
+  report. Two decisions, two calls, two audit entries (type 10 and type 5).
+
+### 11.8.4 Moderation notices (`tb_12`)
+
+- `POST /users/{id}/warn` (admin) sends a warning: the user is told, and
+  **nothing about the account changes**. `PUT /users/{id}/suspend` writes a
+  suspension notice alongside the ban.
+- `GET /notices/mine` and `POST /notices/{id}/ack` are the recipient's, and
+  only theirs — another user's notice answers 404, and `tb_12_select_own` says
+  the same at the database.
+- A notice carries the **conduct code**, optionally the moderator's words
+  (sanitised, encrypted at rest), and never the reporter's identity or the
+  moderator's uid. The response model omits both.
+- `self_harm` is refused as a warning reason (400 `NOT_A_WARNING`).
+- Only a context-free session can insert one (`tb_12_insert_admin`), so a
+  notice cannot be self-issued; there is no DELETE policy, so what moderation
+  said is not something it gets to unsay.
+- Audit type 12 records who sent what to whom, naming the conduct and never the
+  free text.
 
 ### 11.9 Cross-Cutting Rules
 - **Soft Delete**: All entities use `status=deleted`. User accounts are the one
@@ -743,8 +847,9 @@ Rules requiring changes outside routes/services (new tables, models, external se
   have passed since `tb_0.cl_0f`. See 11.10.
 - **Ownership Checks**: Service layer verifies ownership before repository calls
 - **Input Sanitization**: All free-text passes through `Sanitizer.cleanHtml()`
-- **User ID**: `tb_0.cl_0a` uses Firebase UID (opaque string). All other PKs (`tb_1`–`tb_8`) are UUID v4. No sequential integers anywhere.
-- **Status Codes**: `disabled=0`, `enabled=1`, `deleted=2`, `blocked=3`, `pending=4`, `accepted=5`, `ignored=6`, `unread=7`, `read=8`, `banned=9`
+- **User ID**: `tb_0.cl_0a` uses Firebase UID (opaque string). All other PKs (`tb_1`–`tb_10`) are UUID v4. No sequential integers anywhere.
+- **Status Codes**: `disabled=0`, `enabled=1`, `deleted=2`, `blocked=3`, `pending=4`, `accepted=5`, `ignored=6`, `unread=7`, `read=8`, `banned=9`. A timed suspension is `banned` plus `tb_0.cl_0g`, not a code of its own, and "a report is in review" is `tb_10.cl_10i`/`cl_10j`, not a code either — `STATUS_CODES` is shared with the front end, and neither condition is one a client ever sees.
+- **Timestamps are naive UTC**: `datetime.now(timezone.utc).replace(tzinfo=None)`, matching what the columns hold. A local-time write into `deleted_at`, `banned_until` or a report lock is a comparison that silently goes wrong by the host's offset.
 
 ### 11.9.1 Reads are checked in the service, not only by RLS
 

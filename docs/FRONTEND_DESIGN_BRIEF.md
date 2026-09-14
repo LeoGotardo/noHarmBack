@@ -129,6 +129,115 @@ updated_at  datetime
 - Cannot send if a non-deleted friendship already exists (even pending/blocked).
 - Blocked users cannot view the profile of their blocker.
 
+### Reporting a user
+
+Blocking is a private remedy — it hides two people from each other and tells
+nobody. Reporting is how something reaches the team.
+
+```
+POST /reports/{userId}   { reason, details?, chatId? }  → 201 Report
+GET  /reports/mine                                      → the reports I filed
+```
+
+```
+Report
+  id                UUID
+  reporter          string      — the Firebase UID that filed it (null once purged)
+  reported          string|null — the UID it names (null once that account is purged)
+  reported_uid      string      — the same UID, copied at filing time; never null
+  reported_username string|null — their username at filing time
+  reason            string      — harassment | inappropriate | spam
+                                |   impersonation | self_harm | other
+  details           string|null — max 1000 chars, optional
+  status            int         — 4 open · 5 actioned · 6 dismissed
+  created_at        datetime
+  updated_at        datetime
+```
+
+**`chatId` attaches the conversation.** Send it when the two have a chat: the
+backend copies that chat's last 20 messages, both sides, as evidence stored with
+the report. It is an **id, not content** — there is no field for message text,
+and one would be refused, because a reporter must not be able to attribute
+invented lines to someone. The app has no way to read that copy back; it is a
+moderator's, and even the reporter gets 404.
+
+| Rule | Answer |
+|------|--------|
+| Report yourself | 400 |
+| Unknown or deleted account | 404 |
+| Same user again while the first is still open | 409 `REPORT_ALREADY_OPEN` |
+| Unknown reason, or details over 1000 chars | 422 |
+| `chatId` of a conversation the reporter is not in | 403 (or 404) — nothing is filed |
+| `chatId` of a conversation the reported user is not in | 400 — nothing is filed |
+| Rate limit | 5/minute |
+
+- No friendship is required — harassment arrives from strangers too.
+- **The reported user is never told**, and cannot read reports about them. Say
+  so in the UI: it is what makes the feature usable.
+- Reporting changes nothing else. If the reporter also wants them gone, that is
+  the existing block action, offered beside it.
+- `self_harm` is worded as concern ("I'm worried about their safety"), not an
+  accusation. In a recovery app that report is usually a friend asking for help
+  for someone else.
+- A report outlives both accounts. Deleting yours erases neither the reports you
+  filed nor the ones about you — `reported_uid` is a copy the purge cannot
+  clear.
+
+### When an account is suspended
+
+Moderation can pause an account for a while instead of banning it for good. The
+app sees that on sign-in:
+
+```
+403 ACCOUNT_SUSPENDED   { details: { suspendedUntil } }   — a pause, with a date
+403 ACCOUNT_BANNED                                        — permanent
+```
+
+Say the date. "This account is paused until March 3" and "your account is gone"
+are different sentences, and in a recovery app the account holds a streak and a
+friend list — `LoginScreen` draws the first from `suspendedUntil`.
+
+Nothing has to be polled or scheduled: the suspension lifts itself the first
+time the account signs in past the date, so the same button that failed
+yesterday simply works. A still-valid access token stops working immediately
+when the suspension starts, so a suspended user mid-session gets 403 on their
+next request.
+
+### What moderation tells the user
+
+```
+GET  /notices/mine?pending=true   → what to show on open
+POST /notices/{id}/ack            → "I understand"
+```
+
+```
+Notice
+  id               UUID
+  kind             string    — warning | suspension
+  reason           string    — the conduct: harassment | inappropriate | spam
+                             |   impersonation | other
+  message          string|null — the moderator's own words, shown verbatim
+  acknowledged_at  datetime|null
+  created_at       datetime
+```
+
+A **warning** changes nothing about the account — no ban, no limits — and the
+copy has to say that, or it reads as "you are about to lose this". A
+**suspension** notice waits until the account comes back, which is the only
+moment it can be read: a suspended token is refused everywhere, including here.
+
+The notice never names who reported them, and never the moderator. Do not add
+either to the UI — the response does not carry them, and the promise that a
+reported user is never told is what makes reports fileable.
+
+Show it over everything on open, before the check-in modal: being asked "all
+clean today?" with an unread warning waiting is the wrong order. One button,
+"I understand", which acknowledges it and never shows it again.
+
+Say where to appeal on the notice and on a refused sign-in —
+`VITE_SUPPORT_EMAIL`. A suspension nobody can argue with is the thing that
+makes moderation feel arbitrary.
+
 ---
 
 ## 6. Chat

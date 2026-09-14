@@ -178,6 +178,74 @@ class TestUpdateUserStatusRoute:
         assert res.status_code == 404
 
 
+class TestSuspendUserRoute:
+    def _suspension(self, uid, until=None):
+        from types import SimpleNamespace
+        return SimpleNamespace(id=uid, status=9, banned_until=until)
+
+    def test_days_are_forwarded_with_the_caller_as_the_actor(self, client):
+        uid = str(uuid4())
+        with patch("api.routes.userRoutes.UserService") as MockService:
+            MockService.return_value.suspend.return_value = self._suspension(uid)
+            res = client.put(f"/users/{uid}/suspend", json={"days": 7})
+        assert res.status_code == 200
+        MockService.return_value.suspend.assert_called_once_with(uid, 7, _USER_ID)
+
+    def test_a_permanent_ban_is_days_null_spelled_out(self, client):
+        uid = str(uuid4())
+        with patch("api.routes.userRoutes.UserService") as MockService:
+            MockService.return_value.suspend.return_value = self._suspension(uid)
+            res = client.put(f"/users/{uid}/suspend", json={"days": None})
+        assert res.status_code == 200
+        MockService.return_value.suspend.assert_called_once_with(uid, None, _USER_ID)
+
+    def test_a_missing_days_field_is_refused(self, client):
+        """Omitting it must not mean 'for ever' by accident."""
+        uid = str(uuid4())
+        with patch("api.routes.userRoutes.UserService") as MockService:
+            res = client.put(f"/users/{uid}/suspend", json={})
+        assert res.status_code == 422
+        MockService.return_value.suspend.assert_not_called()
+
+    def test_the_response_carries_no_profile(self, client):
+        """"Is this account banned, until when" needs neither a username nor an
+        e-mail, and the admin surface should not hand them out."""
+        uid = str(uuid4())
+        with patch("api.routes.userRoutes.UserService") as MockService:
+            MockService.return_value.suspend.return_value = self._suspension(uid)
+            body = client.put(f"/users/{uid}/suspend", json={"days": 1}).json()
+        assert set(body) == {"id", "status", "banned_until"}
+
+    def test_an_invalid_window_is_a_400(self, client):
+        uid = str(uuid4())
+        with patch("api.routes.userRoutes.UserService") as MockService:
+            MockService.return_value.suspend.side_effect = NoHarmException(
+                statusCode=400, errorCode="INVALID_SUSPENSION", message="Too long."
+            )
+            res = client.put(f"/users/{uid}/suspend", json={"days": 100000})
+        assert res.status_code == 400
+
+    def test_non_admin_is_refused(self):
+        from api.dependencies.auth import getAdminUser, getCurrentUser
+        from api.dependencies.database import getDb, getDbWithRLS
+        from api.routes.userRoutes import router
+
+        app = FastAPI()
+        limiter = Limiter(key_func=get_remote_address, default_limits=[])
+        app.state.limiter = limiter
+        app.add_middleware(SlowAPIMiddleware)
+        app.include_router(router)
+        app.dependency_overrides[getDb] = lambda: MagicMock()
+        app.dependency_overrides[getDbWithRLS] = lambda: MagicMock()
+        app.dependency_overrides[getCurrentUser] = lambda: _USER_ID
+        # getAdminUser not overridden — the real, empty allowlist.
+
+        client = TestClient(app, raise_server_exceptions=False)
+        res = client.put(f"/users/{uuid4()}/suspend", json={"days": 1})
+
+        assert res.status_code == 404
+
+
 class TestDeleteUserRoute:
     def test_success_returns_200(self, client):
         with patch("api.routes.userRoutes.UserService") as MockService:

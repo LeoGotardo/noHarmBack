@@ -129,6 +129,7 @@ def test_login_banned_user_raises_403(mock_db):
         mock_user = MagicMock()
         mock_user.id = "uid-banned"
         mock_user.status = config.STATUS_CODES["banned"]
+        mock_user.banned_until = None  # permanent, not a timed suspension
         service.userRepository.findById.return_value = mock_user
 
         with pytest.raises(NoHarmException) as exc:
@@ -278,6 +279,7 @@ def test_reactivate_never_launders_a_ban(mock_db):
         banned = MagicMock()
         banned.id = "uid-banned"
         banned.status = config.STATUS_CODES["banned"]
+        banned.banned_until = None
         service.userRepository.findById.return_value = banned
 
         with pytest.raises(NoHarmException) as exc:
@@ -533,3 +535,134 @@ def test_register_without_email_claim_raises_400(mock_db):
         with pytest.raises(NoHarmException) as exc:
             service.register(_register_request(email=None))
         assert exc.value.statusCode == 400
+
+
+# ── timed suspensions ─────────────────────────────────────────────────────────
+#
+# A suspension is the `banned` status plus an end date. What these guard is the
+# difference that makes: the refusal has to carry the date, and the ban has to
+# lift itself when the date passes — there is no cron that does it.
+
+def _suspended(uid="uid-suspended", until=None):
+    user = MagicMock()
+    user.id = uid
+    user.status = config.STATUS_CODES["banned"]
+    user.banned_until = until
+    return user
+
+
+def test_login_while_suspended_says_when_it_ends(mock_db):
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler"):
+
+        mock_limiter.check.return_value = (True, None)
+
+        service = _make_service(mock_db)
+        until = datetime.now() + timedelta(days=3)
+        service.userRepository.findById.return_value = _suspended(until=until)
+
+        with pytest.raises(NoHarmException) as exc:
+            service.login(_login_request())
+
+        # Not ACCOUNT_BANNED: telling someone serving three days that their
+        # account is gone is a different message than the truth.
+        assert exc.value.errorCode == "ACCOUNT_SUSPENDED"
+        assert exc.value.details["suspendedUntil"].startswith(until.isoformat()[:10])
+        service.userRepository.liftExpiredSuspension.assert_not_called()
+
+
+def test_a_permanent_ban_still_says_banned(mock_db):
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler"):
+
+        mock_limiter.check.return_value = (True, None)
+
+        service = _make_service(mock_db)
+        service.userRepository.findById.return_value = _suspended(until=None)
+
+        with pytest.raises(NoHarmException) as exc:
+            service.login(_login_request())
+
+        assert exc.value.errorCode == "ACCOUNT_BANNED"
+        assert exc.value.details is None or "suspendedUntil" not in (exc.value.details or {})
+
+
+def test_login_after_the_suspension_ended_lifts_it_and_succeeds(mock_db):
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler") as mock_jwt:
+
+        mock_limiter.check.return_value = (True, None)
+        mock_jwt.createAccessToken.return_value = "access"
+        mock_jwt.createRefreshToken.return_value = "refresh"
+
+        service = _make_service(mock_db)
+        expired = _suspended(until=datetime.now() - timedelta(hours=1))
+        service.userRepository.findById.return_value = expired
+
+        restored = MagicMock()
+        restored.id = expired.id
+        restored.status = config.STATUS_CODES["enabled"]
+        restored.banned_until = None
+        service.userRepository.liftExpiredSuspension.return_value = restored
+
+        result = service.login(_login_request())
+
+        assert result["accessToken"] == "access"
+        service.userRepository.liftExpiredSuspension.assert_called_once()
+
+
+def test_refresh_after_the_suspension_ended_issues_a_new_pair(mock_db):
+    """The app refreshes every 15 minutes, so this is where a served
+    suspension ends for someone who left the app open."""
+    with patch("domain.services.authService._jwtHandler") as mock_jwt:
+        mock_jwt.verifyToken.return_value = {"sub": "uid-suspended", "jti": "j", "exp": 1}
+        mock_jwt.createAccessToken.return_value = "access"
+        mock_jwt.createRefreshToken.return_value = "refresh"
+
+        service = _make_service(mock_db)
+        expired = _suspended(until=datetime.now() - timedelta(minutes=1))
+        service.userRepository.findById.return_value = expired
+
+        restored = MagicMock()
+        restored.id = expired.id
+        restored.status = config.STATUS_CODES["enabled"]
+        restored.banned_until = None
+        service.userRepository.liftExpiredSuspension.return_value = restored
+
+        result = service.refresh("refresh-token")
+        assert result["accessToken"] == "access"
+
+
+def test_refresh_while_still_suspended_is_refused(mock_db):
+    with patch("domain.services.authService._jwtHandler") as mock_jwt:
+        mock_jwt.verifyToken.return_value = {"sub": "uid-suspended", "jti": "j", "exp": 1}
+
+        service = _make_service(mock_db)
+        service.userRepository.findById.return_value = _suspended(
+            until=datetime.now() + timedelta(days=1)
+        )
+
+        with pytest.raises(NoHarmException) as exc:
+            service.refresh("refresh-token")
+        assert exc.value.statusCode == 403
+
+
+def test_registering_again_after_a_suspension_ended_is_not_refused_as_banned(mock_db):
+    """Same gesture as signing in, so it gets the same answer."""
+    with patch("domain.services.authService._jwtHandler"):
+        service = _make_service(mock_db)
+        expired = _suspended(uid="uid-001", until=datetime.now() - timedelta(days=1))
+        service.userRepository.findById.return_value = expired
+
+        restored = MagicMock()
+        restored.id = "uid-001"
+        restored.status = config.STATUS_CODES["enabled"]
+        restored.banned_until = None
+        service.userRepository.liftExpiredSuspension.return_value = restored
+
+        with pytest.raises(NoHarmException) as exc:
+            service.register(_register_request())
+
+        # It falls through to the ordinary "this account already exists", not
+        # to a ban — which is the point.
+        assert exc.value.errorCode != "ACCOUNT_BANNED"

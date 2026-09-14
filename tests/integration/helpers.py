@@ -151,3 +151,76 @@ def account_exists(uid):
         return conn.execute(
             text("SELECT count(*) FROM tb_0 WHERE cl_0a = :uid"), {"uid": uid}
         ).scalar() > 0
+
+
+# ── Moderation ───────────────────────────────────────────────────────────────
+
+def backdate_report_decision(reportId, days):
+    """Move a resolved report's decision back, to simulate a lapsed cooldown.
+
+    `REPORT_DISMISSED_COOLDOWN_DAYS` runs from `updated_at` — the moment the
+    moderator closed it — and waiting 30 days is not a test. There is no
+    endpoint for this and should not be: the only legitimate writer of that
+    column is the resolution itself.
+    """
+    from sqlalchemy import text
+
+    with _engine().connect() as conn:
+        conn.execute(
+            text("UPDATE tb_10 SET updated_at = NOW() - make_interval(days => :days) WHERE cl_10a = :id"),
+            {"days": days, "id": reportId},
+        )
+        conn.commit()
+
+
+def as_admin(uid):
+    """Put a uid on the admin allowlist for the duration of a `with` block.
+
+    Authorisation for the moderation routes is `config.ADMIN_USER_IDS` read at
+    call time and nothing else, so this is the whole of "being a moderator".
+    The list is empty everywhere else in the suite, which is what the
+    admin-only tests rely on.
+    """
+    from contextlib import contextmanager
+    from core.config import config
+
+    @contextmanager
+    def _scope():
+        original = list(config.ADMIN_USER_IDS)
+        config.ADMIN_USER_IDS = original + [uid]
+        try:
+            yield
+        finally:
+            config.ADMIN_USER_IDS = original
+
+    return _scope()
+
+
+def purge_user(uid):
+    """Hard-delete an account, the way `jobs/purgeAccounts.py` eventually does.
+
+    The job itself reads `core.database`, which the root conftest replaces with
+    a MagicMock, so the DELETE is issued here instead. What matters to the tests
+    using it is the database's own ON DELETE behaviour, which is identical
+    either way.
+    """
+    from sqlalchemy import text
+
+    with _engine().connect() as conn:
+        conn.execute(text("DELETE FROM tb_0 WHERE cl_0a = :uid"), {"uid": uid})
+        conn.commit()
+
+
+def backdate_report_resolution(reportId, days):
+    """Move a report's `updated_at` back, so the retention sweep considers it.
+
+    `updated_at` is when a moderator closed it; waiting 180 days is not a test.
+    """
+    from sqlalchemy import text
+
+    with _engine().connect() as conn:
+        conn.execute(
+            text("UPDATE tb_10 SET updated_at = NOW() - make_interval(days => :days) WHERE cl_10a = :id"),
+            {"days": days, "id": reportId},
+        )
+        conn.commit()

@@ -8,6 +8,40 @@ Backend of the **NoHarm** application — a mobile app for addiction recovery su
 
 ---
 
+## Frontend
+
+The sole consumer of this API is [`noHarm`](../../noHarm/), a separate sibling
+repository — a Vite + React 19 SPA wrapped with Capacitor for iOS/Android. It
+consumes the REST API (`VITE_API_URL`) and the Socket.IO server
+(`VITE_SOCKET_URL`) documented below, authenticating with the JWT access/refresh
+pair issued by `authRoutes.py`.
+
+The two repos **must sit side by side on disk** (`noHarm/` and `noHarmBack/` in
+the same parent directory): stage 1 of `docker/Dockerfile` compiles the frontend
+bundle, so the build context is that parent, and nginx in the same image serves
+the bundle alongside uvicorn. A frontend change therefore ships on a *backend*
+deploy — there is no separate frontend pipeline.
+
+| Where to look | What it covers |
+|---------------|----------------|
+| [`../../noHarm/README.md`](../../noHarm/README.md) | Frontend stack, project layout, env vars, and the Android APK build tutorial |
+| [`../../noHarm/CLAUDE.md`](../../noHarm/CLAUDE.md) | Frontend architecture, navigation model, theming, notification IDs, domain rules |
+| [`../../noHarm/TESTING.md`](../../noHarm/TESTING.md) | Manual QA checklist for every user-facing flow |
+| [`FRONTEND_DESIGN_BRIEF.md`](FRONTEND_DESIGN_BRIEF.md) | API shapes as the frontend consumes them |
+
+Two things this backend owes the frontend:
+
+- **`ALLOWED_ORIGINS` must include `capacitor://localhost` (iOS) and
+  `http://localhost` (Android).** The web build is same-origin with the API and
+  never sends a preflight; the Capacitor app is the only cross-origin client.
+  Omitting these breaks mobile REST while leaving the socket working — an
+  asymmetric failure that is confusing without this note.
+- **CSP lives in `docker/security_headers.conf`**, not in the app. Anything the
+  frontend loads cross-origin (Google Fonts, Firebase sign-in) has to be listed
+  there or it is blocked with no symptom but a console error.
+
+---
+
 ## Project Structure
 
 ```
@@ -544,3 +578,4 @@ See `docs/security.md` for the complete security guide covering:
 | `docs/security.md` | Security guide, audit checklist, RLS, pagination, and business rules |
 | `docs/operations.md` | Runbook of the live EC2 instance — access, cron jobs, deploy, migrations, backup/restore, accepted risks |
 | `infra/README.md` | Terraform stack (ECS/RDS/ElastiCache) — **not provisioned** |
+| [`../../noHarm/README.md`](../../noHarm/README.md) | Frontend repo — stack, layout, and the Android APK build tutorial |
