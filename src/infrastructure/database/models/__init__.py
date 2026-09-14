@@ -11,7 +11,7 @@ imported. Import `userModel` on its own and the mapper fails with
 which is not a missing import at the call site: the module that *would* have
 registered the class simply was not loaded by anyone.
 
-`core/database.py` imports all ten by hand for this reason, so the running
+`core/database.py` imports all thirteen by hand for this reason, so the running
 application never saw it. Anything that imports a model without going through
 that — the unit tests, a script, a future worker — did. Listing them here makes
 the package itself the guarantee, and `core/database.py` keeps its own list as
@@ -28,8 +28,11 @@ from infrastructure.database.models import (  # noqa: F401
     chatModel,
     friendshipModel,
     messageModel,
+    moderationNoticeModel,
     notificationModel,
     refreshTokenModel,
+    reportEvidenceModel,
+    reportModel,
     streakModel,
     userBadgesModel,
     userModel,

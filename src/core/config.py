@@ -136,6 +136,59 @@ class Config:
             # immediately, which is a hard delete on the next cron run.
             self.ACCOUNT_DELETION_GRACE_DAYS: int = _optional_int("ACCOUNT_DELETION_GRACE_DAYS", 30)
 
+            # How long the copied evidence behind a report is kept after a
+            # moderator closed it. The report itself is permanent — it is the
+            # record of what was decided about an account — but the evidence is
+            # other people's private messages, copied for one purpose, and
+            # keeping it past that purpose is a liability rather than a record.
+            # Open reports are never swept, however old: nobody has read them.
+            self.REPORT_EVIDENCE_RETENTION_DAYS: int = _optional_int("REPORT_EVIDENCE_RETENTION_DAYS", 180)
+
+            # How long a moderator's claim on a report holds before anyone may
+            # take it. An expiring lock is the difference between a queue that
+            # heals itself and one that fills with reports parked by someone
+            # who closed the tab.
+            self.REPORT_LOCK_MINUTES: int = _optional_int("REPORT_LOCK_MINUTES", 30)
+
+            # ── report abuse ceilings ─────────────────────────────────────────
+            # Filing a report is free, unauthenticated by anything but a login,
+            # and invisible to its target — which is exactly what makes it a
+            # harassment tool as well as a safety one. Everything below caps
+            # the volume one account can put into the queue, and nothing below
+            # ever refuses a *first* report about someone.
+
+            # Per-reporter quota, counted only on reports that were actually
+            # filed. The per-IP ceiling on the route is the other half: it stops
+            # one host hammering the endpoint, this stops one account filing
+            # against a hundred different people from a hundred hosts.
+            self.REPORT_MAX_PER_HOUR: int = _optional_int("REPORT_MAX_PER_HOUR", 10)
+            self.REPORT_MAX_PER_DAY: int = _optional_int("REPORT_MAX_PER_DAY", 30)
+
+            # How many of one account's reports may sit unreviewed at once.
+            # A quota limits the rate; this limits the standing backlog, so a
+            # single reporter cannot occupy the queue while moderators work
+            # through it.
+            self.REPORT_MAX_OPEN: int = _optional_int("REPORT_MAX_OPEN", 5)
+
+            # After a moderator dismisses a report, how long before the same
+            # reporter may file about the same person again. Without it,
+            # "dismissed" is a round trip: refile, and the queue carries the
+            # same complaint for ever. A report that was *actioned* is not
+            # cooled down at all — repeat offending is the case you want to
+            # hear about again immediately.
+            self.REPORT_DISMISSED_COOLDOWN_DAYS: int = _optional_int("REPORT_DISMISSED_COOLDOWN_DAYS", 30)
+
+            # How many open reports by distinct accounts against one user make
+            # the queue say "this looks coordinated". A flag for a human, never
+            # an automatic action: acting on a count is precisely what a
+            # brigade is buying.
+            self.REPORT_BRIGADING_THRESHOLD: int = _optional_int("REPORT_BRIGADING_THRESHOLD", 5)
+
+            # Longest suspension `PUT /users/{id}/suspend` will set. Past this
+            # the honest action is a permanent ban, chosen deliberately rather
+            # than arrived at by typing a large number of days.
+            self.MAX_SUSPENSION_DAYS: int = _optional_int("MAX_SUSPENSION_DAYS", 365)
+
             # UIDs allowed to call the admin endpoints — today that is
             # `PUT /users/{id}/status/{status}`, which can ban, unban and
             # undelete anyone. There is no role column and no admin UI, so an

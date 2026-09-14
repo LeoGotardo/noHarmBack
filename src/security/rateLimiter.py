@@ -1,6 +1,10 @@
 """Redis-backed rate limiters.
 
-Both limiters used to hold their state in process memory, which assumed a single
+`IpRateLimiter` is the global floor, `LoginRateLimiter` the brute-force lockout
+on an account, and `ReportQuotaLimiter` the ceiling on how much one account can
+put into the moderation queue.
+
+The first two used to hold their state in process memory, which assumed a single
 long-lived process. That stopped being true on serverless: every instance kept
 its own counters and a cold start wiped them, so the login lockout — the one
 control that must not be volatile — was effectively per-instance.
@@ -103,6 +107,57 @@ if count >= maxTries then
 end
 
 return {1, 0}
+"""
+
+
+# Two-window quota, read-only. Nothing is recorded here: a quota that is spent
+# by *asking* would be spent by the duplicate check, the unknown-user 404 and
+# every other refusal below it, so the caller records separately once the thing
+# being limited actually happened.
+#   KEYS: 1=short zset  2=long zset
+#   ARGV: 1=now_ms 2=shortMs 3=shortMax 4=longMs 5=longMax
+# Returns: {allowed, retryAfterSeconds, scope}   scope: '' | 'short' | 'long'
+_QUOTA_PEEK_LUA = """
+local now = tonumber(ARGV[1])
+
+local function used(key, windowMs)
+    redis.call('ZREMRANGEBYSCORE', key, 0, now - windowMs)
+    return redis.call('ZCARD', key)
+end
+
+local function waitFor(key, windowMs)
+    -- The window frees up when its oldest entry falls out of it.
+    local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+    if oldest[2] == nil then
+        return 1
+    end
+    local wait = math.ceil((tonumber(oldest[2]) + windowMs - now) / 1000)
+    if wait < 1 then
+        wait = 1
+    end
+    return wait
+end
+
+if used(KEYS[1], tonumber(ARGV[2])) >= tonumber(ARGV[3]) then
+    return {0, waitFor(KEYS[1], tonumber(ARGV[2])), 'short'}
+end
+
+if used(KEYS[2], tonumber(ARGV[4])) >= tonumber(ARGV[5]) then
+    return {0, waitFor(KEYS[2], tonumber(ARGV[4])), 'long'}
+end
+
+return {1, 0, ''}
+"""
+
+# The other half of the quota: spend one unit in both windows at once.
+#   KEYS: 1=short zset  2=long zset
+#   ARGV: 1=now_ms 2=shortMs 3=longMs 4=unique member
+_QUOTA_SPEND_LUA = """
+redis.call('ZADD', KEYS[1], tonumber(ARGV[1]), ARGV[4])
+redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[2]))
+redis.call('ZADD', KEYS[2], tonumber(ARGV[1]), ARGV[4])
+redis.call('PEXPIRE', KEYS[2], tonumber(ARGV[3]))
+return 1
 """
 
 
@@ -329,3 +384,134 @@ class LoginRateLimiter:
             return self._MAX_ATTEMPTS
 
         return max(0, self._MAX_ATTEMPTS - int(used))
+
+
+class ReportQuotaLimiter:
+    """Per-account ceiling on how many reports one user may file.
+
+    The route already carries `@limiter.limit("5/minute")`, but that is keyed on
+    the client IP. One account filing against a different person every twelve
+    seconds never trips it, and a reporter behind a shared NAT trips it because
+    of strangers. This limiter is keyed on the reporter's UID, which is the
+    thing being rationed.
+
+    Two windows rather than one. An hourly cap alone permits 240 reports a day
+    at a steady drip; a daily cap alone permits the whole day's allowance in one
+    burst. Both together bound the burst and the total.
+
+    **Check and spend are separate calls on purpose.** `check` reads; `spend` is
+    called only once a report has actually been created. A user who is told
+    "you already reported this person" has learned something the app should have
+    known, and charging them for it is punishing the wrong side. Requests that
+    are refused before that point are the per-IP limiter's problem, not this
+    one's.
+
+    The split means two concurrent filings can both observe the last unit free
+    and both spend it. On a quota measured in tens per hour, being off by one is
+    not worth an in-flight reservation and the refund path it would need.
+
+    Synchronous, like `LoginRateLimiter`: the service runs in Starlette's
+    threadpool.
+
+    Usage:
+        limiter = ReportQuotaLimiter()
+
+        allowed, reason = limiter.check(reporterId)
+        if not allowed:
+            raise NoHarmException(429, reason)
+
+        # ... after the report row exists:
+        limiter.spend(reporterId)
+    """
+
+    _PREFIX = "rl:report:"
+
+    def __init__(
+        self,
+        client: Optional[redis.Redis] = None,
+        shortMax: Optional[int] = None,
+        longMax: Optional[int] = None,
+    ):
+        self._redis = client or _syncRedis
+        self._shortWindowMs = 60 * 60 * 1000
+        self._longWindowMs = 24 * 60 * 60 * 1000
+        self._shortMax = shortMax or config.REPORT_MAX_PER_HOUR
+        self._longMax = longMax or config.REPORT_MAX_PER_DAY
+
+    # ── Public interface ──────────────────────────────────────────────────────
+
+    def check(self, reporterId: str) -> tuple[bool, Optional[str]]:
+        """Whether this account may file another report right now.
+
+        Records nothing — see the class docstring.
+
+        Returns:
+            (True, None)     when there is room in both windows
+            (False, message) naming which window is full and when it frees up
+        """
+        try:
+            allowed, retryAfter, scope = _evalSync(
+                self._redis,
+                _QUOTA_PEEK_LUA,
+                2,
+                f"{self._PREFIX}hour:{reporterId}",
+                f"{self._PREFIX}day:{reporterId}",
+                str(_nowMs()),
+                str(self._shortWindowMs),
+                str(self._shortMax),
+                str(self._longWindowMs),
+                str(self._longMax),
+            )
+        except Exception:
+            # Same posture as every other limiter here: a store that blinks must
+            # not stop people reporting harassment.
+            logger.exception("report quota store unreachable — allowing report by %s", reporterId)
+            return True, None
+
+        if int(allowed) == 1:
+            return True, None
+
+        window = "hour" if scope == "short" else "day"
+        limit = self._shortMax if scope == "short" else self._longMax
+
+        return False, (
+            f"You have filed {limit} reports in the last {window}. "
+            f"Try again in {max(1, int(retryAfter))}s."
+        )
+
+    def spend(self, reporterId: str) -> None:
+        """Charge one report against both windows. Call only once one was filed."""
+        try:
+            _evalSync(
+                self._redis,
+                _QUOTA_SPEND_LUA,
+                2,
+                f"{self._PREFIX}hour:{reporterId}",
+                f"{self._PREFIX}day:{reporterId}",
+                str(_nowMs()),
+                str(self._shortWindowMs),
+                str(self._longWindowMs),
+                _member(),
+            )
+        except Exception:
+            # The report is already filed. Losing the accounting for it is worth
+            # less than raising over it.
+            logger.exception("could not record report quota for %s", reporterId)
+
+    def remaining(self, reporterId: str) -> tuple[int, int]:
+        """(hour, day) allowance left — for a client that wants to say so."""
+        now = _nowMs()
+        out = []
+        for key, windowMs, maximum in (
+            (f"{self._PREFIX}hour:{reporterId}", self._shortWindowMs, self._shortMax),
+            (f"{self._PREFIX}day:{reporterId}", self._longWindowMs, self._longMax),
+        ):
+            try:
+                self._redis.zremrangebyscore(key, 0, now - windowMs)
+                used = cast(int, self._redis.zcard(key))
+            except Exception:
+                logger.exception("could not read report quota for %s", reporterId)
+                used = 0
+            out.append(max(0, maximum - int(used)))
+
+        return out[0], out[1]

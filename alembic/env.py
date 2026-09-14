@@ -26,6 +26,7 @@ from infrastructure.database.models import (
     auditLogsModel,
     refreshTokenModel,
     notificationModel,
+    reportModel,
 )
 
 alembicConfig = context.config

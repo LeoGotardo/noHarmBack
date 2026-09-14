@@ -127,6 +127,31 @@ class MessageRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
 
+    def findRecentByChatId(self, chat_id: UUID, limit: int) -> list[Message]:
+        """The last `limit` messages of a chat, oldest first.
+
+        Ordered on `created_at` rather than `send_at`: the latter is encrypted,
+        so the database cannot sort on it, and a LIMIT applied after sorting in
+        Python would have to read the whole conversation to find its tail.
+
+        Written for evidence capture, which needs a bounded read of a chat that
+        may hold thousands of rows.
+        """
+        try:
+            models = (
+                self.session.query(MessageModel)
+                .filter(MessageModel.chat == chat_id)
+                .order_by(MessageModel.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return [self._toEntity(model) for model in reversed(models)]
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
     def countUnreadByChatId(self, chat_id: UUID, recipient_id: str) -> int:
         """Count unread messages in a chat addressed to recipient_id.
 
