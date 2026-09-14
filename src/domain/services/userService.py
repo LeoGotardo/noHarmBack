@@ -11,7 +11,12 @@ from exceptions.baseExceptions import NoHarmException
 from core.config import config
 from core.database import Database
 from typing import Optional, overload
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+
+def _utcNow() -> datetime:
+    """Now, as the naive UTC the schema stores."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 import re
 
@@ -229,10 +234,64 @@ class UserService:
         return self.userRepository.update(user_id, updatedUser)
 
     def updateStatus(self, id: str, status: int, requestingUserId: Optional[str] = None) -> User:
-        """Update a user's status. Logs audit type=5 (§8.1)."""
+        """Update a user's status. Logs audit type=5 (§8.1).
+
+        This is the permanent form: banning through here leaves `banned_until`
+        NULL, and moving off `banned` clears any date the account carried.
+        `suspend` below is the timed one.
+        """
         user = self.userRepository.updateStatus(id, status)
         actor = requestingUserId or id
         self._logAudit(5, actor, f"Account status changed to {status} for user {id}")
+        return user
+
+    def suspend(self, id: str, days: Optional[int], requestingUserId: str) -> User:
+        """Ban an account for `days`, or for good when `days` is None.
+
+        A suspension is the same `banned` status as a permanent ban plus an end
+        date; it lifts itself at the first sign-in afterwards. Deliberately a
+        separate call from resolving a report: closing a complaint and
+        punishing an account are two decisions, and a queue where one implies
+        the other makes moderators stop reading.
+
+        `days` is capped at `MAX_SUSPENSION_DAYS`. Past that the honest action
+        is a permanent ban, which someone has to choose on purpose rather than
+        arrive at by typing a large number.
+        """
+        if days is not None and (days < 1 or days > config.MAX_SUSPENSION_DAYS):
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="INVALID_SUSPENSION",
+                message=f"A suspension lasts between 1 and {config.MAX_SUSPENSION_DAYS} days."
+            )
+
+        if str(id) == str(requestingUserId):
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="SELF_SUSPENSION",
+                message="You cannot suspend your own account."
+            )
+
+        # Naive UTC, like `deleted_at` and every other instant in the schema:
+        # the database is UTC and the app is not necessarily, so a bare
+        # `datetime.now()` writes a timestamp hours off the column beside it.
+        until = _utcNow() + timedelta(days=days) if days is not None else None
+        user = self.userRepository.suspend(id, until)
+
+        self._logAudit(
+            5,
+            requestingUserId,
+            f"Account {id} suspended until {until.isoformat()}" if until
+            else f"Account {id} banned permanently"
+        )
+
+        return user
+
+    def liftExpiredSuspension(self, id: str) -> Optional[User]:
+        """Re-enable an account whose suspension ran out. None when nothing to do."""
+        user = self.userRepository.liftExpiredSuspension(id)
+        if user is not None:
+            self._logAudit(5, str(id), f"Suspension expired for user {id}; account re-enabled")
         return user
 
     def delete(self, userId: str, requestingUserId: str) -> bool:

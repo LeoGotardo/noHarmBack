@@ -26,7 +26,8 @@ class UserRepository:
             created_at=model.created_at,
             updated_at=model.updated_at,
             profile_picture=model.profile_picture,
-            deleted_at=model.deleted_at
+            deleted_at=model.deleted_at,
+            banned_until=model.banned_until
         )
         
     
@@ -230,7 +231,11 @@ class UserRepository:
     
     def updateStatus(self, id: str, status: int) -> User:
         """Update a user status
-        
+
+        Moving an account off `banned` clears `banned_until` with it. A stale
+        date left behind would make a later permanent ban look like a
+        suspension that expired weeks ago, and lift itself at the next login.
+
         Args:
             id (str): User ID
             status (int): New status
@@ -242,6 +247,8 @@ class UserRepository:
             userModel = self.findById(id, returnModel=True)
             
             userModel.status = status
+            if status != config.STATUS_CODES["banned"]:
+                userModel.banned_until = None
             
             self.session.commit()
             
@@ -252,6 +259,68 @@ class UserRepository:
                 raise e
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
+
+    def suspend(self, id: str, until: Optional[datetime]) -> User:
+        """Ban an account, until `until` or for good when that is None.
+
+        The two are the same status on purpose: everything that refuses a
+        banned account — login, register, reactivate, refresh, and the token
+        check on every request — keeps working untouched, and the date only
+        decides when the ban stops applying.
+
+        Args:
+            id (str): User ID
+            until (datetime | None): when the suspension ends; None is permanent
+
+        Returns:
+            User: User with his full data
+        """
+        try:
+            userModel = self.findById(id, returnModel=True)
+
+            userModel.status = config.STATUS_CODES["banned"]
+            userModel.banned_until = until
+
+            self.session.commit()
+
+            return self._toEntity(userModel)
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
+    def liftExpiredSuspension(self, id: str) -> Optional[User]:
+        """Re-enable an account whose suspension has run out.
+
+        Returns the restored user, or None when there was nothing to lift —
+        the account is not banned, or its ban has no end date, or the date has
+        not arrived. Called from the authentication paths rather than a cron:
+        an account nobody is trying to sign in to does not need unbanning, and
+        a nightly job would be one more thing that silently stops running.
+        """
+        try:
+            userModel = self.findById(id, returnModel=True)
+
+            if userModel.status != config.STATUS_CODES["banned"]:
+                return None
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            if userModel.banned_until is None or userModel.banned_until > now:
+                return None
+
+            userModel.status = config.STATUS_CODES["enabled"]
+            userModel.banned_until = None
+
+            self.session.commit()
+
+            return self._toEntity(userModel)
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
 
     def delete(self, id: str) -> bool:
         """Delete a user

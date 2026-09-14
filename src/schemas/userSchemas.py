@@ -60,3 +60,52 @@ class UserStatsResponse(BaseModel):
 class UserListResponse(BaseModel):
     users: list[UserResponse]
     total: int
+
+
+class SuspendRequest(BaseModel):
+    """How long an account is suspended for.
+
+    `days: null` is a permanent ban, and has to be written out — a missing
+    field cannot mean "for ever" by accident. The cap lives in
+    `MAX_SUSPENSION_DAYS`; the service enforces it, so a change there does not
+    need a schema edit.
+    """
+    days: Optional[int] = Field(
+        ...,
+        description="Days the suspension lasts; null bans permanently"
+    )
+    reason: Optional[str] = Field(
+        None,
+        max_length=32,
+        description=(
+            "The conduct, as one of the report reason codes. It becomes the "
+            "suspension notice the user sees; anything unrecognised is stored "
+            "as `other`."
+        )
+    )
+    message: Optional[str] = Field(
+        None,
+        max_length=500,
+        description=(
+            "The moderator's own words, shown to the suspended user. Never "
+            "name the reporter here."
+        )
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SuspensionResponse(BaseModel):
+    """What a moderator gets back after suspending an account.
+
+    Deliberately not `UserResponse`: that carries a username and e-mail, and
+    the answer to "is this account banned, until when" needs neither.
+    """
+    id: str
+    status: int = Field(..., description="9 while the ban is in force")
+    banned_until: Optional[datetime] = Field(
+        None,
+        description="When the suspension ends; null when the ban is permanent"
+    )
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")

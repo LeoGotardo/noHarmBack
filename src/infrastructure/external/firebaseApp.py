@@ -7,16 +7,27 @@ verification — have to come through here.
 Initialisation is attempted once. A failure is remembered so a broken
 credential does not cost a stack trace on every request; the callers decide
 what a missing app means for them (push skips, verification refuses).
+
+"Once" has to mean once *finished*, not once *started*. `_tried` used to be set
+before `initialize_app` returned, so a second request arriving during a cold
+start took the `if _tried: return None` branch and was refused with 503
+`AUTH_UNAVAILABLE` — for no reason, with nothing logged, while the first
+request was still building the very app it needed. Concurrent sign-ins in the
+first moments after a restart are the normal case, not a rare one: it is what
+the E2E suite does on every run, and what a deploy does to real users. The lock
+below is what makes the flag mean what the paragraph above says.
 """
 
 import json
 import logging
 import os
+import threading
 
 logger = logging.getLogger(__name__)
 
 _app = None
 _tried = False
+_lock = threading.Lock()
 
 # Read by firebase_admin itself. When set, `verify_id_token` skips the
 # signature check — see `security/firebaseIdentity.py` for why that exists and
@@ -49,11 +60,24 @@ def getFirebaseApp():
     """The process-wide Firebase app, or None when it cannot be built."""
     global _app, _tried
 
+    # Fast path, no lock: once built, the app never changes.
     if _app is not None:
         return _app
-    if _tried:
-        return None
-    _tried = True
+
+    with _lock:
+        # Re-checked under the lock — whoever held it may have finished the
+        # work this caller was about to start.
+        if _app is not None:
+            return _app
+        if _tried:
+            return None
+
+        return _initialise()
+
+
+def _initialise():
+    """Build the app. Called once, under `_lock`."""
+    global _app, _tried
 
     try:
         import firebase_admin
@@ -75,6 +99,7 @@ def getFirebaseApp():
                 "(or FIREBASE_SERVICE_ACCOUNT_PATH). Login and registration "
                 "will be refused."
             )
+            _tried = True
             return None
 
         try:
@@ -86,5 +111,9 @@ def getFirebaseApp():
 
         return _app
     except Exception as e:
+        # Only a real failure sets the flag: a configuration that cannot work
+        # will not start working on the next request, and retrying it per
+        # request costs a stack trace each time.
+        _tried = True
         logger.warning(f"Firebase init failed: {e}")
         return None

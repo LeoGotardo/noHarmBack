@@ -3,8 +3,17 @@ from sqlalchemy.orm import Session
 
 from api.dependencies.auth import getAdminUser, getCurrentUser
 from api.dependencies.database import getDb, getDbWithRLS
+from domain.services.noticeService import NoticeService
 from domain.services.userService import UserService
-from schemas.userSchemas import UserResponse, UserListResponse, ProfileUpdateRequest, UserStatsResponse
+from schemas.noticeSchemas import NoticeResponse, WarnRequest
+from schemas.userSchemas import (
+    UserResponse,
+    UserListResponse,
+    ProfileUpdateRequest,
+    UserStatsResponse,
+    SuspendRequest,
+    SuspensionResponse,
+)
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
 from domain.entities.user import User
@@ -151,6 +160,88 @@ def getAllUsers(
 
         users = service.search(search) if search else service.findAll()
         return UserListResponse(users=[UserResponse.model_validate(u) for u in users], total=len(users))
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+
+
+@router.post(
+    "/{userId}/warn",
+    response_model=NoticeResponse,
+    status_code=201,
+    summary="Warn an account (admin)",
+    description=(
+        "Sends a warning. **Nothing about the account changes** — no ban, no "
+        "limit — and that is the point: the rung between doing nothing and "
+        "banning someone was missing, so every offence short of a ban got "
+        "silence.\n\n"
+        "The user sees it the next time they open the app and acknowledges it. "
+        "It names the conduct, never the reporter: the promise that a reported "
+        "user is never told who complained is what makes reports fileable.\n\n"
+        "`self_harm` is refused here (400 `NOT_A_WARNING`). A report about "
+        "someone's safety is usually a frightened friend, and answering it with "
+        "a telling-off is the worst available move. Restricted to "
+        "ADMIN_USER_IDS; any other caller gets a 404."
+    )
+)
+@limiter.limit("20/minute")
+def warnUser(
+    userId: str,
+    request: Request,
+    body: WarnRequest,
+    # `getDb`: tb_12's insert policy only passes for a session with no RLS
+    # context, which is what keeps notices something only moderation writes.
+    db: Session = Depends(getDb),
+    currentUserId: str = Depends(getAdminUser)
+):
+    try:
+        service = NoticeService(db)
+        return service.warn(userId, body.reason, currentUserId, body.message)
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+
+
+@router.put(
+    "/{userId}/suspend",
+    response_model=SuspensionResponse,
+    status_code=200,
+    summary="Suspend an account for a fixed time (admin)",
+    description=(
+        "Bans an account until a date — `days: null` bans it permanently. A "
+        "suspension is the same `banned` status as a permanent ban plus an end "
+        "date, and it lifts itself at the first sign-in afterwards; nothing has "
+        "to run on a schedule.\n\n"
+        "Separate from resolving a report on purpose: closing a complaint and "
+        "punishing an account are two decisions, and a queue where one implies "
+        "the other is a queue moderators stop reading. Restricted to "
+        "ADMIN_USER_IDS; any other caller gets a 404.\n\n"
+        "To end a suspension early, set the account back to enabled with "
+        "`PUT /users/{id}/status/1` — that clears the date with it."
+    )
+)
+@limiter.limit("10/minute")
+def suspendUser(
+    userId: str,
+    request: Request,
+    body: SuspendRequest,
+    # `getDb` for the same reason as the status route below: the tb_0 UPDATE
+    # policy is owner-only, so an admin acting on someone else under an RLS
+    # context would match no row.
+    db: Session = Depends(getDb),
+    currentUserId: str = Depends(getAdminUser)
+):
+    try:
+        service = UserService(db)
+        suspended = service.suspend(userId, body.days, currentUserId)
+
+        # Written beside the ban so the person is not guessing what happened
+        # when they come back. Best effort: a suspension whose notice failed to
+        # save is still a suspension, and failing here would leave the
+        # moderator unsure which half landed.
+        NoticeService(db).noticeOfSuspension(
+            userId, body.reason or "other", currentUserId, body.message
+        )
+
+        return suspended
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 

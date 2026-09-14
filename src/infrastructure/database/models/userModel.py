@@ -27,6 +27,13 @@ class UserModel(Base, TimestampMixin):
     # deadline. NULL for every account that has not been deleted, and cleared
     # again when one is restored within the grace window.
     deleted_at: Mapped[Optional[datetime]] = mapped_column("cl_0f", DateTime, nullable=True)
+    # When a suspension ends. NULL covers both "not banned" and "banned for
+    # good": a status of `banned` with no date is permanent, which is what the
+    # column meant before this existed. A timed suspension is the same status
+    # plus an instant, and it lifts itself at the next sign-in — see
+    # `AuthService._liftExpiredSuspension`. Nothing sweeps it on a schedule,
+    # because an account nobody is trying to use does not need unbanning.
+    banned_until: Mapped[Optional[datetime]] = mapped_column("cl_0g", DateTime, nullable=True)
     user_badges = relationship("UserBadgesModel", foreign_keys="UserBadgesModel.user_id")
 
     @validates('username')

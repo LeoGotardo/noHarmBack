@@ -81,6 +81,54 @@ class AuthService:
             details={"deletionScheduledAt": deadline.isoformat() + "Z"}
         )
 
+    def _liftExpiredSuspension(self, user):
+        """Re-enable an account whose suspension has run out, and return it.
+
+        Called at the top of every path that decides whether someone may come
+        back in. A suspension ends by being *used*, not by a cron: there is
+        nothing to do for an account nobody is signing in to, and a nightly
+        sweep is one more thing that can quietly stop running while the app
+        keeps refusing people whose time is up.
+
+        Returns the user unchanged when there is nothing to lift.
+        """
+        if user.status != config.STATUS_CODES["banned"]:
+            return user
+        if user.banned_until is None:
+            return user  # permanent
+        if user.banned_until > datetime.now(timezone.utc).replace(tzinfo=None):
+            return user  # still serving it
+
+        restored = self.userRepository.liftExpiredSuspension(str(user.id))
+        if restored is None:
+            return user
+
+        self._logAudit(5, str(user.id), f"Suspension expired for user {user.id}; account re-enabled")
+        return restored
+
+    def _bannedError(self, user) -> NoHarmException:
+        """The 403 for a banned account — with the end date when it has one.
+
+        A permanent ban and a three-day suspension are the same status, and
+        answering both with "Account is banned." tells someone serving 72 hours
+        that they have lost the account. The date is the whole difference, so
+        it travels in `details` the way the deletion deadline does, and the app
+        draws "you can come back on <date>" instead of a dead end.
+        """
+        if user.banned_until is None:
+            return NoHarmException(
+                statusCode=403,
+                errorCode="ACCOUNT_BANNED",
+                message="Account is banned."
+            )
+
+        return NoHarmException(
+            statusCode=403,
+            errorCode="ACCOUNT_SUSPENDED",
+            message="This account is suspended. You can sign in again when it ends.",
+            details={"suspendedUntil": user.banned_until.isoformat() + "Z"}
+        )
+
     # ── register ──────────────────────────────────────────────────────────────
 
     def register(self, request: AuthRegisterRequest) -> dict:
@@ -134,10 +182,15 @@ class AuthService:
             existing = None  # 404 → uid is available, continue
 
         if existing is not None:
+            # A suspension that has run out is lifted here, before anything
+            # reads the status: otherwise registering again after serving one
+            # answers "banned" for an account that is no longer banned.
+            existing = self._liftExpiredSuspension(existing)
+
             # Banned first: a banned account must not be able to talk its way
             # back in through any branch below.
             if existing.status == config.STATUS_CODES["banned"]:
-                raise NoHarmException(statusCode=403, errorCode="ACCOUNT_BANNED", message="Account is banned.")
+                raise self._bannedError(existing)
 
             # Deleted and still inside the grace window — registering again is
             # the same gesture as signing in, so it is answered the same way:
@@ -225,6 +278,8 @@ class AuthService:
             self._logAudit(2, uid, "Failed login — user not found")
             raise genericError
 
+        user = self._liftExpiredSuspension(user)
+
         # Rule 1.4 — reject banned / blocked / deleted
         blocked_statuses = {
             config.STATUS_CODES.get("banned"),
@@ -235,7 +290,7 @@ class AuthService:
             self._logAudit(2, str(user.id), f"Failed login — account status {user.status}")
             match user.status:
                 case s if s == config.STATUS_CODES.get("banned"):
-                    raise NoHarmException(statusCode=403, errorCode="ACCOUNT_BANNED", message="Account is banned.")
+                    raise self._bannedError(user)
                 case s if s == config.STATUS_CODES.get("blocked"):
                     raise NoHarmException(statusCode=403, errorCode="ACCOUNT_BLOCKED", message="Account is blocked.")
                 case _:
@@ -292,9 +347,11 @@ class AuthService:
                 raise e
             raise NoHarmException(statusCode=403, errorCode="ACCOUNT_DELETED", message="Account not found.")
 
+        user = self._liftExpiredSuspension(user)
+
         if user.status == config.STATUS_CODES["banned"]:
             self._logAudit(2, str(user.id), "Failed reactivation — account banned")
-            raise NoHarmException(statusCode=403, errorCode="ACCOUNT_BANNED", message="Account is banned.")
+            raise self._bannedError(user)
 
         if user.status == config.STATUS_CODES["blocked"]:
             raise NoHarmException(statusCode=403, errorCode="ACCOUNT_BLOCKED", message="Account is blocked.")
@@ -354,6 +411,12 @@ class AuthService:
                 errorCode="INVALID_TOKEN",
                 message="Invalid or expired refresh token."
             )
+
+        # A refresh is the app asking "am I still allowed in?" every 15
+        # minutes, so it is also where a served suspension ends for someone who
+        # left the app open: they get a new token pair instead of being logged
+        # out and made to sign in again.
+        user = self._liftExpiredSuspension(user)
 
         if user.status in {
             config.STATUS_CODES.get("banned"),
