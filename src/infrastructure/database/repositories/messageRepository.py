@@ -63,7 +63,18 @@ class MessageRepository:
             list[Message] | PaginatedResponse[Message]
         """
         try:
-            query = self.session.query(MessageModel).filter(MessageModel.chat == chat_id)
+            # Oldest first, always. Without an ORDER BY the rows come back in
+            # whatever order the heap holds them, and marking a message read
+            # rewrites its row — which moved just-read messages to the end and
+            # put newer ones above older ones in the thread. `created_at`
+            # rather than `send_at`: the latter is encrypted and unsortable in
+            # the database. `id` breaks ties so pagination cannot repeat or
+            # skip a row.
+            query = (
+                self.session.query(MessageModel)
+                .filter(MessageModel.chat == chat_id)
+                .order_by(MessageModel.created_at.asc(), MessageModel.id.asc())
+            )
             if params:
                 total = query.count()
                 offset = (params.page - 1) * params.pageSize
@@ -94,7 +105,7 @@ class MessageRepository:
             query = self.session.query(MessageModel).filter(
                 MessageModel.chat == chat_id,
                 MessageModel.status == config.STATUS_CODES["unread"]
-            )
+            ).order_by(MessageModel.created_at.asc(), MessageModel.id.asc())
             if params:
                 total = query.count()
                 offset = (params.page - 1) * params.pageSize
@@ -230,17 +241,27 @@ class MessageRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
     
-    def markAllAsRead(self, chat_id: UUID) -> bool:
-        """Mark all messages as read
-        
+    def markAllAsRead(self, chat_id: UUID, reader_id: str) -> bool:
+        """Mark the messages `reader_id` received in this chat as read.
+
+        Only the *other* participant's messages count. Marking every unread row
+        in the chat also flipped the reader's own outgoing messages to `read`,
+        so opening a conversation put a read receipt on messages the peer had
+        never seen — `countUnreadByChatId` has always drawn the same line.
+
         Args:
-            chat_id (str): Chat ID
-            
+            chat_id (UUID): Chat ID
+            reader_id (str): The user doing the reading
+
         Returns:
             bool: True if messages were marked as read, False if not
         """
         try:
-            messages = self.session.query(MessageModel).filter(MessageModel.chat == chat_id, MessageModel.status == config.STATUS_CODES["unread"]).all()
+            messages = self.session.query(MessageModel).filter(
+                MessageModel.chat == chat_id,
+                MessageModel.status == config.STATUS_CODES["unread"],
+                MessageModel.sender != reader_id,
+            ).all()
             for message in messages:
                 message.status = config.STATUS_CODES["read"]
             self.session.commit()

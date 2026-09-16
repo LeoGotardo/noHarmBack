@@ -106,6 +106,26 @@ class AuthService:
         self._logAudit(5, str(user.id), f"Suspension expired for user {user.id}; account re-enabled")
         return restored
 
+    def _syncProfilePicture(self, user, picture: str | None) -> None:
+        """Keep the profile picture in step with the Google account.
+
+        It used to be read once, at registration, and never again: an account
+        that registered before the claim carried a photo — or whose photo URL
+        Google later rotated — showed a blank avatar for ever, and with no
+        upload endpoint there was nothing the user could do about it. Sourced
+        from the verified token claim, never from the request body.
+
+        Best effort: a failed write must not cost anyone their sign-in.
+        """
+        if not picture or picture == user.profile_picture:
+            return
+        try:
+            userModel = self.userRepository.findById(str(user.id), returnModel=True)
+            userModel.profile_picture = picture
+            self.userRepository.session.commit()
+        except Exception:
+            self.userRepository.session.rollback()
+
     def _bannedError(self, user) -> NoHarmException:
         """The 403 for a banned account — with the end date when it has one.
 
@@ -259,7 +279,8 @@ class AuthService:
         Returns:
             dict with accessToken, refreshToken, tokenType
         """
-        uid: str = verifyIdToken(request.idToken).uid
+        identity = verifyIdToken(request.idToken)
+        uid: str = identity.uid
 
         # Rate limiting (§9.6)
         allowed, reason = _loginLimiter.check(uid)
@@ -300,6 +321,7 @@ class AuthService:
                     raise self._pendingDeletionError(user)
 
         _loginLimiter.onSuccess(uid)
+        self._syncProfilePicture(user, identity.picture)
         self._logAudit(1, str(user.id), "Successful login")
 
         accessToken = _jwtHandler.createAccessToken(str(user.id))

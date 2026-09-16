@@ -60,8 +60,8 @@ def _token(uid="uid-001", email="user@test.com", **claims):
     return json.dumps({"uid": uid, "email": email, **claims})
 
 
-def _login_request(uid="uid-001", email="user@test.com"):
-    return AuthLoginRequest(idToken=_token(uid, email))
+def _login_request(uid="uid-001", email="user@test.com", **claims):
+    return AuthLoginRequest(idToken=_token(uid, email, **claims))
 
 
 def _register_request(uid="uid-001", email="new@test.com", username="newuser", **claims):
@@ -90,6 +90,74 @@ def test_login_success(mock_db):
         assert result["refreshToken"] == "refresh-tok"
         assert result["tokenType"] == "Bearer"
         mock_limiter.onSuccess.assert_called_once_with("uid-001")
+
+
+def test_login_refreshes_the_profile_picture_from_the_token(mock_db):
+    """The photo used to be read once, at registration, and never again — an
+    account that registered without one showed a blank avatar for ever, and
+    there is no upload endpoint to fix it with."""
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler"):
+
+        mock_limiter.check.return_value = (True, None)
+
+        service = _make_service(mock_db)
+        mock_user = MagicMock()
+        mock_user.id = "uid-001"
+        mock_user.status = config.STATUS_CODES["enabled"]
+        mock_user.profile_picture = None
+        userModel = MagicMock()
+        service.userRepository.findById.side_effect = (
+            lambda _id, returnModel=False: userModel if returnModel else mock_user
+        )
+
+        service.login(_login_request(picture="https://pic/new.jpg"))
+
+        assert userModel.profile_picture == "https://pic/new.jpg"
+        service.userRepository.session.commit.assert_called()
+
+
+def test_login_leaves_an_unchanged_picture_alone(mock_db):
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler"):
+
+        mock_limiter.check.return_value = (True, None)
+
+        service = _make_service(mock_db)
+        mock_user = MagicMock()
+        mock_user.id = "uid-001"
+        mock_user.status = config.STATUS_CODES["enabled"]
+        mock_user.profile_picture = "https://pic/same.jpg"
+        service.userRepository.findById.return_value = mock_user
+
+        service.login(_login_request(picture="https://pic/same.jpg"))
+
+        service.userRepository.session.commit.assert_not_called()
+
+
+def test_login_survives_a_failed_picture_write(mock_db):
+    """A photo that will not save must never cost anyone their sign-in."""
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler") as mock_jwt:
+
+        mock_limiter.check.return_value = (True, None)
+        mock_jwt.createAccessToken.return_value = "access-tok"
+        mock_jwt.createRefreshToken.return_value = "refresh-tok"
+
+        service = _make_service(mock_db)
+        mock_user = MagicMock()
+        mock_user.id = "uid-001"
+        mock_user.status = config.STATUS_CODES["enabled"]
+        mock_user.profile_picture = None
+        service.userRepository.findById.side_effect = (
+            lambda _id, returnModel=False: mock_user
+        )
+        service.userRepository.session.commit.side_effect = Exception("db down")
+
+        result = service.login(_login_request(picture="https://pic/new.jpg"))
+
+        assert result["accessToken"] == "access-tok"
+        service.userRepository.session.rollback.assert_called()
 
 
 def test_login_user_not_found_raises_401(mock_db):

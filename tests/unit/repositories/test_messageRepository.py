@@ -80,14 +80,22 @@ def test_softDelete_success(repo, session):
 # ── findByChatId ──────────────────────────────────────────────────────────────
 
 def test_findByChatId_returns_list(repo, session):
-    session.query.return_value.filter.return_value.all.return_value = []
+    session.query.return_value.filter.return_value.order_by.return_value.all.return_value = []
     assert isinstance(repo.findByChatId("cid"), list)
+
+
+def test_findByChatId_orders_oldest_first(repo, session):
+    """Thread order is the query's job — an unordered read put newer messages
+    above older ones as soon as a row was rewritten by a read receipt."""
+    repo.findByChatId("cid")
+    assert session.query.return_value.filter.return_value.order_by.called
 
 
 def test_findByChatId_with_pagination(repo, session):
     from schemas.paginationSchemas import PaginationParams
-    session.query.return_value.filter.return_value.count.return_value = 5
-    session.query.return_value.filter.return_value.offset.return_value.limit.return_value.all.return_value = []
+    ordered = session.query.return_value.filter.return_value.order_by.return_value
+    ordered.count.return_value = 5
+    ordered.offset.return_value.limit.return_value.all.return_value = []
     result = repo.findByChatId("cid", PaginationParams(page=1, pageSize=10))
     assert hasattr(result, "total")
     assert result.total == 5
@@ -103,14 +111,15 @@ def test_findByChatId_db_error_raises_500(repo, session):
 # ── findUnreadByChatId ────────────────────────────────────────────────────────
 
 def test_findUnreadByChatId_returns_list(repo, session):
-    session.query.return_value.filter.return_value.all.return_value = []
+    session.query.return_value.filter.return_value.order_by.return_value.all.return_value = []
     assert isinstance(repo.findUnreadByChatId("cid"), list)
 
 
 def test_findUnreadByChatId_with_pagination(repo, session):
     from schemas.paginationSchemas import PaginationParams
-    session.query.return_value.filter.return_value.count.return_value = 2
-    session.query.return_value.filter.return_value.offset.return_value.limit.return_value.all.return_value = []
+    ordered = session.query.return_value.filter.return_value.order_by.return_value
+    ordered.count.return_value = 2
+    ordered.offset.return_value.limit.return_value.all.return_value = []
     result = repo.findUnreadByChatId("cid", PaginationParams(page=1, pageSize=10))
     assert hasattr(result, "total")
 
@@ -138,17 +147,25 @@ def test_markAllAsRead_returns_true(repo, session):
     from core.config import config
     msgs = [MagicMock(), MagicMock()]
     session.query.return_value.filter.return_value.all.return_value = msgs
-    result = repo.markAllAsRead("cid")
+    result = repo.markAllAsRead("cid", "uid-reader")
     assert result is True
     for m in msgs:
         assert m.status == config.STATUS_CODES["read"]
     session.commit.assert_called()
 
 
+def test_markAllAsRead_excludes_the_readers_own_messages(repo, session):
+    """A user never reads their own message: marking every unread row in the
+    chat put a read receipt on the sender's bubble the moment they opened it."""
+    repo.markAllAsRead("cid", "uid-reader")
+    filters = session.query.return_value.filter.call_args.args
+    assert len(filters) == 3
+
+
 def test_markAllAsRead_db_error_raises_500(repo, session):
     session.query.side_effect = Exception("db error")
     with pytest.raises(NoHarmException) as exc:
-        repo.markAllAsRead("cid")
+        repo.markAllAsRead("cid", "uid-reader")
     assert exc.value.statusCode == 500
 
 

@@ -142,6 +142,11 @@ class MessageService:
         msg = self.messageRepository.findById(messageId)
         if msg.status == config.STATUS_CODES.get("read"):
             return msg
+        # You cannot read your own message. Marking it read here put a read
+        # receipt on the sender's own bubble without the peer ever opening the
+        # chat — the same hole `markAllAsRead` had in bulk.
+        if str(msg.sender) == str(requestingUserId):
+            return msg
         chat = self.chatRepository.findById(msg.chat)
         if str(chat.sender) != str(requestingUserId) and str(chat.reciver) != str(requestingUserId):
             raise NoHarmException(
@@ -153,15 +158,16 @@ class MessageService:
         emitter.emitToChat(
             chat.id,
             "message_read",
-            {"chatId": str(chat.id), "messageId": str(messageId)},
+            {"chatId": str(chat.id), "messageId": str(messageId), "readerId": str(requestingUserId)},
             [str(chat.sender), str(chat.reciver)],
         )
         return updated
 
     def markAllAsRead(self, chatId: UUID, requestingUserId: str) -> bool:
-        """Mark all unread messages in a chat as read.
+        """Mark the messages `requestingUserId` received in this chat as read.
 
-        Only chat participants may perform this action (§5.3, §9.2).
+        Only chat participants may perform this action (§5.3, §9.2), and only
+        the peer's messages are touched: a user never reads their own.
         """
         chat = self.chatRepository.findById(chatId)
         if str(chat.sender) != str(requestingUserId) and str(chat.reciver) != str(requestingUserId):
@@ -170,8 +176,12 @@ class MessageService:
                 errorCode="FORBIDDEN",
                 message="You are not a participant in this chat."
             )
-        result = self.messageRepository.markAllAsRead(chatId)
-        emitter.notifyMessagesRead(chatId, [str(chat.sender), str(chat.reciver)])
+        result = self.messageRepository.markAllAsRead(chatId, str(requestingUserId))
+        emitter.notifyMessagesRead(
+            chatId,
+            [str(chat.sender), str(chat.reciver)],
+            str(requestingUserId),
+        )
         return result
 
     # ── passthrough ───────────────────────────────────────────────────────────

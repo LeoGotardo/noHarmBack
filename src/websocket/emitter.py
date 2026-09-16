@@ -140,9 +140,17 @@ def notifyNewMessage(message: Any, participantIds: Iterable[Any]) -> None:
     emitToChat(message.chat, "new_message", payload, participantIds)
 
 
-def notifyMessagesRead(chatId: Any, participantIds: Iterable[Any]) -> None:
-    """Broadcast that a chat's unread messages were marked read."""
-    emitToChat(chatId, "messages_read", {"chatId": str(chatId)}, participantIds)
+def notifyMessagesRead(chatId: Any, participantIds: Iterable[Any], readerId: Any = None) -> None:
+    """Broadcast that a chat's unread messages were marked read.
+
+    `readerId` says *who* read them: both participants get the event, and
+    without it the reader's own client flipped its outgoing messages to `read`
+    as well — a receipt for messages nobody had opened.
+    """
+    payload: dict = {"chatId": str(chatId)}
+    if readerId is not None:
+        payload["readerId"] = str(readerId)
+    emitToChat(chatId, "messages_read", payload, participantIds)
 
 
 # ── friendship fan-out ────────────────────────────────────────────────────────

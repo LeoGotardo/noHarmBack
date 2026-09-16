@@ -108,3 +108,14 @@ def test_notifyMessagesRead_carries_the_chat_id(sio):
     emitter.notifyMessagesRead("chat-9", ["uid-a"])
 
     assert sio.sio.emit.call_args_list[0].args[1] == {"chatId": "chat-9"}
+
+
+def test_notifyMessagesRead_carries_the_reader(sio):
+    """Both participants get the event; without the reader's id the reader's own
+    client marked its outgoing messages read as well."""
+    emitter.notifyMessagesRead("chat-9", ["uid-a", "uid-b"], "uid-b")
+
+    assert sio.sio.emit.call_args_list[0].args[1] == {
+        "chatId": "chat-9",
+        "readerId": "uid-b",
+    }

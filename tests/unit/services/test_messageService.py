@@ -194,6 +194,17 @@ def test_markAsRead_already_read_is_idempotent(mock_db):
     service.messageRepository.markAsRead.assert_not_called()
 
 
+def test_markAsRead_own_message_is_a_no_op(mock_db):
+    """A sender cannot read their own message into a read receipt."""
+    service = _make_service(mock_db)
+    msg = _mock_message(sender="uid-sender", status=config.STATUS_CODES["unread"])
+    service.messageRepository.findById.return_value = msg
+
+    result = service.markAsRead("msg-001", "uid-sender")
+    assert result is msg
+    service.messageRepository.markAsRead.assert_not_called()
+
+
 def test_markAsRead_non_participant_raises_403(mock_db):
     service = _make_service(mock_db)
     msg = _mock_message(status=config.STATUS_CODES["unread"])
@@ -216,7 +227,7 @@ def test_markAllAsRead_participant_succeeds(mock_db):
 
     result = service.markAllAsRead("chat-001", "uid-receiver")
     assert result is True
-    service.messageRepository.markAllAsRead.assert_called_once_with("chat-001")
+    service.messageRepository.markAllAsRead.assert_called_once_with("chat-001", "uid-receiver")
 
 
 def test_markAllAsRead_non_participant_raises_403(mock_db):
