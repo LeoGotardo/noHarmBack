@@ -1,5 +1,6 @@
 from infrastructure.database.repositories.userRepository import UserRepository
 from infrastructure.database.repositories.auditLogsRepository import AuditLogsRepository
+from domain.services.consentService import ConsentService
 from infrastructure.database.models.userModel import UserModel
 from infrastructure.database.models.auditLogsModel import AuditLogsModel
 from schemas.authSchemas import AuthRegisterRequest, AuthLoginRequest
@@ -13,9 +14,22 @@ from core.config import config
 from core.database import Database
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 _USERNAME_RE = re.compile(r'^[a-zA-Z0-9_-]{3,50}$')
+
+
+def _ageOn(birthDate: date, today: date) -> int:
+    """Whole years between two dates.
+
+    Written out rather than `days // 365`: that drifts a day every four years
+    and turns the birthday of anyone born on 29 February into a value that is
+    right three years in four.
+    """
+    years = today.year - birthDate.year
+    if (today.month, today.day) < (birthDate.month, birthDate.day):
+        years -= 1
+    return years
 
 
 _blacklist = TokenBlacklist()
@@ -28,6 +42,7 @@ class AuthService:
         self.db: Database = db
         self.userRepository = UserRepository(db)  
         self.auditRepository = AuditLogsRepository(db)  
+        self.consentService = ConsentService(db)
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -119,6 +134,11 @@ class AuthService:
         """
         if not picture or picture == user.profile_picture:
             return
+        # A blocked picture is blocked against Google too. This sync is exactly
+        # the path that would undo a moderator's decision, silently, at the
+        # user's next sign-in.
+        if getattr(user, "picture_blocked", False):
+            return
         try:
             userModel = self.userRepository.findById(str(user.id), returnModel=True)
             userModel.profile_picture = picture
@@ -149,6 +169,57 @@ class AuthService:
             details={"suspendedUntil": user.banned_until.isoformat() + "Z"}
         )
 
+    def _requireConsent(self, request: AuthRegisterRequest) -> None:
+        """Refuse a registration that agreed to nothing.
+
+        The terms and the privacy policy are a condition of holding an account,
+        so both are checked here. Health-data consent is not: declining it
+        creates a working account without the streak tracker, which is what
+        makes it a real choice rather than a checkbox in the way of the button.
+        """
+        missing = []
+        if not request.acceptedTerms:
+            missing.append("terms")
+        if not request.acceptedPrivacy:
+            missing.append("privacy")
+
+        if missing:
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="CONSENT_REQUIRED",
+                message="The terms of use and the privacy policy must both be accepted.",
+                details={"missing": missing}
+            )
+
+    def _requireMinimumAge(self, birthDate: date) -> None:
+        """Refuse an account below MINIMUM_AGE_YEARS, and refuse a bad date.
+
+        Self-declared — no provider this app uses carries an age claim — so
+        this is not verification. It is the record that the question was asked
+        and answered, and the refusal of an answer that says no.
+
+        A future date is rejected separately from being under age: it is a
+        broken client or a typo, and telling someone born in 2035 that they are
+        too young is a worse answer than telling them the date is wrong.
+        """
+        today = datetime.now(timezone.utc).date()
+
+        if birthDate > today:
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="INVALID_BIRTH_DATE",
+                message="That date of birth is in the future."
+            )
+
+        minimum = config.MINIMUM_AGE_YEARS
+        if _ageOn(birthDate, today) < minimum:
+            raise NoHarmException(
+                statusCode=403,
+                errorCode="UNDERAGE",
+                message=f"You must be at least {minimum} to use NoHarm.",
+                details={"minimumAge": minimum}
+            )
+
     # ── register ──────────────────────────────────────────────────────────────
 
     def register(self, request: AuthRegisterRequest) -> dict:
@@ -158,6 +229,10 @@ class AuthService:
         - the ID token is verified first: uid, email and email_verified come
           from its claims, so an account cannot be created for a UID the caller
           does not control, and verification cannot be self-declared
+        - the terms and the privacy policy must both be accepted, and the
+          declared age must reach MINIMUM_AGE_YEARS; both are refused before
+          anything is written, because an account that exists having agreed to
+          nothing is the state this check exists to make impossible
         - username must match ^[a-zA-Z0-9_-]+$ and be 3–50 chars
         - username and email must be globally unique → 409 (generic message)
         - status = pending until email verification (enabled if Firebase already verified)
@@ -171,6 +246,12 @@ class AuthService:
         uid: str = identity.uid
         username: str = request.username
         email: str | None = identity.email
+
+        # Before anything is written. A row created first and gated afterwards
+        # is an account that exists without having agreed to anything, and the
+        # only way back out of that state is a hand-written DELETE.
+        self._requireConsent(request)
+        self._requireMinimumAge(request.birthDate)
 
         # Google always sends one, but a provider that does not would leave the
         # account without the field every uniqueness rule below keys on.
@@ -248,9 +329,17 @@ class AuthService:
             username=username,
             email=email,
             profile_picture=photoUrl,
-            status=status
+            status=status,
+            birth_date=request.birthDate
         )
         self.userRepository.create(newUser)
+
+        # After the user row, because the consent rows carry a foreign key into
+        # it. Not best-effort: an account whose consents failed to write is an
+        # account the gate stops at its next launch, with the user re-accepting
+        # something they already accepted and no way to tell why. A failure here
+        # raises, and the registration is reported as failed.
+        self.consentService.recordRegistrationConsents(uid, request.healthDataConsent)
 
         accessToken = _jwtHandler.createAccessToken(uid)
         refreshToken = _jwtHandler.createRefreshToken(uid)

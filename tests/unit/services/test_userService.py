@@ -264,3 +264,104 @@ def test_lifting_nothing_writes_nothing(mock_db):
 
     assert service.liftExpiredSuspension("uid-bad") is None
     service.auditRepository.create.assert_not_called()
+
+
+# ── name and picture sanctions ────────────────────────────────────────────────
+
+def test_updateProfile_refuses_a_picture_while_blocked(mock_db, mock_user):
+    """Otherwise the block lasts as long as it takes to open the edit screen."""
+    service = _make_service(mock_db)
+    mock_user.picture_blocked = True
+    service.userRepository.findById.return_value = mock_user
+
+    with pytest.raises(NoHarmException) as exc:
+        service.updateProfile("user-uid-001", username=None, profilePicture=b"new")
+
+    assert exc.value.statusCode == 403
+    assert exc.value.errorCode == "PICTURE_BLOCKED"
+
+
+def test_updateProfile_choosing_a_username_lifts_the_rename_sanction(mock_db, mock_user):
+    """Choosing a name is what lifts it — not acknowledging, not waiting."""
+    service = _make_service(mock_db)
+    mock_user.username = "user_deadbeef"
+    mock_user.must_change_username = True
+    service.userRepository.findById.return_value = mock_user
+    service.userRepository.findByUsername.side_effect = NoHarmException(
+        statusCode=404, message="User not found"
+    )
+
+    service.updateProfile("user-uid-001", username="freshname", profilePicture=None)
+
+    assert mock_user.username == "freshname"
+    assert mock_user.must_change_username is False
+
+
+def test_forceUsernameChange_renames_now_and_flags_the_account(mock_db, mock_user):
+    """The harm is the name being readable, so it goes immediately."""
+    service = _make_service(mock_db)
+    mock_user.username = "impersonator"
+    service.userRepository.findById.return_value = mock_user
+
+    renamed = MagicMock()
+    renamed.username = "user_1a2b3c4d"
+    service.userRepository.forceUsernameChange.return_value = renamed
+
+    result = service.forceUsernameChange("user-uid-001", "admin-uid")
+
+    assert result is renamed
+    generate = service.userRepository.forceUsernameChange.call_args.args[1]
+    handle = generate()
+    assert handle.startswith("user_") and len(handle) == 13
+    service.auditRepository.create.assert_called()
+
+
+def test_forceUsernameChange_refuses_your_own_account(mock_db):
+    service = _make_service(mock_db)
+
+    with pytest.raises(NoHarmException) as exc:
+        service.forceUsernameChange("admin-uid", "admin-uid")
+
+    assert exc.value.statusCode == 400
+    assert exc.value.errorCode == "SELF_SANCTION"
+    service.userRepository.forceUsernameChange.assert_not_called()
+
+
+def test_forceUsernameChange_refuses_a_deleted_account(mock_db, mock_user):
+    service = _make_service(mock_db)
+    mock_user.status = config.STATUS_CODES["deleted"]
+    service.userRepository.findById.return_value = mock_user
+
+    with pytest.raises(NoHarmException) as exc:
+        service.forceUsernameChange("user-uid-001", "admin-uid")
+
+    assert exc.value.statusCode == 404
+
+
+def test_setPictureBlocked_blocks_and_unblocks(mock_db, mock_user):
+    service = _make_service(mock_db)
+    service.userRepository.findById.return_value = mock_user
+    service.userRepository.setPictureBlocked.return_value = mock_user
+
+    service.setPictureBlocked("user-uid-001", True, "admin-uid")
+    service.userRepository.setPictureBlocked.assert_called_with("user-uid-001", True)
+
+    service.setPictureBlocked("user-uid-001", False, "admin-uid")
+    service.userRepository.setPictureBlocked.assert_called_with("user-uid-001", False)
+
+
+def test_setPictureBlocked_refuses_your_own_account(mock_db):
+    service = _make_service(mock_db)
+
+    with pytest.raises(NoHarmException) as exc:
+        service.setPictureBlocked("admin-uid", True, "admin-uid")
+
+    assert exc.value.errorCode == "SELF_SANCTION"
+    service.userRepository.setPictureBlocked.assert_not_called()
+
+
+def test_neutral_usernames_do_not_repeat(mock_db):
+    """A collision is a 500 on a unique index, so the space has to be large."""
+    service = _make_service(mock_db)
+    handles = {service._neutralUsername() for _ in range(200)}
+    assert len(handles) == 200

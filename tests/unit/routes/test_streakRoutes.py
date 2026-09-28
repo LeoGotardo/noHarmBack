@@ -8,6 +8,8 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.middleware import SlowAPIMiddleware
 
+from fastapi.responses import JSONResponse
+
 from exceptions.baseExceptions import NoHarmException
 
 
@@ -39,6 +41,16 @@ def _build_app():
     app.state.limiter = limiter
     app.add_middleware(SlowAPIMiddleware)
     app.include_router(router)
+
+    # /streaks/start lets NoHarmException reach the app's handler instead of
+    # flattening it into an HTTPException, because HEALTH_CONSENT_REQUIRED is a
+    # code the client has to branch on. This mirrors the handler main.py
+    # registers; without it the fixture answers 500 to every domain error from
+    # that route and the assertions below would be testing the gap.
+    @app.exception_handler(NoHarmException)
+    def _noHarmHandler(request, exc: NoHarmException):
+        return JSONResponse(status_code=exc.statusCode, content=exc.toDict())
+
     app.dependency_overrides[getDbWithRLS] = lambda: MagicMock()
     app.dependency_overrides[getCurrentUser] = lambda: _USER_ID
     return app
@@ -103,6 +115,21 @@ class TestStartStreakRoute:
             )
             res = client.post("/streaks/start")
         assert res.status_code == 409
+
+    def test_withdrawn_health_consent_keeps_its_error_code(self, client):
+        """An unlabelled 403 cannot tell the user which consent is missing or
+        where to give it again, which is the whole reason this route does not
+        convert the exception."""
+        with patch("api.routes.streakRoutes.StreakService") as MockService:
+            MockService.return_value.startStreak.side_effect = NoHarmException(
+                statusCode=403,
+                errorCode="HEALTH_CONSENT_REQUIRED",
+                message="Tracking clean days needs your explicit consent, which you can give in Settings.",
+            )
+            res = client.post("/streaks/start")
+
+        assert res.status_code == 403
+        assert res.json()["errorCode"] == "HEALTH_CONSENT_REQUIRED"
 
 
 class TestEndStreakRoute:

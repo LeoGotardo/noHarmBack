@@ -7,19 +7,48 @@ from datetime import datetime, timezone
 class TestAuthSchemas:
     def test_register_valid(self):
         from schemas.authSchemas import AuthRegisterRequest
-        r = AuthRegisterRequest(idToken="id-token", username="validuser")
+        r = AuthRegisterRequest(
+            idToken="id-token", username="validuser",
+            birthDate="1990-06-15", acceptedTerms=True, acceptedPrivacy=True,
+        )
         assert r.idToken == "id-token"
         assert r.username == "validuser"
+        assert r.birthDate.year == 1990
+        # The only one of the three that is optional: declining it creates a
+        # working account without the streak tracker.
+        assert r.healthDataConsent is False
+
+    def test_register_requires_the_two_binding_consents(self):
+        """No default. A missing field must not read as a recorded refusal."""
+        from schemas.authSchemas import AuthRegisterRequest
+        with pytest.raises(ValidationError):
+            AuthRegisterRequest(
+                idToken="id-token", username="validuser", birthDate="1990-06-15",
+            )
+
+    def test_register_requires_a_birth_date(self):
+        from schemas.authSchemas import AuthRegisterRequest
+        with pytest.raises(ValidationError):
+            AuthRegisterRequest(
+                idToken="id-token", username="validuser",
+                acceptedTerms=True, acceptedPrivacy=True,
+            )
 
     def test_register_username_too_short(self):
         from schemas.authSchemas import AuthRegisterRequest
         with pytest.raises(ValidationError):
-            AuthRegisterRequest(idToken="id-token", username="ab")
+            AuthRegisterRequest(
+                idToken="id-token", username="ab", birthDate="1990-06-15",
+                acceptedTerms=True, acceptedPrivacy=True,
+            )
 
     def test_register_username_too_long(self):
         from schemas.authSchemas import AuthRegisterRequest
         with pytest.raises(ValidationError):
-            AuthRegisterRequest(idToken="id-token", username="x" * 51)
+            AuthRegisterRequest(
+                idToken="id-token", username="x" * 51, birthDate="1990-06-15",
+                acceptedTerms=True, acceptedPrivacy=True,
+            )
 
     def test_register_missing_id_token(self):
         from schemas.authSchemas import AuthRegisterRequest
@@ -32,6 +61,7 @@ class TestAuthSchemas:
         # token's claims now, so anything sent here is dead weight, not input.
         r = AuthRegisterRequest(
             idToken="id-token", username="validuser",
+            birthDate="1990-06-15", acceptedTerms=True, acceptedPrivacy=True,
             uid="someone-else", email="victim@test.com",
             emailVerified=True, photoURL="https://evil",
         )

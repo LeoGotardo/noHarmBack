@@ -23,6 +23,12 @@ NOTICE_REASONS = frozenset({
 
 WARNING = "warning"
 SUSPENSION = "suspension"
+# Two sanctions that change the account without limiting it. They get their own
+# kinds rather than being warnings, because the app has to say something
+# different: one of them is an instruction the user must act on before they can
+# carry on, and the other is a thing that has already happened to their profile.
+RENAME = "rename"
+PICTURE_BLOCK = "picture"
 
 # Audit type 5 is "account status changed"; a warning changes no status, so it
 # is logged as a moderation action on the account with type 12.
@@ -128,6 +134,31 @@ class NoticeService:
         """
         try:
             return self._issue(userId, SUSPENSION, reason, adminUserId, message)
+        except Exception:
+            return None
+
+    def noticeOfForcedRename(self, userId: str, reason: str, adminUserId: str, message: Optional[str] = None) -> Optional[ModerationNotice]:
+        """Tell the user their username was reset and that they must pick one.
+
+        Best effort, like a suspension's notice: the sanction is already
+        self-explaining — the app will not go past the rename screen — and
+        failing the call here would leave the moderator unsure whether the
+        rename landed.
+        """
+        try:
+            return self._issue(userId, RENAME, reason, adminUserId, message)
+        except Exception:
+            return None
+
+    def noticeOfPictureBlock(self, userId: str, reason: str, adminUserId: str, message: Optional[str] = None) -> Optional[ModerationNotice]:
+        """Tell the user their picture was removed.
+
+        Unlike the rename, nothing in the app would otherwise say so: the photo
+        is simply gone and the edit screen refuses a new one. Without this the
+        user reads a moderation decision as a bug.
+        """
+        try:
+            return self._issue(userId, PICTURE_BLOCK, reason, adminUserId, message)
         except Exception:
             return None
 

@@ -166,6 +166,10 @@ class ReportService:
 
         standings = self.reportRepository.standingsByReporters(reporterIds)
         openAgainst = self.reportRepository.countOpenAgainstMany(reportedIds)
+        # A third grouped query, for the same reason as the other two: the row
+        # carries the reporter's id, and an id is not something a moderator can
+        # weigh. Missing ids are purged accounts and stay missing.
+        reporterNames = self.userRepository.usernamesByIds(reporterIds)
         threshold = config.REPORT_BRIGADING_THRESHOLD
 
         signals: dict[str, dict] = {}
@@ -178,6 +182,7 @@ class ReportService:
                 # history" and "we no longer know" are different answers, and
                 # showing the second as the first invents a clean record.
                 "reporter_standing": self._standing(tally) if tally is not None else None,
+                "reporter_username": reporterNames.get(report.reporter) if report.reporter else None,
                 "open_against_reported": openCount,
                 "looks_coordinated": openCount >= threshold,
             }

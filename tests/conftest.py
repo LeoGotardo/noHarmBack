@@ -103,6 +103,10 @@ def mock_user():
     user.email = "test@example.com"
     user.status = config.STATUS_CODES["enabled"]
     user.profile_picture = b""
+    # Explicit because a MagicMock attribute is truthy: unset, every test would
+    # read as an account under a moderation sanction.
+    user.must_change_username = False
+    user.picture_blocked = False
     return user
 
 

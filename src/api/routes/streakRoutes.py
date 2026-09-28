@@ -102,12 +102,14 @@ def startStreak(
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
-    try:
-        service = StreakService(db)
-        streak = service.startStreak(currentUserId, startAt=body.start_at if body else None)
-        return StreakResponse.model_validate(streak)
-    except NoHarmException as e:
-        raise HTTPException(status_code=e.statusCode, detail=e.message)
+    service = StreakService(db)
+    # NoHarmException reaches the handler in main.py instead of being converted,
+    # like /auth/register and /reports/{userId}: this route is the one that
+    # answers 403 HEALTH_CONSENT_REQUIRED, and the conversion flattens that to a
+    # bare FORBIDDEN. A client cannot tell "you withdrew the consent this needs,
+    # give it again in Settings" from any other refusal without the code.
+    streak = service.startStreak(currentUserId, startAt=body.start_at if body else None)
+    return StreakResponse.model_validate(streak)
 
 
 @router.post(

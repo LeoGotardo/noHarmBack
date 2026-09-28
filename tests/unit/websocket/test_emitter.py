@@ -17,11 +17,18 @@ from websocket import emitter
 
 @pytest.fixture
 def sio():
-    """Capture emits without a server. `emit` imports socketManager lazily."""
+    """Capture emits without a server. `emit` imports socketManager lazily.
+
+    `_hasLoop` is forced True because this fixture stands for the **API
+    process** — the one with an ASGI server and sockets attached. Without it
+    the test process looks like a cron job, and `emit` correctly takes the
+    write-only Redis path instead of the one these tests are about.
+    """
     import sys
     fake = MagicMock()
     fake.sio = MagicMock()
     with patch.dict(sys.modules, {"websocket.socketManager": fake}), \
+         patch.object(emitter, "_hasLoop", return_value=True), \
          patch.object(emitter, "_schedule") as schedule:
         fake.schedule = schedule
         yield fake
@@ -119,3 +126,50 @@ def test_notifyMessagesRead_carries_the_reader(sio):
         "chatId": "chat-9",
         "readerId": "uid-b",
     }
+
+
+# ── out-of-process emits ──────────────────────────────────────────────────────
+#
+# The cron jobs run as their own process: no ASGI server, no sockets, nothing
+# for `_schedule` to schedule. Their alerts used to be dropped with a log line
+# and no other symptom — an SSH login that notified nobody.
+
+def test_without_a_loop_the_emit_goes_out_over_redis():
+    with patch.object(emitter, "_hasLoop", return_value=False), \
+         patch.object(emitter, "_publishOutOfProcess", return_value=True) as publish:
+        emitter.emit("admin_alert", {"x": 1}, room="user_admin")
+
+    publish.assert_called_once()
+    assert publish.call_args.args[0] == "admin_alert"
+    assert publish.call_args.args[2] == "user_admin"
+
+
+def test_a_failed_publish_falls_back_to_scheduling(sio):
+    """Not silently dropped: if the channel cannot be reached the old path still
+    gets its chance, and logs when it cannot either."""
+    with patch.object(emitter, "_hasLoop", return_value=False), \
+         patch.object(emitter, "_publishOutOfProcess", return_value=False):
+        emitter.emit("admin_alert", {"x": 1}, room="user_admin")
+
+    assert sio.sio.emit.called
+
+
+def test_notifyAdmins_reaches_every_allowlisted_uid(sio):
+    with patch.object(emitter, "_hasLoop", return_value=True), \
+         patch("core.config.config") as cfg:
+        cfg.ADMIN_USER_IDS = ["adm-1", "adm-2"]
+        emitter.notifyAdmins("host_access", "SSH login", "ubuntu from 1.2.3.4")
+
+    assert sorted(_rooms(sio)) == ["user_adm-1", "user_adm-2"]
+    payload = sio.sio.emit.call_args_list[0].args[1]
+    assert payload["kind"] == "host_access"
+    assert payload["title"] == "SSH login"
+
+
+def test_notifyAdmins_with_no_admins_emits_nothing(sio):
+    with patch.object(emitter, "_hasLoop", return_value=True), \
+         patch("core.config.config") as cfg:
+        cfg.ADMIN_USER_IDS = []
+        emitter.notifyAdmins("error", "New error", "boom")
+
+    assert not sio.sio.emit.called

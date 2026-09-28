@@ -38,7 +38,7 @@ class WarnRequest(BaseModel):
 
 class NoticeResponse(BaseModel):
     id: UUID
-    kind: str = Field(..., description="warning · suspension")
+    kind: str = Field(..., description="warning · suspension · rename · picture")
     reason: str = Field(..., description="The conduct it names")
     message: Optional[str] = Field(None, description="The moderator's words, if any")
     acknowledged_at: Optional[datetime] = Field(None, description="When the user read it")

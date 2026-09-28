@@ -65,7 +65,18 @@ class BadgeRepository:
             list[Badge] | PaginatedResponse[Badge]: List of Badges or paginated response
         """
         try:
-            query = self.session.query(BadgeModel)
+            # Ordered by milestone, always. Without it the rows come back in
+            # whatever order the heap holds them, and the screen's "next badge"
+            # — the first unearned one in list order — points at whichever
+            # happened to be stored first. That showed a 500-day badge as next
+            # while a 14-day one sat four days away.
+            #
+            # `milestone` rather than `created_at`: the ladder's order is the
+            # number of days, and a badge added to the catalogue later still
+            # belongs at its own rung.
+            query = self.session.query(BadgeModel).order_by(
+                BadgeModel.milestone.asc(), BadgeModel.id.asc()
+            )
             if not includeDeleted:
                 query = query.filter(BadgeModel.status != config.STATUS_CODES["deleted"])
             if params:

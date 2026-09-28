@@ -90,6 +90,18 @@ class ModeratedReportResponse(ReportResponse):
     locked_by: Optional[str] = Field(None, description="Moderator currently reviewing it")
     locked_at: Optional[datetime] = Field(None, description="When they claimed it")
 
+    reporter_username: Optional[str] = Field(
+        None,
+        description=(
+            "Who filed it, by name. Admin-only, like everything else on this "
+            "model: the promise that a reported user never learns who "
+            "complained is about the reported user, not about the moderator "
+            "deciding the case — who cannot weigh a complaint against an "
+            "account they are looking at without knowing whether the same "
+            "person filed the last four. Absent once the reporter is purged."
+        )
+    )
+
     reporter_standing: Optional[ReporterStanding] = Field(
         None,
         description="How this reporter's past reports were decided; absent once their account is purged"

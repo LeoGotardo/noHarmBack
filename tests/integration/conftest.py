@@ -75,8 +75,11 @@ from infrastructure.database.rlsContext import RLSContext  # noqa: E402
 # ── Wipe tables before every test ─────────────────────────────────────────────
 @pytest.fixture(autouse=True)
 def clean_tables():
+    # tb_15 is named explicitly: the cascade only reaches tables with a foreign
+    # key into tb_0 or tb_5, and host access rows are about the machine rather
+    # than any account — so they have no FK and would leak between tests.
     with _engine.connect() as conn:
-        conn.execute(text("TRUNCATE tb_0, tb_5 CASCADE"))
+        conn.execute(text("TRUNCATE tb_0, tb_5, tb_15 CASCADE"))
         conn.commit()
     yield
 
@@ -93,7 +96,7 @@ def clean_after_session():
     """
     yield
     with _engine.connect() as conn:
-        conn.execute(text("TRUNCATE tb_0, tb_5 CASCADE"))
+        conn.execute(text("TRUNCATE tb_0, tb_5, tb_15 CASCADE"))
         conn.commit()
 
 
@@ -167,6 +170,21 @@ class _DbProxy:
     @property
     def session(self) -> Session:
         return self._session
+
+
+@pytest.fixture
+def db():
+    """A real session wrapped as a Database, for testing repositories directly.
+
+    The aggregate counts on the admin board group in SQL — a mocked session
+    proves nothing about a `GROUP BY` or a `DISTINCT ON`, so those tests need a
+    real Postgres and this is how they reach one.
+    """
+    session = _SessionFactory()
+    try:
+        yield _DbProxy(session)
+    finally:
+        session.close()
 
 
 # ── FastAPI test client with real DB sessions ─────────────────────────────────

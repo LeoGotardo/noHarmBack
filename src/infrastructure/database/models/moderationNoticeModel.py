@@ -21,12 +21,20 @@ class ModerationNoticeModel(Base, TimestampMixin):
     banned or left alone, and a warning was a thing a moderator could think but
     not send.
 
-    Two kinds:
+    Four kinds:
 
     - `warning` — nothing changes about the account. A moderator reviewed a
       report, agreed with it, and is saying so once.
     - `suspension` — written beside the ban, so that when the account comes
       back the person is not guessing what happened.
+    - `rename` — the username was reset to a generated handle and the account
+      must choose a real one before it can be used again.
+    - `picture` — the profile picture was removed and cannot be replaced until
+      a moderator lifts the block.
+
+    The last two change the account without limiting it: the account keeps its
+    streak, its friends and its history, because the problem was a name or a
+    photo and the sanction is exactly that wide.
 
     What a notice must never carry is who reported them. The whole promise that
     makes reporting usable is that the reported user is never told, and a

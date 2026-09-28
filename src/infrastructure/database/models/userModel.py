@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import Boolean, Date, DateTime, Integer, String
 from sqlalchemy.orm import relationship, validates, Mapped, mapped_column
 from infrastructure.external.storageService import Base
 from infrastructure.database.models.baseModel import TimestampMixin
@@ -34,6 +34,24 @@ class UserModel(Base, TimestampMixin):
     # `AuthService._liftExpiredSuspension`. Nothing sweeps it on a schedule,
     # because an account nobody is trying to use does not need unbanning.
     banned_until: Mapped[Optional[datetime]] = mapped_column("cl_0g", DateTime, nullable=True)
+    # The account must pick a new username before it can be used. Moderation
+    # sets it together with a rename to a neutral handle — the flag is what
+    # makes the app insist on a real one, not what hides the old name. See
+    # migration 20260916_01.
+    must_change_username: Mapped[bool] = mapped_column("cl_0h", Boolean, nullable=False, default=False, server_default="false")
+    # The account's picture is blocked. Not the same as "has none": `cl_0d` is
+    # nulled with it, and this is what stops the Google claim putting it back
+    # at the next login (`AuthService._syncProfilePicture`).
+    picture_blocked: Mapped[bool] = mapped_column("cl_0i", Boolean, nullable=False, default=False, server_default="false")
+    # Declared at registration and checked against MINIMUM_AGE_YEARS. Encrypted
+    # like every other personal field here, with no blind index: nothing ever
+    # looks an account up by it.
+    #
+    # Nullable because every account created before the question existed has no
+    # honest value to backfill. Registration requires it from here on; the
+    # column staying nullable is what leaves "ask the existing accounts too"
+    # available as a later decision rather than a migration that invents dates.
+    birth_date: Mapped[Optional[date]] = mapped_column("cl_0j", StringEncryptedType(Date, _encryption_key, AesGcmEngine, 'pkcs5'), nullable=True)
     user_badges = relationship("UserBadgesModel", foreign_keys="UserBadgesModel.user_id")
 
     @validates('username')

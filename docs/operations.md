@@ -44,11 +44,18 @@ anything that runs a second Postgres. There is 2 GB of swap to absorb the rest.
 0 3 * * 1 /home/ec2-user/noHarmBack/docker/issue-cert.sh <email> >> /home/ec2-user/noHarmBack/docker/certbot.log 2>&1
 30 4 * * * cd /home/ec2-user/noHarmBack/docker && docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-accounts >> /home/ec2-user/purge.log 2>&1
 45 4 * * 0 cd /home/ec2-user/noHarmBack/docker && docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-evidence >> /home/ec2-user/purge.log 2>&1
+50 4 * * 0 cd /home/ec2-user/noHarmBack/docker && docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-errors >> /home/ec2-user/purge.log 2>&1
+*/10 * * * * /home/ec2-user/noHarmBack/docker/collect-ssh-access.sh >> /home/ec2-user/ssh-access.log 2>&1
 ```
 
-All four are UTC. The backup runs nightly at 04:00; the certificate renewal
+All six are UTC. The backup runs nightly at 04:00; the certificate renewal
 runs Mondays at 03:00 — weekly against a 90-day certificate, so roughly twelve
 chances to notice a failure before anything expires.
+
+**The admin board is where you find out any of this stopped.** Its health panel
+reads zero when the system is well, and a non-zero `purge_overdue` or
+`evidence_overdue` means the corresponding cron is not running — the failure
+these two jobs otherwise have no symptom for.
 
 ### The account purge
 
@@ -114,6 +121,73 @@ Run it by hand:
 cd ~/noHarmBack/docker
 docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-evidence
 ```
+
+### The error retention sweep
+
+The fifth entry deletes faults from `tb_14` that nothing has hit in
+`ERROR_LOG_RETENTION_DAYS` (default 90), measured from the **last sighting**
+rather than the first: a bug first seen in January and still firing today is
+current, and deleting it on its birthday would be exactly backwards.
+
+The table is grouped by fingerprint, so it holds one row per *kind* of failure
+however often each one hit — it grows slowly, and a crash loop does not grow it
+at all. The window is not about disk. The traceback column is encrypted because
+a SQLAlchemy traceback carries the statement's parameters, which is a message
+body in one service and an e-mail address in another; data kept with no reason
+to keep it is what every other retention rule here exists to prevent.
+
+```bash
+cd ~/noHarmBack/docker
+docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-errors
+```
+
+### The SSH access collector
+
+The sixth entry is not a purge. Every ten minutes it reads the last **fifteen**
+minutes of the SSH journal and records the successful logins into `tb_15`, which
+the admin board's Access tab shows.
+
+**The overlap is deliberate and there is no cursor file.** The extra five
+minutes cover a slow run or a little clock drift, and the duplicates cost
+nothing: `tb_15` has a unique index on (instant, address, user), so the database
+is the deduplicator. A state file is a thing that can be lost, corrupted, or
+restored stale — and its failure mode is silently skipping the window where
+something happened.
+
+It runs on the **host**, not in a container: `auth.log` is outside, and the
+collector pipes into `docker compose exec`. There is deliberately no HTTP
+endpoint for this. An endpoint would need a shared secret to generate, store and
+rotate, plus a public write path into a security audit table, to authenticate a
+process that already holds the Docker socket — more authority than the token
+would grant. What authenticates it is unix permission on that socket.
+
+Two things it does **not** do:
+
+- **Failed attempts are counted, not stored.** A public SSH port collects
+  thousands a day and they would bury the handful of real logins. Brute force
+  belongs in the board's suspicious-traffic panel, as a number.
+- **It is not proof.** Anyone with root can edit the journal before the
+  collector reads it. It catches access nobody expected and carelessness — not
+  someone covering their tracks.
+
+Each new login also sends an alert to every uid in `ADMIN_USER_IDS` over the
+websocket. **That only reaches an administrator with the app open in a tab**
+(the notification fires when the tab is unfocused, not when the browser is
+closed): there is no Web Push subscription and the FCM path needs the installed
+native app. For a login at 3am that is a real gap, and the board is where these
+are guaranteed to be found.
+
+Run it by hand, or read what it would send:
+
+```bash
+~/noHarmBack/docker/collect-ssh-access.sh
+
+# What the last hour actually holds:
+journalctl -u ssh --since "-1 hour" -o short-iso --no-pager | grep Accepted
+```
+
+An empty Access tab means either nobody has logged in or **the collector is not
+running**, and the tab says so rather than implying the first.
 
 ### Reading a report as a moderator
 

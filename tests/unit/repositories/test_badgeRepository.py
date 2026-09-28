@@ -103,8 +103,11 @@ def test_softDelete_sets_deleted_status(repo, session):
 
 def test_findAll_with_pagination(repo, session):
     from schemas.paginationSchemas import PaginationParams
-    # findAll hides deleted badges, so the chain goes through .filter()
-    filtered = session.query.return_value.filter.return_value
+    # findAll orders by milestone and hides deleted badges, so the chain is
+    # query → order_by → filter. The ordering is not incidental: without it the
+    # rows come back in heap order and the screen's "next badge" points at
+    # whichever was stored first.
+    filtered = session.query.return_value.order_by.return_value.filter.return_value
     filtered.count.return_value = 10
     filtered.offset.return_value.limit.return_value.all.return_value = []
     result = repo.findAll(PaginationParams(page=1, pageSize=5))

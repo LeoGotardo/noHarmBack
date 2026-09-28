@@ -2,6 +2,7 @@ from infrastructure.database.repositories.streakRepository import StreakReposito
 from infrastructure.database.repositories.auditLogsRepository import AuditLogsRepository
 from infrastructure.database.repositories.userBadgesRepository import UserBadgesRepository
 from infrastructure.database.repositories.badgeRepository import BadgeRepository
+from infrastructure.database.repositories.consentRepository import ConsentRepository
 from infrastructure.database.models.streakModel import StreakModel
 from infrastructure.database.models.auditLogsModel import AuditLogsModel
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
@@ -21,6 +22,7 @@ class StreakService:
         self.auditRepository = AuditLogsRepository(self.database)
         self.userBadgesRepository = UserBadgesRepository(self.database)
         self.badgeRepository = BadgeRepository(self.database)
+        self.consentRepository = ConsentRepository(self.database)
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -124,8 +126,39 @@ class StreakService:
 
     # ── mutations ─────────────────────────────────────────────────────────────
 
+    def _requireHealthDataConsent(self, userId: str) -> None:
+        """Refuse to create recovery data for an account that did not agree to it.
+
+        A tracked clean-day count is health data, and the consent covering it is
+        given separately and can be taken back (`DELETE /users/me/consents/health`,
+        which deletes every streak). Without this check the withdrawal lasts
+        exactly as long as it takes to tap "start" — the rows come straight back,
+        under a consent that is no longer in force.
+
+        `startStreak` is the only place that needs it. Every other path that
+        creates a row — `endStreak`, the expiry reset — goes through an existing
+        streak first, and withdrawal deleted all of them, so they answer 404
+        before they can reach a create. Reads are not gated either: an account
+        with no consent has no streaks, so there is nothing to withhold, and
+        answering 403 where the honest answer is "none" would make every screen
+        special-case a refusal.
+        """
+        consent = self.consentRepository.findCurrent(userId).get("health_data")
+
+        if consent is None or consent.withdrawn_at is not None:
+            raise NoHarmException(
+                statusCode=403,
+                errorCode="HEALTH_CONSENT_REQUIRED",
+                message=(
+                    "Tracking clean days needs your explicit consent, which you "
+                    "can give in Settings."
+                )
+            )
+
     def startStreak(self, userId: str, startAt: Optional[datetime] = None) -> Streak:
         """Create a new active streak. start_at defaults to now if not provided."""
+        self._requireHealthDataConsent(userId)
+
         try:
             existing = self.streakRepository.findCurrentStreak(userId)
             if existing:

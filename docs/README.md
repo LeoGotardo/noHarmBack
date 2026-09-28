@@ -6,6 +6,33 @@ Backend of the **NoHarm** application — a mobile app for addiction recovery su
 
 **API Docs:** `https://<domain>/api/docs` (served by the backend behind nginx)
 
+## Contents
+
+- [Frontend](#frontend)
+- [Project Structure](#project-structure)
+- [Source Code — `src/`](#source-code--src)
+  - [`src/api/`](#srcapi)
+  - [`src/core/`](#srccore)
+  - [`src/domain/`](#srcdomain)
+  - [`src/infrastructure/`](#srcinfrastructure)
+  - [`src/schemas/`](#srcschemas)
+  - [`src/security/`](#srcsecurity)
+  - [`src/websocket/`](#srcwebsocket)
+  - [`src/main.py`](#srcmainpy)
+  - [`src/run.py`](#srcrunpy)
+  - [`src/exceptions/`](#srcexceptions)
+- [Configuration](#configuration)
+  - [Required secrets (`.secrets.toml`)](#required-secrets-secretstoml)
+  - [The legal settings, and why they are not constants](#the-legal-settings-and-why-they-are-not-constants)
+- [Row Level Security (RLS)](#row-level-security-rls)
+- [Pagination](#pagination)
+  - [Pagination with RLS](#pagination-with-rls)
+- [Getting Started](#getting-started)
+- [Deployment (AWS, single container)](#deployment-aws-single-container)
+- [Coding Conventions](#coding-conventions)
+- [Security](#security)
+- [Additional Documentation](#additional-documentation)
+
 ---
 
 ## Frontend
@@ -139,6 +166,14 @@ HTTP endpoints. Each file groups routes for one domain. Routes contain **no busi
 | `badgesRoutes.py` | Badges: global badge list |
 | `userBadgesRoutes.py` | User badges: per-user badge records |
 | `auditLogsRoutes.py` | Audit logs: audit trail query with pagination |
+| `reportRoutes.py` | Reports: filing one, the reporter's own list, and the admin queue with its review lock |
+| `noticeRoutes.py` | Moderation notices: what moderation said to this account, and acknowledging it |
+
+Consent, the data export and the two profile sanctions live in `userRoutes.py`
+rather than in files of their own, because all six act on the account row:
+`GET`/`POST /users/me/consents`, `DELETE /users/me/consents/health`,
+`GET /users/me/export`, `PUT /users/{id}/username/reset` and
+`PUT /users/{id}/picture/{block|unblock}`.
 
 ---
 
@@ -171,6 +206,10 @@ Pure domain concept representations, with no ORM or framework coupling.
 | `badge.py` | Badge | id, name, description, milestone, icon, status |
 | `userBadge.py` | UserBadge | id, userId, badgeId, givenAt, status |
 | `auditLogs.py` | AuditLogs | id, type, catalystId, catalyst, description, timestamps |
+| `consent.py` | Consent | id, userId, document, version, acceptedAt, withdrawnAt |
+| `report.py` | Report | id, reporter, reported, reason, details, status, review lock |
+| `reportEvidence.py` | ReportEvidence | id, report, kind, sourceId, authorId, content, contentHash |
+| `moderationNotice.py` | ModerationNotice | id, userId, kind, reason, message, issuedBy, acknowledgedAt |
 
 #### `src/domain/services/`
 
@@ -187,6 +226,10 @@ Orchestrate business rules. Call `Repositories` to access data and apply rules b
 | `badgeService.py` | Granting and listing achievements |
 | `userBadgeService.py` | User-badge association management |
 | `auditLogsService.py` | Audit trail operations with pagination |
+| `consentService.py` | What the account agreed to and what it still owes: versioned consent to the terms, the privacy policy and — separately — to holding recovery data. Withdrawing the last one deletes the streaks it covered |
+| `exportService.py` | Everything this system holds about one account, as one JSON document — the right of access, answered without a support ticket |
+| `reportService.py` | Filing a report, the admin queue, the review lock, the abuse ceilings and the evidence capture |
+| `noticeService.py` | Warnings, suspension notices and the two profile-sanction notices |
 
 ---
 
@@ -211,6 +254,7 @@ All sensitive fields (username, email, message content, timestamps, etc.) are st
 | `userBedgesModel.py` | `tb_6` | givenAt |
 | `auditLogsModel.py` | `tb_7` | description |
 | `refreshTokenModel.py` | `tb_8` | tokenHash |
+| `consentModel.py` | `tb_13` | — (document, version and both instants are queried and compared, so none is encrypted) |
 | `baseModel.py` | — | TimestampMixin (createdAt, updatedAt) |
 
 #### `src/infrastructure/database/repositories/`
@@ -228,6 +272,7 @@ Data access layer. Each file encapsulates queries for a specific model. **Servic
 | `userBadgesRepository.py` | `findByUserId`, `findByBadgeId`, `existsByUserAndBadge`, `grant`, `revoke`, `listAll` |
 | `auditLogsRepository.py` | `findById`, `findByType`, `findByCatalystId`, `findByDateRange`, `findAllPaginated`, `create` |
 | `refreshTokenRepository.py` | `findByTokenHash`, `create`, `deleteByUserId`, `deleteExpired` |
+| `consentRepository.py` | `findByUser`, `findCurrent`, `createMany`, `withdraw` — append-only apart from withdrawal: agreeing again writes a new row, and nothing edits the past |
 
 #### `src/infrastructure/external/`
 
@@ -255,6 +300,7 @@ DTOs defined with **Pydantic**. Responsible for validating input data and filter
 | `badgeSchemas.py` | `BadgeResponse`, `BadgeListResponse` |
 | `userBadgeSchemas.py` | `UserBadgeResponse`, `UserBadgeCreate`, `UserBadgeUpdate`, `UserBadgeListResponse` |
 | `auditLogsSchemas.py` | `AuditLogsResponse`, `AuditLogsCreate`, `AuditLogsListResponse` |
+| `consentSchemas.py` | `ConsentAcceptRequest`, `ConsentRecord`, `ConsentStatusResponse`, `ConsentWithdrawResponse` |
 | `paginationSchemas.py` | `PaginationParams`, `PaginatedResponse[T]` |
 
 ---
@@ -367,6 +413,35 @@ DEBUG                   = true
 PORT                    = 8080
 STATUS_CODES            = { disabled = 0, enabled = 1, deleted = 2, blocked = 3, pending = 4, accepted = 5, ignored = 6, unread = 7, read = 8, banned = 9 }
 ```
+
+### The legal settings, and why they are not constants
+
+All optional, all with defaults, and all of them change what the app does the
+moment they change:
+
+```toml
+TERMS_VERSION           = "1.0"   # bump → every account is asked again
+PRIVACY_VERSION         = "1.0"
+HEALTH_CONSENT_VERSION  = "1.0"   # separate on purpose; never fold it into the terms
+MINIMUM_AGE_YEARS       = 18
+```
+
+Publishing a new revision of a document is **only** a version bump here: every
+stored consent goes stale by comparison and the app shows the gate instead of
+itself until the account accepts. That is the whole mechanism, and it is why a
+consent row stores a version rather than a boolean — a boolean would mean an
+account had agreed, once, to a text that has since been rewritten.
+
+`MINIMUM_AGE_YEARS` is enforced in `AuthService._requireMinimumAge` against a
+self-declared date of birth. No identity provider this app uses carries an age
+claim, so what it buys is the record that the question was asked and answered,
+not proof.
+
+The front end mirrors two of these for copy only — `VITE_MINIMUM_AGE` and
+`VITE_DELETION_GRACE_DAYS`. Every `VITE_*` is inlined at build time, so both
+have to be passed as build args (`docker/Dockerfile`, `deploy-host.sh`,
+`.github/workflows/deploy.yml`) or they compile to `undefined` and the screen
+quietly states a different number from the one the backend enforces.
 
 Generate secure secrets with:
 ```python

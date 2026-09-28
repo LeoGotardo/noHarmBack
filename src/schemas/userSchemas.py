@@ -45,6 +45,91 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
+class MeResponse(UserResponse):
+    """The signed-in account's own profile.
+
+    Separate from `UserResponse` because that one also answers
+    `GET /users/{id}` and the directory: whether an account is under a
+    moderation sanction is its owner's business and nobody else's. A flag
+    visible on a public profile would turn every sanction into a label other
+    users could read.
+    """
+    must_change_username: bool = Field(
+        False,
+        description=(
+            "Moderation reset the username. The account keeps working but the "
+            "app asks for a new name before anything else — choosing one is "
+            "what lifts it."
+        )
+    )
+    picture_blocked: bool = Field(
+        False,
+        description=(
+            "Moderation removed the profile picture and a new one is refused "
+            "until an admin lifts the block."
+        )
+    )
+    pending_consents: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Documents this account owes an answer on — `terms`, `privacy`, "
+            "`health_data`. Non-empty means the app shows the consent screen "
+            "and nothing else, the same way `must_change_username` does. "
+            "Derived server-side from the versions in force, so a client cannot "
+            "decide it has already agreed."
+        )
+    )
+    health_data_consent: bool = Field(
+        False,
+        description=(
+            "Whether consent to hold recovery data is currently in force. False "
+            "means the streak tracker is off for this account — either never "
+            "consented to, or withdrawn."
+        )
+    )
+
+
+class SanctionRequest(BaseModel):
+    """Why a name or a picture was taken down.
+
+    Shaped like `WarnRequest` on purpose: both write a notice, and the same two
+    rules apply — the reason is one of the report codes so the action can be
+    traced back to the complaint, and `message` must never name the reporter.
+    """
+    reason: Optional[str] = Field(
+        None,
+        max_length=32,
+        description=(
+            "The conduct, as one of the report reason codes. Anything "
+            "unrecognised is stored as `other`."
+        )
+    )
+    message: Optional[str] = Field(
+        None,
+        max_length=500,
+        description=(
+            "The moderator's own words, shown to the user. Never name the "
+            "reporter here."
+        )
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SanctionResponse(BaseModel):
+    """What a moderator gets back after acting on a name or a picture.
+
+    Deliberately not `UserResponse`: an e-mail address is not part of the
+    answer to "did the sanction land".
+    """
+    id: str
+    username: str = Field(..., description="The name the account now carries")
+    must_change_username: bool = Field(..., description="True while the account owes a new name")
+    picture_blocked: bool = Field(..., description="True while the picture is blocked")
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+
 class UserStatsResponse(BaseModel):
     """Public activity numbers for a profile other than your own.
 

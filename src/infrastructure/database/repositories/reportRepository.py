@@ -9,7 +9,7 @@ from core.config import config
 
 from sqlalchemy import case, func
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 
@@ -190,6 +190,106 @@ class ReportRepository:
                 raise e
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
+
+    # ── aggregates for the admin board ────────────────────────────────────────
+
+    def countsByStatus(self) -> dict[int, int]:
+        """`{statusCode: howMany}` across the whole queue.
+
+        The three the board reads are `pending` (4), `accepted` (5) and
+        `ignored` (6) — reports reuse the friendship trio rather than owning a
+        scale, which is why this returns the raw codes and lets the caller name
+        them.
+        """
+        try:
+            rows = (
+                self.session.query(ReportModel.status, func.count(ReportModel.id))
+                .group_by(ReportModel.status)
+                .all()
+            )
+            return {int(status): int(total) for status, total in rows}
+        except Exception as e:
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+    def countCreatedPerDay(self, days: int) -> list[dict]:
+        """Rows created per day for the last `days`, oldest first.
+
+        **Every day is present, including the empty ones.** A chart fed only
+        the days that had rows draws a line through the gaps and turns three
+        sign-ups in a month into a steady climb. Filling here rather than in
+        the client keeps one description of the window.
+
+        Returned as `[{"date": "2026-09-18", "count": 3}, ...]` — a string date
+        because this crosses JSON, where the alternative is an instant the
+        reader has to re-truncate to a day.
+        """
+        try:
+            since = (
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                - timedelta(days=days - 1)
+            ).replace(hour=0, minute=0, second=0, microsecond=0)
+
+            rows = (
+                self.session.query(
+                    func.date(ReportModel.created_at).label("day"),
+                    func.count(ReportModel.id),
+                )
+                .filter(ReportModel.created_at >= since)
+                .group_by(func.date(ReportModel.created_at))
+                .all()
+            )
+            counted = {str(day): int(total) for day, total in rows}
+
+            return [
+                {
+                    "date": str((since + timedelta(days=offset)).date()),
+                    "count": counted.get(str((since + timedelta(days=offset)).date()), 0),
+                }
+                for offset in range(days)
+            ]
+        except Exception as e:
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+    def countOpenByReason(self) -> dict[str, int]:
+        """Unreviewed reports, grouped by what they are about.
+
+        `self_harm` is why this exists as its own number. It is the one reason
+        where a queue position is the wrong answer, and a board that shows the
+        queue as a single total hides it inside the total.
+        """
+        try:
+            rows = (
+                self.session.query(ReportModel.reason, func.count(ReportModel.id))
+                .filter(ReportModel.status == config.STATUS_CODES["pending"])
+                .group_by(ReportModel.reason)
+                .all()
+            )
+            return {str(reason): int(total) for reason, total in rows}
+        except Exception as e:
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+    def countStaleLocks(self, lockMinutes: int) -> int:
+        """Open reports someone claimed and never came back to.
+
+        A claim expires after `REPORT_LOCK_MINUTES` and anyone may then take
+        it, so this is not a queue that is stuck — it is a count of reviews
+        that were started and abandoned. Worth watching because a rising
+        number is a moderator hitting something they cannot decide, and the
+        expiry hides that by quietly making the report available again.
+        """
+        try:
+            cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=lockMinutes)
+            return (
+                self.session.query(ReportModel.id)
+                .filter(
+                    ReportModel.status == config.STATUS_CODES["pending"],
+                    ReportModel.locked_at.isnot(None),
+                    ReportModel.locked_at < cutoff,
+                )
+                .count()
+            )
+        except Exception as e:
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
     def countByReported(self, reportedId: str, status: Optional[int] = None) -> int:
         """How many reports name this user — the number moderation ranks on.

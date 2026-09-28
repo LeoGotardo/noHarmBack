@@ -13,7 +13,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from exceptions.baseExceptions import NoHarmException
 from core.config import config
 from core.database import database
-from security.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
+from api.dependencies.database import _DbProxy
+from domain.services.errorLogService import ErrorLogService
+from security.middleware import (
+    RateLimitMiddleware,
+    SecurityHeadersMiddleware,
+    SuspiciousTrafficMiddleware,
+)
 from security.limiter import limiter
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -32,6 +38,7 @@ from api.routes.auditLogsRoutes import router as auditLogsRouter
 from api.routes.friendshipRoutes import router as friendshipRouter
 from api.routes.notificationRoutes import router as notificationRouter
 from api.routes.noticeRoutes import router as noticeRouter
+from api.routes.adminRoutes import router as adminRouter
 from api.routes.reportRoutes import router as reportRouter
 from websocket.socketManager import socketApp
 from websocket import emitter
@@ -61,6 +68,9 @@ app.state.limiter = limiter
 
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+# Added last, so it wraps the others and sees the status the client actually
+# gets — including the ones the exception handlers produce.
+app.add_middleware(SuspiciousTrafficMiddleware)
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
@@ -84,6 +94,7 @@ app.include_router(friendshipRouter)
 app.include_router(notificationRouter)
 app.include_router(reportRouter)
 app.include_router(noticeRouter)
+app.include_router(adminRouter)
 
 
 _GENERIC_500 = {"errorCode": "INTERNAL_ERROR", "message": "An internal server error occurred."}
@@ -115,11 +126,45 @@ def _errorCodeFor(statusCode: int) -> str:
     return _STATUS_ERROR_CODES.get(statusCode, "INTERNAL_ERROR" if statusCode >= 500 else "ERROR")
 
 
+def _recordError(request: Request, exc: BaseException, *, kind: str, statusCode: int) -> None:
+    """Persist the fault behind a 5xx, on a session of its own.
+
+    Its own session because the request's has very likely just been rolled
+    back, and because `tb_14`'s policy passes only for a session with no RLS
+    context — which a fresh one is.
+
+    Wrapped whole: this runs inside an exception handler, and an exception
+    raised here would replace the error the client is about to be told about
+    with a different one. `ErrorLogService.capture` is fail-open too; this is
+    the belt to its braces, covering the session itself failing to open.
+    """
+    session = None
+    try:
+        session = database.session
+        ErrorLogService(_DbProxy(session)).capture(
+            exc,
+            kind=kind,
+            method=request.method,
+            path=str(request.url.path),
+            statusCode=statusCode,
+            userId=getattr(request.state, "userId", None),
+        )
+    except Exception:
+        logger.warning("could not record error", exc_info=True)
+    finally:
+        if session is not None:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+
 @app.exception_handler(NoHarmException)
 def noHarmExceptionHandler(request: Request, exc: NoHarmException):
     headers = _corsHeaders(request)
     if exc.statusCode >= 500:
         logger.exception("%s %s → %s", request.method, request.url.path, exc.message, exc_info=exc)
+        _recordError(request, exc, kind="domain", statusCode=exc.statusCode)
         if not _IS_DEV:
             return JSONResponse(status_code=exc.statusCode, content=_GENERIC_500, headers=headers)
     return JSONResponse(status_code=exc.statusCode, content=exc.toDict(), headers=headers)
@@ -136,6 +181,7 @@ def httpExceptionHandler(request: Request, exc: StarletteHTTPException):
         content["details"] = detail
     if exc.status_code >= 500:
         logger.error("%s %s → %s", request.method, request.url.path, detail)
+        _recordError(request, exc, kind="http", statusCode=exc.status_code)
     return JSONResponse(status_code=exc.status_code, content=content, headers=headers)
 
 
@@ -157,6 +203,7 @@ def validationExceptionHandler(request: Request, exc: RequestValidationError):
 def genericExceptionHandler(request: Request, exc: Exception):
     headers = _corsHeaders(request)
     logger.exception("Unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
+    _recordError(request, exc, kind="unhandled", statusCode=500)
     if _IS_DEV:
         import traceback
         return JSONResponse(

@@ -10,7 +10,7 @@ ban changed.
 import pytest
 from sqlalchemy import text
 
-from helpers import as_admin, fake_id_token, new_identity, register
+from helpers import REGISTRATION_CONSENT, as_admin, fake_id_token, new_identity, register
 
 
 ADMIN_UID = "uid-moderator"
@@ -155,7 +155,13 @@ class TestABanOutranksDeletion:
 
         resp = client.post(
             "/auth/register",
-            json={"idToken": fake_id_token(user_a["uid"], "whatever@example.com"), "username": "newname"},
+            json={
+                "idToken": fake_id_token(user_a["uid"], "whatever@example.com"),
+                "username": "newname",
+                # Otherwise this is a 422 from the schema and the assertion
+                # below passes without the ban ever being consulted.
+                **REGISTRATION_CONSENT,
+            },
         )
         assert resp.status_code == 403
         assert resp.json()["errorCode"] == "ACCOUNT_SUSPENDED"

@@ -7,8 +7,15 @@ from core.database import Database
 from core.config import config
 from security.encryption import Encryption
 
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+# How many generated handles to try before giving up. The space is 2^32, so a
+# second attempt is already a curiosity and a third never happens; the loop
+# exists because a unique index is a guarantee and "unlikely" is not.
+_RENAME_ATTEMPTS = 5
 
 class UserRepository:
     def __init__(self, db: Database):
@@ -27,7 +34,10 @@ class UserRepository:
             updated_at=model.updated_at,
             profile_picture=model.profile_picture,
             deleted_at=model.deleted_at,
-            banned_until=model.banned_until
+            banned_until=model.banned_until,
+            must_change_username=bool(model.must_change_username),
+            picture_blocked=bool(model.picture_blocked),
+            birth_date=model.birth_date
         )
         
     
@@ -140,12 +150,24 @@ class UserRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
 
-    def findAll(self, params: Optional[PaginationParams] = None, includeInactive: bool = False) -> list[User] | PaginatedResponse[User]:
+    def findAll(
+        self,
+        params: Optional[PaginationParams] = None,
+        includeInactive: bool = False,
+        status: Optional[int] = None,
+    ) -> list[User] | PaginatedResponse[User]:
         """Find all users, optionally paginated
+
+        `status` narrows to one status **in the query**, before the page is
+        taken. Filtering the page afterwards instead — which the admin route
+        did until this argument existed — silently answers "the banned accounts
+        that happen to be on page one", and reports a total for the unfiltered
+        set beside it.
 
         Args:
             params: Optional pagination parameters (page, pageSize)
             includeInactive: Include deleted / banned / blocked accounts
+            status: Only accounts at this status
 
         Returns:
             list[User] | PaginatedResponse[User]: List of Users or paginated response
@@ -154,6 +176,8 @@ class UserRepository:
             query = self.session.query(UserModel)
             if not includeInactive:
                 query = query.filter(UserModel.status.notin_(self._HIDDEN_STATUSES))
+            if status is not None:
+                query = query.filter(UserModel.status == status)
             if params:
                 total = query.count()
                 offset = (params.page - 1) * params.pageSize
@@ -187,7 +211,12 @@ class UserRepository:
                 status=User.status,
                 created_at=User.created_at,
                 updated_at=User.updated_at,
-                profile_picture=User.profile_picture
+                profile_picture=User.profile_picture,
+                # Declared at registration and never editable afterwards: there
+                # is no route that writes it again, so `update` does not carry
+                # it either. Changing a birth date is how an account that was
+                # refused for being under age becomes one that was not.
+                birth_date=getattr(User, "birth_date", None)
             )
             
             self.session.add(userModel)
@@ -259,6 +288,102 @@ class UserRepository:
                 raise e
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
         
+
+    def usernamesByIds(self, ids: list[str]) -> dict[str, str]:
+        """Resolve a page of user ids to usernames in one query.
+
+        The moderation queue names the reporter on every row. Usernames are
+        encrypted, so this cannot be a join in the reports query and it cannot
+        be filtered in SQL either — but it is still one round trip for the page
+        rather than one per row, which is what the N+1 would cost.
+
+        Ids with no row are simply absent: a purged reporter has no name, and
+        inventing one would be worse than the gap.
+
+        Args:
+            ids (list[str]): user ids
+
+        Returns:
+            dict[str, str]: {userId: username}
+        """
+        if not ids:
+            return {}
+        try:
+            rows = self.session.query(UserModel).filter(UserModel.id.in_(list(set(ids)))).all()
+            return {row.id: row.username for row in rows}
+        except Exception as e:
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+    def forceUsernameChange(self, id: str, generate) -> User:
+        """Rename the account to a generated handle and demand a real one.
+
+        `generate` is a callable rather than a value so a collision can be
+        retried without the service knowing this ever happens. The unique index
+        is on `cl_0b_h`, the blind index of the name, so a clash surfaces as an
+        IntegrityError on commit and not as a row this method can look up first.
+
+        Args:
+            id (str): User ID
+            generate (Callable[[], str]): produces a candidate handle
+
+        Returns:
+            User: the account under its new name
+        """
+        for attempt in range(_RENAME_ATTEMPTS):
+            try:
+                userModel = self.findById(id, returnModel=True)
+
+                # @validates('username') recomputes cl_0b_h, which is the
+                # column the unique index is actually on.
+                userModel.username = generate()
+                userModel.must_change_username = True
+
+                self.session.commit()
+                return self._toEntity(userModel)
+            except IntegrityError:
+                self.session.rollback()
+                if attempt == _RENAME_ATTEMPTS - 1:
+                    raise NoHarmException(
+                        statusCode=500,
+                        errorCode="RENAME_FAILED",
+                        message="Could not allocate a username for this account."
+                    )
+            except Exception as e:
+                self.session.rollback()
+                if isinstance(e, NoHarmException):
+                    raise e
+                raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+    def setPictureBlocked(self, id: str, blocked: bool) -> User:
+        """Set or lift the picture block, clearing the picture when setting it.
+
+        Both halves in one transaction: the column holds the photo and the flag
+        stops it being written again, and an account left with one without the
+        other is either still showing the picture or silently refusing an
+        upload for no visible reason.
+
+        Args:
+            id (str): User ID
+            blocked (bool): True to block and clear, False to lift
+
+        Returns:
+            User: User with his full data
+        """
+        try:
+            userModel = self.findById(id, returnModel=True)
+
+            userModel.picture_blocked = blocked
+            if blocked:
+                userModel.profile_picture = None
+
+            self.session.commit()
+
+            return self._toEntity(userModel)
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
     def suspend(self, id: str, until: Optional[datetime]) -> User:
         """Ban an account, until `until` or for good when that is None.
@@ -395,6 +520,172 @@ class UserRepository:
                 raise e
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
+
+    # ── aggregates for the admin board ────────────────────────────────────────
+    #
+    # Counting, not listing. Everything here groups in SQL and returns a number
+    # per bucket, because the panel asks "how many" and pulling rows to answer
+    # that would decrypt a username per account to throw it away.
+
+    def countsByStatus(self) -> dict[int, int]:
+        """`{statusCode: howMany}`, every status the table actually holds.
+
+        One grouped query rather than one count per status: the board shows
+        four of these side by side, and four scans of `tb_0` to produce four
+        integers is the shape that gets slower exactly as the app succeeds.
+
+        A status with no rows is simply absent — the caller supplies its own
+        zero, which keeps this honest about what it found.
+        """
+        try:
+            rows = (
+                self.session.query(UserModel.status, func.count(UserModel.id))
+                .group_by(UserModel.status)
+                .all()
+            )
+            return {int(status): int(total) for status, total in rows}
+        except Exception as e:
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+    def countCreatedSince(self, *windows: int) -> dict[int, int]:
+        """Sign-ups inside each window, in days: `countCreatedSince(1, 7, 30)`.
+
+        One pass with a FILTER per window instead of one query per window. The
+        buckets overlap on purpose — 30 days includes the last 7 — because
+        "new this week" and "new this month" are both read as totals, and
+        making them exclusive would put the difference in the reader's head.
+        """
+        if not windows:
+            return {}
+        try:
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            columns = [
+                func.count(UserModel.id).filter(
+                    UserModel.created_at >= now - timedelta(days=days)
+                ).label(f"w{days}")
+                for days in windows
+            ]
+            row = self.session.query(*columns).one()
+            return {days: int(value or 0) for days, value in zip(windows, row)}
+        except Exception as e:
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+    def countCreatedPerDay(self, days: int) -> list[dict]:
+        """Rows created per day for the last `days`, oldest first.
+
+        **Every day is present, including the empty ones.** A chart fed only
+        the days that had rows draws a line through the gaps and turns three
+        sign-ups in a month into a steady climb. Filling here rather than in
+        the client keeps one description of the window.
+
+        Returned as `[{"date": "2026-09-18", "count": 3}, ...]` — a string date
+        because this crosses JSON, where the alternative is an instant the
+        reader has to re-truncate to a day.
+        """
+        try:
+            since = (
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                - timedelta(days=days - 1)
+            ).replace(hour=0, minute=0, second=0, microsecond=0)
+
+            rows = (
+                self.session.query(
+                    func.date(UserModel.created_at).label("day"),
+                    func.count(UserModel.id),
+                )
+                .filter(UserModel.created_at >= since)
+                .group_by(func.date(UserModel.created_at))
+                .all()
+            )
+            counted = {str(day): int(total) for day, total in rows}
+
+            return [
+                {
+                    "date": str((since + timedelta(days=offset)).date()),
+                    "count": counted.get(str((since + timedelta(days=offset)).date()), 0),
+                }
+                for offset in range(days)
+            ]
+        except Exception as e:
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+    def countSanctioned(self) -> dict[str, int]:
+        """Accounts under each profile sanction, and under both.
+
+        Separate numbers rather than one total: a reset username and a blocked
+        picture are different decisions about different problems, and an
+        account carrying both is the one worth looking at.
+        """
+        try:
+            row = self.session.query(
+                func.count(UserModel.id).filter(UserModel.must_change_username.is_(True)),
+                func.count(UserModel.id).filter(UserModel.picture_blocked.is_(True)),
+                func.count(UserModel.id).filter(
+                    UserModel.must_change_username.is_(True),
+                    UserModel.picture_blocked.is_(True),
+                ),
+            ).one()
+            return {
+                "mustChangeUsername": int(row[0] or 0),
+                "pictureBlocked": int(row[1] or 0),
+                "both": int(row[2] or 0),
+            }
+        except Exception as e:
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+    def countBans(self) -> dict[str, int]:
+        """Banned accounts, split by whether the ban ends.
+
+        `banned_until` NULL on a banned row means permanent — the column is
+        overloaded exactly as migration `20260911_02` describes — so this is
+        the one place the overload has to be read carefully rather than
+        counted as "has a date".
+        """
+        try:
+            banned = config.STATUS_CODES["banned"]
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            row = self.session.query(
+                func.count(UserModel.id).filter(UserModel.status == banned),
+                func.count(UserModel.id).filter(
+                    UserModel.status == banned, UserModel.banned_until.is_(None)
+                ),
+                # Already expired but still flagged: the ban lifts itself at the
+                # next sign-in, so this is the backlog of accounts nobody has
+                # tried to use since their suspension ran out.
+                func.count(UserModel.id).filter(
+                    UserModel.status == banned, UserModel.banned_until < now
+                ),
+            ).one()
+            return {
+                "total": int(row[0] or 0),
+                "permanent": int(row[1] or 0),
+                "expired": int(row[2] or 0),
+            }
+        except Exception as e:
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+    def countExpiredDeleted(self, graceDays: int) -> int:
+        """How many accounts are past their purge date and still here.
+
+        `findExpiredDeleted` answers the same question by returning the ids;
+        this one is for the board, which wants the number and nothing else.
+        A non-zero value here means `purge-accounts` has stopped running —
+        the failure `docs/TODO.md` calls invisible from outside, because a
+        deleted account past its window answers "not found" either way.
+        """
+        try:
+            cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=graceDays)
+            return (
+                self.session.query(UserModel.id)
+                .filter(
+                    UserModel.status == config.STATUS_CODES["deleted"],
+                    UserModel.deleted_at.isnot(None),
+                    UserModel.deleted_at < cutoff,
+                )
+                .count()
+            )
+        except Exception as e:
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
     def findExpiredDeleted(self, graceDays: int) -> list[str]:
         """IDs of soft-deleted accounts whose grace window has closed.

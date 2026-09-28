@@ -21,7 +21,22 @@ def _make_service(mock_db):
     # is a no-op unless a test opts in via _with_badges.
     service.badgeRepository = MagicMock()
     service.badgeRepository.findAll.return_value = []
+    # Health-data consent in force by default: it is the state every existing
+    # test was written against, and `startStreak` refuses without it. The two
+    # tests that care about the refusal set it themselves.
+    service.consentRepository = MagicMock()
+    service.consentRepository.findCurrent.return_value = {
+        "health_data": _mock_consent()
+    }
     return service
+
+
+def _mock_consent(withdrawn_at=None):
+    c = MagicMock()
+    c.document = "health_data"
+    c.version = "1.0"
+    c.withdrawn_at = withdrawn_at
+    return c
 
 
 def _mock_badge(badgeId="badge-1", name="One Week", milestone=7, status=None):
@@ -105,6 +120,41 @@ def test_startStreak_already_active_raises_409(mock_db):
     with pytest.raises(NoHarmException) as exc:
         service.startStreak("uid-001")
     assert exc.value.statusCode == 409
+
+
+def test_startStreak_without_health_consent_raises_403(mock_db):
+    """A streak is health data and needs the consent that covers it.
+
+    The account can be perfectly healthy in every other respect — this is the
+    one that declined, or withdrew, the separate consent.
+    """
+    service = _make_service(mock_db)
+    service.consentRepository.findCurrent.return_value = {}
+
+    with pytest.raises(NoHarmException) as exc:
+        service.startStreak("uid-001")
+
+    assert exc.value.statusCode == 403
+    assert exc.value.errorCode == "HEALTH_CONSENT_REQUIRED"
+    service.streakRepository.create.assert_not_called()
+
+
+def test_startStreak_after_withdrawing_health_consent_raises_403(mock_db):
+    """Withdrawal deletes the streaks; this is what stops them coming back.
+
+    Without the check the withdrawal lasts exactly as long as it takes to tap
+    "start", and the new rows exist under a consent that is no longer in force.
+    """
+    service = _make_service(mock_db)
+    service.consentRepository.findCurrent.return_value = {
+        "health_data": _mock_consent(withdrawn_at=datetime.now(timezone.utc))
+    }
+
+    with pytest.raises(NoHarmException) as exc:
+        service.startStreak("uid-001")
+
+    assert exc.value.statusCode == 403
+    service.streakRepository.create.assert_not_called()
 
 
 # ── endStreak ─────────────────────────────────────────────────────────────────

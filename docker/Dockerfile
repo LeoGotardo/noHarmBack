@@ -28,6 +28,14 @@ ARG VITE_FIREBASE_STORAGE_BUCKET
 ARG VITE_FIREBASE_MESSAGING_SENDER_ID
 ARG VITE_FIREBASE_APP_ID
 ARG VITE_STATUS_CONSTANTS
+# Copy text, not behaviour: each one has a fallback in the app, so a missing
+# value here is a bundle that quietly states the wrong grace window, the wrong
+# minimum age, or an appeal address nobody reads. The backend is the authority
+# on all three — these only feed what the screens say — so they have to agree
+# with ACCOUNT_DELETION_GRACE_DAYS and MINIMUM_AGE_YEARS on the other side.
+ARG VITE_DELETION_GRACE_DAYS
+ARG VITE_MINIMUM_AGE
+ARG VITE_SUPPORT_EMAIL
 ENV VITE_API_URL=$VITE_API_URL \
     VITE_SOCKET_URL=$VITE_SOCKET_URL \
     VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY \
@@ -36,7 +44,10 @@ ENV VITE_API_URL=$VITE_API_URL \
     VITE_FIREBASE_STORAGE_BUCKET=$VITE_FIREBASE_STORAGE_BUCKET \
     VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID \
     VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID \
-    VITE_STATUS_CONSTANTS=$VITE_STATUS_CONSTANTS
+    VITE_STATUS_CONSTANTS=$VITE_STATUS_CONSTANTS \
+    VITE_DELETION_GRACE_DAYS=$VITE_DELETION_GRACE_DAYS \
+    VITE_MINIMUM_AGE=$VITE_MINIMUM_AGE \
+    VITE_SUPPORT_EMAIL=$VITE_SUPPORT_EMAIL
 
 WORKDIR /build
 # Manifests first: this layer only rebuilds when a dependency actually changes,

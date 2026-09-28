@@ -12,6 +12,7 @@ from core.config import config
 from core.database import Database
 from typing import Optional, overload
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 
 def _utcNow() -> datetime:
@@ -214,7 +215,24 @@ class UserService:
             # is what findByUsername looks up.
             userModel.username = username
 
+            # Choosing a name is what lifts the sanction. Nothing else does —
+            # not acknowledging the notice, not waiting: the point was never
+            # the telling-off, it was that the old name stopped being in use.
+            # The generated handle counts as a name, so a user who keeps it has
+            # to re-enter it deliberately, which is a decision rather than an
+            # omission.
+            userModel.must_change_username = False
+
         if profilePicture is not None:
+            # A blocked picture stays blocked until a moderator lifts it.
+            # Without this the sanction lasts exactly as long as it takes the
+            # user to open the edit screen.
+            if userModel.picture_blocked:
+                raise NoHarmException(
+                    statusCode=403,
+                    errorCode="PICTURE_BLOCKED",
+                    message="Moderation has blocked the picture on this account."
+                )
             userModel.profile_picture = profilePicture
 
         try:
@@ -286,6 +304,97 @@ class UserService:
         )
 
         return user
+
+    def forceUsernameChange(self, id: str, requestingUserId: str) -> User:
+        """Take the username away and make the account choose another.
+
+        The answer to an impersonating or abusive handle. A ban is far too much
+        for a name and a warning is far too little — it leaves the name exactly
+        where it is while the user decides whether to care.
+
+        The account is renamed **now**, to a neutral generated handle, rather
+        than being asked to fix it: the harm is the name being readable, and a
+        flag alone would leave it on every friend list and chat header until the
+        user next signed in. `must_change_username` is what then makes the app
+        insist on a real one.
+
+        Nothing else changes. The account is not banned, not limited, and keeps
+        its streak, friends and history — the sanction is exactly as wide as the
+        problem.
+        """
+        if str(id) == str(requestingUserId):
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="SELF_SANCTION",
+                message="You cannot reset your own username."
+            )
+
+        user = self.userRepository.findById(id)  # 404 when absent
+        if user.status == config.STATUS_CODES["deleted"]:
+            raise NoHarmException(
+                statusCode=404,
+                errorCode="USER_NOT_FOUND",
+                message="User not found."
+            )
+
+        previous = user.username
+        updated = self.userRepository.forceUsernameChange(id, self._neutralUsername)
+
+        # The old name is in the audit trail and in the report's evidence, and
+        # nowhere else — which is the only place a moderator should have to
+        # look for it.
+        self._logAudit(
+            5,
+            requestingUserId,
+            f"Username of {id} reset from '{previous}' to '{updated.username}'; user must choose a new one"
+        )
+
+        return updated
+
+    def _neutralUsername(self) -> str:
+        """A handle that says nothing about anyone.
+
+        `user_` plus eight hex characters: inside the 3–50 length and the
+        `[a-zA-Z0-9_-]` charset the profile update enforces, and far too large
+        a space to collide in practice — the repository retries anyway, because
+        "in practice" is not a uniqueness guarantee on a unique index.
+        """
+        return f"user_{uuid4().hex[:8]}"
+
+    def setPictureBlocked(self, id: str, blocked: bool, requestingUserId: str) -> User:
+        """Block or unblock the account's profile picture.
+
+        Blocking nulls the picture as well as setting the flag, and the flag is
+        the half that matters: `AuthService._syncProfilePicture` refreshes the
+        photo from the Google claim at every login, so clearing the column on
+        its own would undo itself the next time the user signed in.
+
+        Unblocking does not restore anything. The old picture is gone; the next
+        sign-in pulls whatever the Google account has now, which is the only
+        copy that ever existed.
+        """
+        if str(id) == str(requestingUserId):
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="SELF_SANCTION",
+                message="You cannot block your own picture."
+            )
+
+        user = self.userRepository.findById(id)  # 404 when absent
+        if user.status == config.STATUS_CODES["deleted"]:
+            raise NoHarmException(
+                statusCode=404,
+                errorCode="USER_NOT_FOUND",
+                message="User not found."
+            )
+
+        updated = self.userRepository.setPictureBlocked(id, blocked)
+        self._logAudit(
+            5,
+            requestingUserId,
+            f"Profile picture of {id} {'blocked' if blocked else 'unblocked'}"
+        )
+        return updated
 
     def liftExpiredSuspension(self, id: str) -> Optional[User]:
         """Re-enable an account whose suspension ran out. None when nothing to do."""

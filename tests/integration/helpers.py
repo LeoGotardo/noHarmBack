@@ -44,7 +44,7 @@ def fake_id_token(uid, email=None, emailVerified=True, picture=None, aud=None):
     return pyjwt.encode(claims, "signature-is-not-checked-in-emulator-mode", algorithm="HS256")
 
 
-def new_identity(uid=None, email=None, username=None, emailVerified=True):
+def new_identity(uid=None, email=None, username=None, emailVerified=True, **overrides):
     """A throwaway Google identity: the claims plus the token that proves them.
 
     Only `idToken` and `username` are sent to the API — the rest is here so a
@@ -57,12 +57,37 @@ def new_identity(uid=None, email=None, username=None, emailVerified=True):
         "email": email,
         "username": username or f"user_{uid[:8]}",
         "idToken": fake_id_token(uid, email, emailVerified=emailVerified),
+        # e.g. healthDataConsent=False, birthDate="2015-01-01" — picked up by
+        # `body_for` and sent instead of the default.
+        **overrides,
     }
 
 
+# What every registration needs beyond a token and a username.
+#
+# A fixed adult birth date, and the two consents the backend refuses without —
+# which is the point of both. `healthDataConsent` is true because a test account
+# that cannot start a streak is useless to most of this suite:
+# `POST /streaks/start` answers 403 HEALTH_CONSENT_REQUIRED without it. A test
+# about the refusal passes `healthDataConsent=False` to `new_identity`.
+REGISTRATION_CONSENT = {
+    "birthDate": "1990-06-15",
+    "acceptedTerms": True,
+    "acceptedPrivacy": True,
+    "healthDataConsent": True,
+}
+
+
 def body_for(identity):
-    """The register body: a token, and the one field the client gets to choose."""
-    return {"idToken": identity["idToken"], "username": identity["username"]}
+    """The register body: a token, plus the fields the client does choose."""
+    return {
+        "idToken": identity["idToken"],
+        "username": identity["username"],
+        **REGISTRATION_CONSENT,
+        # Anything the identity overrode wins, so a test can register an
+        # account that declined health-data consent or is under age.
+        **{k: identity[k] for k in REGISTRATION_CONSENT if k in identity},
+    }
 
 
 def new_user_payload(**kwargs):

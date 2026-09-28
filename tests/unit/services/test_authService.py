@@ -13,7 +13,7 @@ signature, audience and issuer — is covered in
 
 import json
 import pytest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 from core.config import config
@@ -52,6 +52,7 @@ def _make_service(mock_db):
     service = AuthService(mock_db)
     service.userRepository = MagicMock()
     service.auditRepository = MagicMock()
+    service.consentService = MagicMock()
     return service
 
 
@@ -64,8 +65,29 @@ def _login_request(uid="uid-001", email="user@test.com", **claims):
     return AuthLoginRequest(idToken=_token(uid, email, **claims))
 
 
-def _register_request(uid="uid-001", email="new@test.com", username="newuser", **claims):
-    return AuthRegisterRequest(idToken=_token(uid, email, **claims), username=username)
+# Comfortably over any plausible MINIMUM_AGE_YEARS, so a test about usernames
+# does not start failing the day the setting moves.
+ADULT_BIRTH_DATE = date(1990, 6, 15)
+
+
+def _register_request(
+    uid="uid-001",
+    email="new@test.com",
+    username="newuser",
+    birthDate=ADULT_BIRTH_DATE,
+    acceptedTerms=True,
+    acceptedPrivacy=True,
+    healthDataConsent=True,
+    **claims
+):
+    return AuthRegisterRequest(
+        idToken=_token(uid, email, **claims),
+        username=username,
+        birthDate=birthDate,
+        acceptedTerms=acceptedTerms,
+        acceptedPrivacy=acceptedPrivacy,
+        healthDataConsent=healthDataConsent,
+    )
 
 
 # ── login ─────────────────────────────────────────────────────────────────────
@@ -106,6 +128,7 @@ def test_login_refreshes_the_profile_picture_from_the_token(mock_db):
         mock_user.id = "uid-001"
         mock_user.status = config.STATUS_CODES["enabled"]
         mock_user.profile_picture = None
+        mock_user.picture_blocked = False
         userModel = MagicMock()
         service.userRepository.findById.side_effect = (
             lambda _id, returnModel=False: userModel if returnModel else mock_user
@@ -128,6 +151,7 @@ def test_login_leaves_an_unchanged_picture_alone(mock_db):
         mock_user.id = "uid-001"
         mock_user.status = config.STATUS_CODES["enabled"]
         mock_user.profile_picture = "https://pic/same.jpg"
+        mock_user.picture_blocked = False
         service.userRepository.findById.return_value = mock_user
 
         service.login(_login_request(picture="https://pic/same.jpg"))
@@ -149,6 +173,7 @@ def test_login_survives_a_failed_picture_write(mock_db):
         mock_user.id = "uid-001"
         mock_user.status = config.STATUS_CODES["enabled"]
         mock_user.profile_picture = None
+        mock_user.picture_blocked = False
         service.userRepository.findById.side_effect = (
             lambda _id, returnModel=False: mock_user
         )
@@ -473,6 +498,122 @@ def test_register_success_returns_tokens(mock_db):
         service.userRepository.create.assert_called_once()
 
 
+def test_register_records_the_three_consents(mock_db):
+    with patch("domain.services.authService._jwtHandler"):
+        service = _make_service(mock_db)
+        service.userRepository.findById.side_effect = NoHarmException(statusCode=404)
+        service.userRepository.findByEmail.side_effect = NoHarmException(statusCode=404)
+        service.userRepository.findByUsername.side_effect = NoHarmException(statusCode=404)
+
+        service.register(_register_request(healthDataConsent=True))
+
+        service.consentService.recordRegistrationConsents.assert_called_once_with(
+            "uid-001", True
+        )
+
+
+def test_register_passes_a_declined_health_consent_through(mock_db):
+    """Declining creates a working account without the streak tracker."""
+    with patch("domain.services.authService._jwtHandler"):
+        service = _make_service(mock_db)
+        service.userRepository.findById.side_effect = NoHarmException(statusCode=404)
+        service.userRepository.findByEmail.side_effect = NoHarmException(statusCode=404)
+        service.userRepository.findByUsername.side_effect = NoHarmException(statusCode=404)
+
+        service.register(_register_request(healthDataConsent=False))
+
+        service.consentService.recordRegistrationConsents.assert_called_once_with(
+            "uid-001", False
+        )
+        service.userRepository.create.assert_called_once()
+
+
+def test_register_stores_the_declared_birth_date(mock_db):
+    with patch("domain.services.authService._jwtHandler"):
+        service = _make_service(mock_db)
+        service.userRepository.findById.side_effect = NoHarmException(statusCode=404)
+        service.userRepository.findByEmail.side_effect = NoHarmException(statusCode=404)
+        service.userRepository.findByUsername.side_effect = NoHarmException(statusCode=404)
+
+        service.register(_register_request(birthDate=date(1988, 3, 4)))
+
+        created = service.userRepository.create.call_args[0][0]
+        assert created.birth_date == date(1988, 3, 4)
+
+
+@pytest.mark.parametrize("terms,privacy,missing", [
+    (False, True, ["terms"]),
+    (True, False, ["privacy"]),
+    (False, False, ["terms", "privacy"]),
+])
+def test_register_without_both_binding_consents_raises_400(mock_db, terms, privacy, missing):
+    """Refused before anything is written.
+
+    A row created first and gated afterwards is an account that exists having
+    agreed to nothing, and the only way out of that state is a hand-written
+    DELETE.
+    """
+    with patch("domain.services.authService._jwtHandler"):
+        service = _make_service(mock_db)
+
+        with pytest.raises(NoHarmException) as exc:
+            service.register(_register_request(acceptedTerms=terms, acceptedPrivacy=privacy))
+
+        assert exc.value.statusCode == 400
+        assert exc.value.errorCode == "CONSENT_REQUIRED"
+        assert exc.value.details["missing"] == missing
+        service.userRepository.create.assert_not_called()
+        service.consentService.recordRegistrationConsents.assert_not_called()
+
+
+def test_register_below_the_minimum_age_raises_403(mock_db):
+    with patch("domain.services.authService._jwtHandler"):
+        service = _make_service(mock_db)
+        today = datetime.now(timezone.utc).date()
+        # One day short of the minimum: the boundary is what a `days // 365`
+        # implementation gets wrong.
+        justTooYoung = date(
+            today.year - config.MINIMUM_AGE_YEARS, today.month, today.day
+        ) + timedelta(days=1)
+
+        with pytest.raises(NoHarmException) as exc:
+            service.register(_register_request(birthDate=justTooYoung))
+
+        assert exc.value.statusCode == 403
+        assert exc.value.errorCode == "UNDERAGE"
+        assert exc.value.details["minimumAge"] == config.MINIMUM_AGE_YEARS
+        service.userRepository.create.assert_not_called()
+
+
+def test_register_exactly_on_the_minimum_age_birthday_is_allowed(mock_db):
+    with patch("domain.services.authService._jwtHandler"):
+        service = _make_service(mock_db)
+        service.userRepository.findById.side_effect = NoHarmException(statusCode=404)
+        service.userRepository.findByEmail.side_effect = NoHarmException(statusCode=404)
+        service.userRepository.findByUsername.side_effect = NoHarmException(statusCode=404)
+
+        today = datetime.now(timezone.utc).date()
+        exactly = date(today.year - config.MINIMUM_AGE_YEARS, today.month, today.day)
+
+        service.register(_register_request(birthDate=exactly))
+
+        service.userRepository.create.assert_called_once()
+
+
+def test_register_with_a_future_birth_date_raises_400_not_underage(mock_db):
+    """A broken client or a typo. Telling someone born in 2035 that they are
+    too young is a worse answer than telling them the date is wrong."""
+    with patch("domain.services.authService._jwtHandler"):
+        service = _make_service(mock_db)
+        tomorrow = datetime.now(timezone.utc).date() + timedelta(days=1)
+
+        with pytest.raises(NoHarmException) as exc:
+            service.register(_register_request(birthDate=tomorrow))
+
+        assert exc.value.statusCode == 400
+        assert exc.value.errorCode == "INVALID_BIRTH_DATE"
+
+
 def test_register_invalid_username_raises_400(mock_db):
     with patch("domain.services.authService._jwtHandler"):
         service = _make_service(mock_db)
@@ -734,3 +875,24 @@ def test_registering_again_after_a_suspension_ended_is_not_refused_as_banned(moc
         # It falls through to the ordinary "this account already exists", not
         # to a ban — which is the point.
         assert exc.value.errorCode != "ACCOUNT_BANNED"
+
+
+def test_login_does_not_restore_a_blocked_picture(mock_db):
+    """This sync is the exact path that would undo a moderator's decision,
+    silently, at the user's next sign-in."""
+    with patch("domain.services.authService._loginLimiter") as mock_limiter, \
+         patch("domain.services.authService._jwtHandler"):
+
+        mock_limiter.check.return_value = (True, None)
+
+        service = _make_service(mock_db)
+        mock_user = MagicMock()
+        mock_user.id = "uid-001"
+        mock_user.status = config.STATUS_CODES["enabled"]
+        mock_user.profile_picture = None
+        mock_user.picture_blocked = True
+        service.userRepository.findById.return_value = mock_user
+
+        service.login(_login_request(picture="https://pic/new.jpg"))
+
+        service.userRepository.session.commit.assert_not_called()

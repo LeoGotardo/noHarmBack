@@ -39,7 +39,11 @@ ssh_() { ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=20 "$HOST" "$@"; }
 # surfaces later as a login that never completes.
 buildArgs=(--build-arg VITE_API_URL=/api --build-arg VITE_SOCKET_URL=)
 while IFS='=' read -r name value; do
-    [[ "$name" == VITE_FIREBASE_* || "$name" == VITE_STATUS_CONSTANTS ]] || continue
+    case "$name" in
+        VITE_FIREBASE_*|VITE_STATUS_CONSTANTS) ;;
+        VITE_DELETION_GRACE_DAYS|VITE_MINIMUM_AGE|VITE_SUPPORT_EMAIL) ;;
+        *) continue ;;
+    esac
     buildArgs+=(--build-arg "$name=$value")
 done < <(grep -E '^VITE_' noHarm/.env.local)
 

@@ -7,11 +7,13 @@ from starlette.responses import Response
 
 from security.clientIp import extractClientIp, isTrustedProxy
 from security.rateLimiter import IpRateLimiter
+from security.suspiciousTraffic import SuspiciousTraffic, classify
 
 logger = logging.getLogger(__name__)
 
 # Global instance — shared across all requests
 _ipLimiter = IpRateLimiter()
+_suspicious = SuspiciousTraffic()
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -60,6 +62,43 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     @staticmethod
     def _isTrustedProxy(ip: str | None) -> bool:
         return isTrustedProxy(ip)
+
+
+class SuspiciousTrafficMiddleware(BaseHTTPMiddleware):
+    """Counts refusals per client address, for the admin board.
+
+    Only responses at 400 and above are counted, which is a write on a small
+    fraction of requests rather than on all of them — and the failures are the
+    whole signal. Nobody scans for `/.env` and gets a 200.
+
+    Deliberately not a blocker. The rate limiter already refuses on its own
+    terms; acting automatically on these numbers would let anyone deny service
+    to a shared mobile NAT by pushing rubbish through it. What this produces is
+    a list for a person to look at.
+
+    Registration in main.py:
+        app.add_middleware(SuspiciousTrafficMiddleware)
+    """
+
+    # Same exemptions as the rate limiter: a health check answering 404 during
+    # a deploy is noise, not reconnaissance.
+    _EXEMPT_PATHS = {"/health", "/docs", "/redoc", "/openapi.json"}
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+
+        if request.url.path in self._EXEMPT_PATHS:
+            return response
+
+        try:
+            kind = classify(response.status_code, request.url.path)
+            if kind is not None:
+                _suspicious.record(extractClientIp(request), kind)
+        except Exception:
+            # A counter is never a reason to change what the caller receives.
+            logger.warning("suspicious traffic middleware failed", exc_info=True)
+
+        return response
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

@@ -1,6 +1,7 @@
 import uuid
 import pytest
 from helpers import (
+    REGISTRATION_CONSENT,
     body_for,
     fake_id_token,
     new_identity,
@@ -57,6 +58,9 @@ class TestRegister:
         resp = client.post("/auth/register", json={
             "idToken": fake_id_token(uid, f"{uid[:8]}@example.com", aud="other-project"),
             "username": f"user_{uid[:8]}",
+            # Present so the request gets past schema validation: a 422 here
+            # would pass the assertion below for entirely the wrong reason.
+            **REGISTRATION_CONSENT,
         })
         assert resp.status_code == 401
 

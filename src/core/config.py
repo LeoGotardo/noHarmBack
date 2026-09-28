@@ -23,6 +23,12 @@ def _require_json(key: str):
     except json.JSONDecodeError as e:
         raise Exception(f"Env var {key} is not valid JSON: {e}")
 
+def _optional(key: str, default: str) -> str:
+    raw = os.environ.get(key)
+    if raw is None or raw == "":
+        return default
+    return raw
+
 def _optional_int(key: str, default: int) -> int:
     raw = os.environ.get(key)
     if raw is None or raw == "":
@@ -135,6 +141,50 @@ class Config:
             # window itself. Setting this to 0 makes the purge eligible
             # immediately, which is a hard delete on the next cron run.
             self.ACCOUNT_DELETION_GRACE_DAYS: int = _optional_int("ACCOUNT_DELETION_GRACE_DAYS", 30)
+
+            # ── consent ───────────────────────────────────────────────────────
+            # The version of each document the account is currently asked to
+            # accept. A consent record stores the version that was live when it
+            # was given, and `ConsentService.pending` compares the two — so
+            # bumping one of these is what makes every account re-accept, and
+            # nothing else has to change.
+            #
+            # Strings, not numbers: "1.0" and "2026-09-16" are both reasonable
+            # ways to name a revision and the code never does arithmetic on it.
+            # Keep them in step with the documents actually served, or the app
+            # asks for a signature on a text nobody edited.
+            self.TERMS_VERSION: str = _optional("TERMS_VERSION", "1.0")
+            self.PRIVACY_VERSION: str = _optional("PRIVACY_VERSION", "1.0")
+            # Tracked clean days are health data, and health data needs its own
+            # explicit, separately given consent — never one bundled into "I
+            # agree to the terms". It carries its own version for the same
+            # reason it carries its own checkbox: what it covers can change
+            # without the terms changing.
+            self.HEALTH_CONSENT_VERSION: str = _optional("HEALTH_CONSENT_VERSION", "1.0")
+
+            # Measured from a fault's last sighting, not its birth: a bug first
+            # seen in January and still firing today is current.
+            self.ERROR_LOG_RETENTION_DAYS: int = _optional_int("ERROR_LOG_RETENTION_DAYS", 90)
+
+            # Suspicious traffic. Counted per client address, failures only, in
+            # a window that refreshes while the burst continues. A flag is a
+            # prompt to look and never an action: an automatic block driven by
+            # these numbers is a denial of service anyone can aim at a shared
+            # mobile NAT.
+            self.SUSPICIOUS_WINDOW_SECONDS: int = _optional_int("SUSPICIOUS_WINDOW_SECONDS", 600)
+            self.SUSPICIOUS_NOT_FOUND_THRESHOLD: int = _optional_int("SUSPICIOUS_NOT_FOUND_THRESHOLD", 40)
+            self.SUSPICIOUS_AUTH_THRESHOLD: int = _optional_int("SUSPICIOUS_AUTH_THRESHOLD", 20)
+            self.SUSPICIOUS_SERVER_ERROR_THRESHOLD: int = _optional_int("SUSPICIOUS_SERVER_ERROR_THRESHOLD", 25)
+            self.SUSPICIOUS_CLIENT_ERROR_THRESHOLD: int = _optional_int("SUSPICIOUS_CLIENT_ERROR_THRESHOLD", 80)
+            self.SUSPICIOUS_MAX_KEYS: int = _optional_int("SUSPICIOUS_MAX_KEYS", 5000)
+
+            # Minimum age to hold an account, in years, checked against the
+            # birth date given at registration. Self-declared — no identity
+            # provider this app uses carries an age claim (Firebase's ID token
+            # does not, and Sign in with Apple has no equivalent), so what this
+            # buys is the record that the question was asked and answered, not
+            # proof.
+            self.MINIMUM_AGE_YEARS: int = _optional_int("MINIMUM_AGE_YEARS", 18)
 
             # How long the copied evidence behind a report is kept after a
             # moderator closed it. The report itself is permanent — it is the

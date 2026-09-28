@@ -37,8 +37,13 @@ This document tracks the current state of the backend architecture and component
 | **Account deletion window**| `20260901_01`: `deleted_at` + purgeable FKs, `POST /auth/reactivate`, `purge-accounts` cron | ✅ Complete |
 | **Admin authorisation**    | `ADMIN_USER_IDS` allowlist + `getAdminUser` on the status and report routes | ✅ Complete |
 | **User reports**           | `20260909_01`: `tb_10` + RLS, `POST /reports/{userId}`, admin queue and resolutions | ✅ Complete |
+| **Moderation notices**     | `20260911_04`: `tb_12`, warnings and suspension notices, `POST /users/{id}/warn` | ✅ Complete |
+| **Name & picture sanctions**| `20260916_01`: `cl_0h`/`cl_0i`, `PUT /users/{id}/username/reset` and `/picture/{block\|unblock}` | ✅ Complete |
+| **Consent records**        | `20260916_02`: `tb_13` + RLS, versioned terms/privacy/health consent, the gate and withdrawal | ✅ Complete |
+| **Date of birth**          | `20260916_03`: `cl_0j`, `MINIMUM_AGE_YEARS` enforced at registration   | ✅ Complete |
+| **Data export**            | `GET /users/me/export` — the right of access, answered without a ticket | ✅ Complete |
 | **Pagination**             | Generic pagination system                                             | ✅ Complete |
-| **Unit Tests**             | 836 tests, 0 failures                                                 | ✅ Complete |
+| **Unit Tests**             | 1028 tests, 0 failures                                                 | ✅ Complete |
 | **Pyright/Pylance config** | `pyrightconfig.json` + `.vscode/settings.json`                        | ✅ Complete |
 
 ---
@@ -150,6 +155,7 @@ This document tracks the current state of the backend architecture and component
 
 | Component           | Status   | Notes                              |
 | ------------------- | -------- | ---------------------------------- |
+| Terms of Use / Privacy Policy **text** | ⬜ Draft | Every section in `noHarm/src/screens/legal/legalContent.js` and in `noHarm/public/{terms,privacy}.html` is a placeholder, and `draft: true` is what makes the app say so rather than presenting an empty page as terms. The machinery around them is finished: publishing is writing the sections, mirroring them into the two public files, flipping `draft`, and bumping `TERMS_VERSION` / `PRIVACY_VERSION` here — which is what asks every existing account to accept. |
 | `storageService.py` | ⬜ Empty | File uploads, profile pictures. The module holds the declarative `Base` and nothing else. `STORAGE_SERVICE_URI`, `STORAGE_SERVICE_KEY` and `STORAGE_PATH` have been removed from `core/config.py`; whoever builds uploads adds the settings the implementation actually needs. |
 | Backups off the database disk | ⬜ Missing | `backup-db.sh` writes to `~/backups`, on the **same EBS volume** as Postgres. It covers accidental deletion, not loss of the volume. Shipping to S3 requires an instance role — there is no AWS credential on the machine today. |
 | Monitoring / alerting | ⬜ Missing | Nothing warns when a container dies, the dump fails, the certificate renewal does not run, or `purge-accounts` stops purging. All three cron jobs only write to a log — and a purge that never runs is invisible from outside, because a deleted account past its window answers "Account not found." either way. |

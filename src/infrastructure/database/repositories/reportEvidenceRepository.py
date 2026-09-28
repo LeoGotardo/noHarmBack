@@ -105,6 +105,33 @@ class ReportEvidenceRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
 
+    def countExpired(self, retentionDays: int) -> int:
+        """Evidence past its retention window and still stored.
+
+        The read-only half of `deleteExpired`, for the board. Non-zero means
+        `purge-evidence` has stopped running, and what is sitting there is
+        copied private messages kept past the purpose that justified copying
+        them — the one retention failure in this system with a person on the
+        other end of it.
+        """
+        try:
+            cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=retentionDays)
+            resolved = [config.STATUS_CODES["accepted"], config.STATUS_CODES["ignored"]]
+
+            return (
+                self.session.query(ReportEvidenceModel.id)
+                .join(ReportModel, ReportModel.id == ReportEvidenceModel.report)
+                .filter(
+                    ReportModel.status.in_(resolved),
+                    ReportModel.updated_at < cutoff,
+                )
+                .count()
+            )
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
     def deleteExpired(self, retentionDays: int) -> int:
         """Drop the evidence behind reports resolved longer than `retentionDays` ago.
 

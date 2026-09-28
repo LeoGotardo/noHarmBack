@@ -49,7 +49,17 @@ def client():
 # The body carries the Firebase ID token and nothing else about who the user
 # is; AuthService is mocked here, so its contents never have to be valid.
 _VALID_LOGIN = {"idToken": "id-token"}
-_VALID_REGISTER = {"idToken": "id-token", "username": "newuser"}
+_VALID_REGISTER = {
+    "idToken": "id-token",
+    "username": "newuser",
+    # Registration now carries an age and three separate answers about what the
+    # account agreed to. The service refuses without the first two consents and
+    # below MINIMUM_AGE_YEARS; the schema refuses without the fields at all.
+    "birthDate": "1990-06-15",
+    "acceptedTerms": True,
+    "acceptedPrivacy": True,
+    "healthDataConsent": True,
+}
 
 
 class TestLoginRoute:
@@ -121,6 +131,23 @@ class TestRegisterRoute:
 
     def test_register_missing_id_token_returns_422(self, client):
         res = client.post("/auth/register", json={"username": "user"})
+        assert res.status_code == 422
+
+    def test_register_without_consent_fields_returns_422(self, client):
+        """The schema, not the service, is what refuses a body that omits them.
+
+        A default of False here would turn "the client forgot the field" into a
+        recorded refusal rather than a validation error, and the two have to
+        stay distinguishable.
+        """
+        payload = {k: v for k, v in _VALID_REGISTER.items()
+                   if k not in ("acceptedTerms", "acceptedPrivacy")}
+        res = client.post("/auth/register", json=payload)
+        assert res.status_code == 422
+
+    def test_register_without_birth_date_returns_422(self, client):
+        payload = {k: v for k, v in _VALID_REGISTER.items() if k != "birthDate"}
+        res = client.post("/auth/register", json=payload)
         assert res.status_code == 422
 
     def test_register_with_uid_instead_of_token_returns_422(self, client):

@@ -78,6 +78,15 @@ def _onDone(future) -> None:
         logger.exception("websocket emit failed", exc_info=exc)
 
 
+def _hasLoop() -> bool:
+    """Whether this process has an event loop an emit could be scheduled on."""
+    try:
+        asyncio.get_running_loop()
+        return True
+    except RuntimeError:
+        return _loop is not None
+
+
 def _schedule(coro) -> None:
     running: Optional[asyncio.AbstractEventLoop] = None
     try:
@@ -98,12 +107,58 @@ def _schedule(coro) -> None:
         asyncio.run_coroutine_threadsafe(coro, loop).add_done_callback(_onDone)
 
 
+# A publish-only handle on the same Redis channel the socket server consumes,
+# built on first use and only when there is no event loop to schedule on.
+#
+# This is what lets a **separate process** reach connected clients: the cron
+# jobs run as `docker compose exec app …`, with no ASGI server and no sockets of
+# their own, so `_schedule` has nothing to schedule and drops the emit. Their
+# alerts used to vanish exactly that quietly.
+_writeOnly = None
+_writeOnlyTried = False
+
+
+def _publishOutOfProcess(event: str, data: Any, room: str) -> bool:
+    """Emit from a process that has no socket server. True when it went out."""
+    global _writeOnly, _writeOnlyTried
+
+    if not _writeOnlyTried:
+        _writeOnlyTried = True
+        try:
+            import socketio
+
+            from core.config import config
+
+            _writeOnly = socketio.RedisManager(config.REDIS_URL, write_only=True)
+        except Exception:
+            logger.exception("could not open a write-only socket manager")
+            _writeOnly = None
+
+    if _writeOnly is None:
+        return False
+
+    try:
+        _writeOnly.emit(event, data, room=room)
+        return True
+    except Exception:
+        logger.exception("write-only emit of '%s' failed", event)
+        return False
+
+
 def emit(event: str, data: Any, room: str, skipSid: Optional[str] = None) -> None:
     """Fire-and-forget emit to a room. Never raises into the caller's flow."""
     try:
         from websocket.socketManager import sio  # local: socketManager imports handlers
 
         payload = toJsonSafe(data)
+
+        # No loop means no socket server in this process — a job, not the API.
+        # Publishing straight onto the channel is how its alerts reach the
+        # clients attached to the running instance.
+        if not _hasLoop():
+            if _publishOutOfProcess(event, payload, room):
+                return
+
         _schedule(sio.emit(event, payload, room=room, skip_sid=skipSid))
     except Exception:
         logger.exception("failed to schedule '%s' emit to room %s", event, room)
@@ -151,6 +206,39 @@ def notifyMessagesRead(chatId: Any, participantIds: Iterable[Any], readerId: Any
     if readerId is not None:
         payload["readerId"] = str(readerId)
     emitToChat(chatId, "messages_read", payload, participantIds)
+
+
+# ── admin alerts ──────────────────────────────────────────────────────────────
+
+def notifyAdmins(kind: str, title: str, body: str, **extra: Any) -> None:
+    """Tell every administrator something happened on the machine.
+
+    Sent to each allowlisted uid's personal room, which every one of their
+    devices joins on connect. The client turns it into a browser notification —
+    and only when the tab is open but not focused, which is what the existing
+    notification path already does for messages.
+
+    **This reaches an administrator who has the app open.** A closed browser
+    receives nothing: there is no Web Push subscription here, and the native
+    FCM path needs the installed app. For the two things this currently sends —
+    a login to the host and a fault nobody has seen before — that is a real
+    limitation and not a subtle one; the board is still where they are
+    guaranteed to be found.
+
+    Fire-and-forget, like every other emit: an alert that fails must never take
+    down the thing it was reporting on.
+    """
+    try:
+        from core.config import config
+
+        for adminId in config.ADMIN_USER_IDS:
+            emit(
+                "admin_alert",
+                {"kind": kind, "title": title, "body": body, **extra},
+                room=f"user_{adminId}",
+            )
+    except Exception:
+        logger.exception("failed to notify admins of '%s'", kind)
 
 
 # ── friendship fan-out ────────────────────────────────────────────────────────

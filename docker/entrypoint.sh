@@ -96,6 +96,31 @@ if [[ "${1:-}" == "purge-evidence" ]]; then
     exit $?
 fi
 
+# ── One-shot error retention sweep ─────────────────────────────────────────
+# `docker compose run --rm app purge-errors` deletes faults nothing has hit in
+# ERROR_LOG_RETENTION_DAYS. The table is grouped by fingerprint so it grows
+# slowly, but its traceback column holds message bodies and e-mail addresses —
+# see src/jobs/purgeErrors.py.
+if [[ "${1:-}" == "purge-errors" ]]; then
+    log "retention task: deleting faults past the error retention window"
+    cd /app/src && python -m jobs.purgeErrors
+    exit $?
+fi
+
+# ── SSH access ingestion ───────────────────────────────────────────────────
+# `journalctl -u ssh … | docker compose exec -T app ingest-host-access` records
+# who logged into the machine. Reads the journal from stdin and writes tb_15.
+#
+# A job rather than an endpoint on purpose: the collector runs on the host as
+# root and is already authorised by the Docker socket, so an HTTP route would
+# add a shared secret and a public write path into a security audit table to
+# authenticate something that already has more authority than the token grants.
+# See src/jobs/ingestHostAccess.py.
+if [[ "${1:-}" == "ingest-host-access" ]]; then
+    cd /app/src && python -m jobs.ingestHostAccess
+    exit $?
+fi
+
 # ── TLS shape ──────────────────────────────────────────────────────────────
 # alb       — TLS ends at an AWS load balancer (ACM certificate). The container
 #             serves plain :80 and never sees a certificate. This is the default

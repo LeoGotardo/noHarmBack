@@ -5,6 +5,8 @@ from exceptions.baseExceptions import NoHarmException
 
 from core.database import Database
 
+from sqlalchemy import func
+
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -102,6 +104,47 @@ class ModerationNoticeRepository:
                 raise e
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
+
+    def countsByKindSince(self, since: datetime) -> dict[str, int]:
+        """What moderation has said lately, grouped by kind.
+
+        Four kinds now — `warning`, `suspension`, `rename`, `picture` — and the
+        split is the point: they are four different decisions, and a single
+        "notices sent" total would read as one activity when the ladder's whole
+        design is that they are not.
+        """
+        try:
+            rows = (
+                self.session.query(
+                    ModerationNoticeModel.kind, func.count(ModerationNoticeModel.id)
+                )
+                .filter(ModerationNoticeModel.created_at >= since)
+                .group_by(ModerationNoticeModel.kind)
+                .all()
+            )
+            return {str(kind): int(total) for kind, total in rows}
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+    def countUnacknowledged(self) -> int:
+        """Notices nobody has opened yet.
+
+        Not a backlog anyone can clear: it drains when the accounts come back
+        and read them. It rises when moderation is talking to people who have
+        stopped signing in, which is worth knowing before sending more.
+        """
+        try:
+            return (
+                self.session.query(ModerationNoticeModel.id)
+                .filter(ModerationNoticeModel.acknowledged_at.is_(None))
+                .count()
+            )
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
     def countWarnings(self, userId: str) -> int:
         """How many warnings this account has had — the ladder's own memory."""

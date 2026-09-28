@@ -57,6 +57,7 @@ tests/
 │   │   ├── test_auditLogsRepository.py  ✅
 │   │   ├── test_badgeRepository.py      ✅
 │   │   ├── test_chatRepository.py       ✅
+│   │   ├── test_consentRepository.py    ✅ append-only, withdrawal stamps
 │   │   ├── test_friendshipRepository.py ✅
 │   │   ├── test_messageRepository.py    ✅
 │   │   ├── test_streakRepository.py     ✅
@@ -88,6 +89,8 @@ tests/
 │       ├── test_authService.py          ✅
 │       ├── test_badgeService.py         ✅
 │       ├── test_chatService.py          ✅
+│       ├── test_consentService.py       ✅ versions, pending, withdrawal
+│       ├── test_exportService.py        ✅ what the dump holds and omits
 │       ├── test_friendshipService.py    ✅
 │       ├── test_messageService.py       ✅
 │       ├── test_noticeService.py        ✅
@@ -104,6 +107,7 @@ tests/
     ├── test_reports.py                ✅ filing, duplicates, reporter-only reads
     ├── test_reportEvidence.py         ✅ capture, admin-only reads, surviving a purge, retention
     ├── test_moderationQueue.py        ✅ the review lock: claim, collision, expiry, release
+    ├── test_consentAndExport.py       ✅ the registration gate, the age floor, a version bump re-gating an existing account, withdrawal deleting streaks, the export
     ├── test_suspensions.py            ✅ timed bans, the date in the refusal, lifting itself
     ├── test_notices.py                ✅ warnings, suspension notices, acknowledgement, what they never name
     ├── test_rls.py / test_security.py / test_streak.py
@@ -216,9 +220,12 @@ Every repository is tested for:
 | `test_messageService.py` | Send (empty content, non-participant, pending chat), markAsRead, markAllAsRead |
 | `test_badgeService.py` | Grant and list |
 | `test_userBadgeService.py` | Association management |
+| `test_consentRepository.py` | Append-only apart from withdrawal: `findCurrent` returns the newest row per document, `createMany` commits the registration set in one transaction, `withdraw` stamps the current row and returns None when there is nothing in force |
 | `test_reportService.py` | Report self/unknown reason/deleted account, duplicate while open, sanitised details, admin resolution, evidence capture (profile + both sides of a named chat), a chat the reporter is not in refused before anything is filed, a capture failure never failing the report, audited evidence reads, the review lock (claim/release/resolve, collisions, stale locks) |
 | `test_noticeService.py` | Warnings (conduct named, reporter never), `self_harm` refused with the crisis-resources reason, self-warning, deleted accounts, suspension notices that never undo the suspension, acknowledgement being the recipient's only |
 | `test_auditLogsService.py` | Paginated queries, create |
+| `test_consentService.py` | What is pending and what is not: a missing or stale required consent gates the app, a health consent that was never given or was withdrawn is an *answer* and never re-asked, a live one at an old version is. The version is stamped from config and never taken from the caller; accepting twice writes a second row instead of erroring. Withdrawal deletes every streak, keeps the consent row stamped with the moment it ended, and is idempotent |
+| `test_exportService.py` | One JSON document per account: the profile, consents, streaks, friendships, badges, conversations and notices — device tokens counted and never listed, and reports filed *against* the account left out, because handing those over names the reporter |
 
 ### Routes (`tests/unit/routes/`)
 
