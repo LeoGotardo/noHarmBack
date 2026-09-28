@@ -14,6 +14,10 @@ router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
 class DeviceBody(BaseModel):
     deviceFCM: str = Field(..., description="FCM device token")
+    # Optional so an older app build, which sends only the token, keeps
+    # getting every push as before.
+    messages: bool = Field(True, description="Push new messages to this device")
+    friends: bool = Field(True, description="Push friend requests and acceptances to this device")
 
 
 class UpdateDeviceBody(BaseModel):
@@ -25,7 +29,11 @@ class UpdateDeviceBody(BaseModel):
     response_model=NotificationResponse,
     status_code=201,
     summary="Register device for notifications",
-    description="Register an FCM device token to receive push notifications."
+    description=(
+        "Register an FCM device token to receive push notifications, with the "
+        "categories this device wants. Idempotent: registering a token again "
+        "updates its preferences instead of adding a second row."
+    )
 )
 @limiter.limit("10/minute")
 def addDevice(
@@ -36,7 +44,7 @@ def addDevice(
 ):
     try:
         service = NotificationService(db)
-        notification = service.addDevice(currentUserId, body.deviceFCM)
+        notification = service.addDevice(currentUserId, body.deviceFCM, body.messages, body.friends)
         return NotificationResponse.model_validate(notification)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

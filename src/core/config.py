@@ -153,8 +153,8 @@ class Config:
             # ways to name a revision and the code never does arithmetic on it.
             # Keep them in step with the documents actually served, or the app
             # asks for a signature on a text nobody edited.
-            self.TERMS_VERSION: str = _optional("TERMS_VERSION", "1.0")
-            self.PRIVACY_VERSION: str = _optional("PRIVACY_VERSION", "1.0")
+            self.TERMS_VERSION: str = _optional("TERMS_VERSION", "2026-09-28")
+            self.PRIVACY_VERSION: str = _optional("PRIVACY_VERSION", "2026-09-28")
             # Tracked clean days are health data, and health data needs its own
             # explicit, separately given consent — never one bundled into "I
             # agree to the terms". It carries its own version for the same

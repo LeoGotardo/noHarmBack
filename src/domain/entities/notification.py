@@ -8,6 +8,8 @@ class Notification:
     user_id: str 
     status: int
     device_fcm: str
+    messages: bool = True
+    friends: bool = True
     id: Optional[UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

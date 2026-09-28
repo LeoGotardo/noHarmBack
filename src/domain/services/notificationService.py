@@ -10,17 +10,19 @@ class NotificationService:
         self.notificationRepository = NotificationRepository(self.database)
         
     
-    def addDevice(self, user_id: str, device_fcm: str) -> Notification:
-        """Add a device to recive notifications
+    def addDevice(self, user_id: str, device_fcm: str, messages: bool = True, friends: bool = True) -> Notification:
+        """Register a device to receive notifications, or update its preferences
         
         Args:
             user_id (str): User ID
             device_fcm (str): Device FCM
+            messages (bool): Push new messages to this device
+            friends (bool): Push friend requests and acceptances to this device
             
         Returns:
             Notification: Notification with his full data
         """
-        return self.notificationRepository.add(user_id, device_fcm)
+        return self.notificationRepository.add(user_id, device_fcm, messages, friends)
     
     
     def updateDevice(self, user_id: str, old_fcm: str, new_fcm: str) -> Notification:

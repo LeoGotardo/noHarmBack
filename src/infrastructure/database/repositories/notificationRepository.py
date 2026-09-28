@@ -18,6 +18,8 @@ class NotificationRepository:
             user_id=model.user_id,
             status=model.status,
             device_fcm=model.device_fcm,
+            messages=model.messages,
+            friends=model.friends,
             created_at=model.created_at,
             updated_at=model.updated_at
         )
@@ -36,16 +38,32 @@ class NotificationRepository:
             raise NoHarmException(statusCode=404, message="Device not found")
         return device
 
-    def add(self, user_id: str, device_fcm: str) -> Notification:
+    def add(self, user_id: str, device_fcm: str, messages: bool = True, friends: bool = True) -> Notification:
+        """Register a token, or refresh the row that already holds it.
+
+        An upsert because the app registers on every start: inserting each time
+        left one row per launch, and every row was a copy of every push. A row
+        unregistered earlier (status deleted) is enabled again rather than
+        duplicated.
+        """
         try:
-            notification = NotificationModel(
-                user_id=user_id,
-                device_fcm=device_fcm,
-                status=config.STATUS_CODES["enabled"],
+            fcm_hash = Encryption.hash(device_fcm)
+            device = (
+                self.session.query(NotificationModel)
+                .filter(
+                    NotificationModel.user_id == user_id,
+                    NotificationModel.device_fcm_hash == fcm_hash,
+                )
+                .first()
             )
-            self.session.add(notification)
+            if device is None:
+                device = NotificationModel(user_id=user_id, device_fcm=device_fcm)
+                self.session.add(device)
+            device.status = config.STATUS_CODES["enabled"]
+            device.messages = messages
+            device.friends = friends
             self.session.commit()
-            return self._toEntity(notification)
+            return self._toEntity(device)
         except Exception as e:
             self.session.rollback()
             if isinstance(e, NoHarmException):

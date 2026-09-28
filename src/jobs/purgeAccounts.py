@@ -15,6 +15,13 @@ their messages, user_badges, refresh tokens, device tokens. Audit log rows
 survive with a null `catalyst_id`, so the record that an account existed and was
 deleted outlives the account itself while pointing at nobody.
 
+It also deletes the account's Firebase Authentication user — the email and
+Google identity held in our Firebase project, which our own row's id is. That
+goes **first**: if Firebase refuses, the row stays and tomorrow's run tries the
+pair again, whereas deleting the row first would leave a Firebase user nothing
+points at and no run would ever find again. A user already gone from Firebase
+counts as deleted, which is what makes the retry safe.
+
 Exit codes: 0 when every eligible account was purged (including when there were
 none), 1 when at least one failed. A failure on one account does not stop the
 others — a single poisoned row must not keep the queue from draining night after
@@ -27,6 +34,7 @@ import sys
 from core.config import config
 from core.database import database
 from infrastructure.database.repositories.userRepository import UserRepository
+from infrastructure.external.firebaseApp import getFirebaseApp
 
 logger = logging.getLogger("noharm.purge")
 
@@ -50,6 +58,26 @@ class _SessionDb:
         return self._session
 
 
+def _deleteSignInRecord(userId: str) -> None:
+    """Delete the Firebase Auth user behind an account. Raises when it could not.
+
+    Without a Firebase app (a test environment, the emulator path) there is no
+    sign-in record of ours to delete, and refusing would stop every purge — so
+    that case is logged and passed.
+    """
+    app = getFirebaseApp()
+    if app is None:
+        logger.warning("Firebase not configured: sign-in record for %s not deleted", userId)
+        return
+
+    from firebase_admin import auth
+
+    try:
+        auth.delete_user(userId, app=app)
+    except auth.UserNotFoundError:
+        pass
+
+
 def purgeExpiredAccounts() -> int:
     """Purge every account past its grace window. Returns the failure count."""
     graceDays = config.ACCOUNT_DELETION_GRACE_DAYS
@@ -68,6 +96,7 @@ def purgeExpiredAccounts() -> int:
         failures = 0
         for userId in userIds:
             try:
+                _deleteSignInRecord(userId)
                 repository.purge(userId)
                 # The id is written to the log on purpose: it is the last trace
                 # of the account outside the audit table, and a restore request

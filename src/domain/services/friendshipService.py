@@ -182,7 +182,7 @@ class FriendshipService:
         # yourself, no duplicate request, not blocked — is now a precondition of
         # the notification too.
         emitter.notifyFriendship("friend_request", senderId, receiverId)
-        fcmService.sendPushToUser(receiverId, "New friend request", "Someone wants to connect with you")
+        fcmService.sendPushToUser(receiverId, "New friend request", "Someone wants to connect with you", category="friends")
 
         return created
 
@@ -213,7 +213,7 @@ class FriendshipService:
         accepted = self.friendshipRepository.updateStatus(friendshipId, "accepted")
 
         emitter.notifyFriendship("friend_accept", receiverId, str(friendship.sender))
-        fcmService.sendPushToUser(str(friendship.sender), "Friend request accepted", "Your friend request was accepted")
+        fcmService.sendPushToUser(str(friendship.sender), "Friend request accepted", "Your friend request was accepted", category="friends")
 
         return accepted
 

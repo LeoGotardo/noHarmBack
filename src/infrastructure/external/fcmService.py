@@ -5,21 +5,31 @@ from infrastructure.external.firebaseApp import getFirebaseApp
 logger = logging.getLogger(__name__)
 
 
-def sendPushToUser(user_id: str, title: str, body: str) -> None:
+# The push categories a user can switch off, each the name of a column on
+# `NotificationModel` (migration 20260928_01). A push sent without a category
+# goes to every enabled device — badges today, which only the master switch
+# (unregistering the token) silences.
+CATEGORIES = ("messages", "friends")
+
+
+def sendPushToUser(user_id: str, title: str, body: str, category: str | None = None) -> None:
     from core.database import database
     from infrastructure.database.models.notificationModel import NotificationModel
     from core.config import config as appConfig
 
+    if category is not None and category not in CATEGORIES:
+        # A typo here would silently push to everyone, or to no one.
+        raise ValueError(f"unknown push category: {category}")
+
     db = database.session
     try:
-        devices = (
-            db.query(NotificationModel)
-            .filter(
-                NotificationModel.user_id == user_id,
-                NotificationModel.status == appConfig.STATUS_CODES["enabled"],
-            )
-            .all()
+        query = db.query(NotificationModel).filter(
+            NotificationModel.user_id == user_id,
+            NotificationModel.status == appConfig.STATUS_CODES["enabled"],
         )
+        if category is not None:
+            query = query.filter(getattr(NotificationModel, category).is_(True))
+        devices = query.all()
         tokens = [d.device_fcm for d in devices]
         sendPush(tokens, title, body)
     except Exception as e:

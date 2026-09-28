@@ -118,7 +118,7 @@ class MessageService:
         # socket handler) so both send paths behave identically.
         peerId = str(chat.reciver) if str(chat.sender) == str(senderId) else str(chat.sender)
         emitter.notifyNewMessage(created, [str(chat.sender), str(chat.reciver)])
-        fcmService.sendPushToUser(peerId, "New message", sanitised.strip()[:200])
+        fcmService.sendPushToUser(peerId, "New message", sanitised.strip()[:200], category="messages")
 
         return created
 
