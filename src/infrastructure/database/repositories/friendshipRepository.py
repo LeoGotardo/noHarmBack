@@ -7,7 +7,7 @@ from schemas.paginationSchemas import PaginationParams, PaginatedResponse, creat
 from core.database import Database
 from core.config import config
 
-from sqlalchemy import or_
+from sqlalchemy import case, or_
 from typing import Optional
 
 import sys
@@ -25,6 +25,7 @@ class FriendshipRepository:
             sender=model.sender,
             reciver=model.reciver,
             status=model.status,
+            blocked_by=model.blocked_by,
             created_at=model.created_at,
             updated_at=model.updated_at
         )
@@ -59,6 +60,13 @@ class FriendshipRepository:
 
         Returns:
             Friendship: Friendship with his full data
+
+        A pair can hold several rows — a friendship deleted and started again,
+        or a block created beside an old deleted row (`FriendshipService.blockUser`).
+        This used to return whichever the database handed back first, so a
+        block could hide behind a deleted row and every caller here — the
+        friend request, the public profile, the chat — would miss it. The
+        order is now fixed: a block wins, then a live row, then the newest.
         """
         try:
             friendshipModel = self.session.query(FriendshipModel).filter(
@@ -66,6 +74,10 @@ class FriendshipRepository:
                     (FriendshipModel.sender == userA) & (FriendshipModel.reciver == userB),
                     (FriendshipModel.sender == userB) & (FriendshipModel.reciver == userA)
                 )
+            ).order_by(
+                case((FriendshipModel.status == config.STATUS_CODES["blocked"], 0), else_=1),
+                case((FriendshipModel.status == config.STATUS_CODES["deleted"], 1), else_=0),
+                FriendshipModel.updated_at.desc()
             ).first()
             
             if friendshipModel:
@@ -98,6 +110,91 @@ class FriendshipRepository:
             
             return friendshipModel is not None
         except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
+    def findAllBetween(self, userA: str, userB: str) -> list[Friendship]:
+        """Every friendship row between two users, newest first, either direction.
+
+        `findByUsers` returns whichever row the database hands back first, and a
+        pair can hold several — a friendship deleted and started again is two
+        rows. Deciding what to block needs all of them.
+        """
+        try:
+            models = self.session.query(FriendshipModel).filter(
+                or_(
+                    (FriendshipModel.sender == userA) & (FriendshipModel.reciver == userB),
+                    (FriendshipModel.sender == userB) & (FriendshipModel.reciver == userA)
+                )
+            ).order_by(FriendshipModel.updated_at.desc()).all()
+
+            return [self._toEntity(model) for model in models]
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
+    def _pairHasStatus(self, userA: str, userB: str, status: int) -> bool:
+        try:
+            return self.session.query(FriendshipModel.id).filter(
+                or_(
+                    (FriendshipModel.sender == userA) & (FriendshipModel.reciver == userB),
+                    (FriendshipModel.sender == userB) & (FriendshipModel.reciver == userA)
+                ),
+                FriendshipModel.status == status
+            ).first() is not None
+        except Exception as e:
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
+    def isBlockedBetween(self, userA: str, userB: str) -> bool:
+        """Whether either of the two has blocked the other.
+
+        Direction does not matter to anything that asks: a block hides each
+        side from the other.
+        """
+        return self._pairHasStatus(userA, userB, config.STATUS_CODES["blocked"])
+
+
+    def areFriends(self, userA: str, userB: str) -> bool:
+        """Whether the two hold an accepted friendship."""
+        return self._pairHasStatus(userA, userB, config.STATUS_CODES["accepted"])
+
+
+    def setBlocked(self, id: str, blockedBy: str) -> Friendship:
+        """Move a row to blocked and record who did it."""
+        try:
+            model = self.findById(id, returnModel=True)
+
+            model.status = config.STATUS_CODES["blocked"]
+            model.blocked_by = blockedBy
+
+            self.session.commit()
+
+            return self._toEntity(model)
+        except Exception as e:
+            self.session.rollback()
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
+    def clearBlock(self, id: str) -> Friendship:
+        """Lift a block: the row goes back to `disabled`, with nobody on it."""
+        try:
+            model = self.findById(id, returnModel=True)
+
+            model.status = config.STATUS_CODES["disabled"]
+            model.blocked_by = None
+
+            self.session.commit()
+
+            return self._toEntity(model)
+        except Exception as e:
+            self.session.rollback()
             if isinstance(e, NoHarmException):
                 raise e
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
@@ -196,7 +293,15 @@ class FriendshipRepository:
         
     def findBlockedUsers(self, userId: str, params: Optional[PaginationParams] = None) -> list[Friendship] | PaginatedResponse[Friendship]:
         try:
-            query = self.db.session.query(FriendshipModel).filter(FriendshipModel.sender == userId, FriendshipModel.status == config.STATUS_CODES.get("blocked"))
+            # Rows that record who blocked are read by that; older rows fall
+            # back to the sender, which is the best the table can say about them.
+            query = self.db.session.query(FriendshipModel).filter(
+                FriendshipModel.status == config.STATUS_CODES.get("blocked"),
+                or_(
+                    FriendshipModel.blocked_by == userId,
+                    (FriendshipModel.blocked_by.is_(None)) & (FriendshipModel.sender == userId)
+                )
+            )
             if params:
                 query = query.offset(params.page * params.pageSize).limit(params.pageSize)
                 total = query.count()
@@ -224,6 +329,7 @@ class FriendshipRepository:
                 sender=Friendship.sender,
                 reciver=Friendship.reciver,
                 status=Friendship.status,
+                blocked_by=getattr(Friendship, "blocked_by", None),
                 created_at=Friendship.created_at,
                 updated_at=Friendship.updated_at
             )

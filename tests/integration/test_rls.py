@@ -513,3 +513,122 @@ class TestNoticeVisibility:
                     {"id": uuid.uuid4(), "user": USER_B},
                 )
                 session.commit()
+
+
+class TestPostPolicies:
+    """tb_16 / tb_17 / tb_18: readable by anyone, written only as yourself.
+
+    Who may *see* a post is `PostService`'s question and is tested through the
+    API in test_posts.py. What these guard is the part RLS owns: nobody writes
+    as someone else, and no author can reverse a moderator's removal.
+    """
+
+    @pytest.fixture
+    def post(self, rls_engine, seeded):
+        postId = uuid.uuid4()
+        commentId = uuid.uuid4()
+        with Session(rls_engine) as session:
+            session.execute(
+                text(
+                    "INSERT INTO tb_16 (cl_16a, cl_16b, cl_16c, cl_16d, cl_16e, created_at, updated_at)"
+                    " VALUES (:id, :author, 'enc', 'community', 1, now(), now())"
+                ),
+                {"id": postId, "author": USER_A},
+            )
+            session.execute(
+                text(
+                    "INSERT INTO tb_17 (cl_17a, cl_17b, cl_17c, cl_17d, cl_17e, created_at, updated_at)"
+                    " VALUES (:id, :post, :author, 'enc', 1, now(), now())"
+                ),
+                {"id": commentId, "post": postId, "author": USER_B},
+            )
+            session.commit()
+
+        yield postId, commentId
+
+        with Session(rls_engine) as session:
+            session.execute(text("DELETE FROM tb_16 WHERE cl_16a = :id"), {"id": postId})
+            session.commit()
+
+    def test_anyone_reads_a_post(self, rls_engine, post):
+        postId, _ = post
+        with _asUser(rls_engine, f"rls-outsider-{uuid.uuid4()}") as session:
+            count = session.execute(text("SELECT count(*) FROM tb_16 WHERE cl_16a = :id"), {"id": postId}).scalar()
+
+        assert count == 1
+
+    def test_b_cannot_post_as_a(self, rls_engine, seeded):
+        with _asUser(rls_engine, USER_B) as session:
+            with pytest.raises(Exception) as raised:
+                session.execute(
+                    text(
+                        "INSERT INTO tb_16 (cl_16a, cl_16b, cl_16c, cl_16d, cl_16e, created_at, updated_at)"
+                        " VALUES (:id, :author, 'enc', 'community', 1, now(), now())"
+                    ),
+                    {"id": uuid.uuid4(), "author": USER_A},
+                )
+                session.flush()
+
+        assert "row-level security" in str(raised.value).lower()
+
+    def test_the_author_cannot_undo_a_removal(self, rls_engine, post):
+        postId, _ = post
+        with Session(rls_engine) as session:
+            session.execute(text("UPDATE tb_16 SET cl_16e = 3 WHERE cl_16a = :id"), {"id": postId})
+            session.commit()
+
+        with _asUser(rls_engine, USER_A) as session:
+            result = session.execute(text("UPDATE tb_16 SET cl_16e = 1 WHERE cl_16a = :id"), {"id": postId})
+            session.commit()
+
+        assert result.rowcount == 0
+
+    def test_b_cannot_delete_a_post(self, rls_engine, post):
+        postId, _ = post
+        with _asUser(rls_engine, USER_B) as session:
+            result = session.execute(text("DELETE FROM tb_16 WHERE cl_16a = :id"), {"id": postId})
+            session.commit()
+
+        assert result.rowcount == 0
+
+    def test_the_post_author_may_delete_a_comment_on_it(self, rls_engine, post):
+        """D7 — and the subquery on tb_16 is what grants it."""
+        _, commentId = post
+        with _asUser(rls_engine, USER_A) as session:
+            result = session.execute(text("DELETE FROM tb_17 WHERE cl_17a = :id"), {"id": commentId})
+            session.commit()
+
+        assert result.rowcount == 1
+
+    def test_an_outsider_cannot_delete_a_comment(self, rls_engine, post):
+        _, commentId = post
+        with _asUser(rls_engine, f"rls-outsider-{uuid.uuid4()}") as session:
+            result = session.execute(text("DELETE FROM tb_17 WHERE cl_17a = :id"), {"id": commentId})
+            session.commit()
+
+        assert result.rowcount == 0
+
+    def test_b_cannot_like_as_a(self, rls_engine, post):
+        postId, _ = post
+        with _asUser(rls_engine, USER_B) as session:
+            with pytest.raises(Exception) as raised:
+                session.execute(
+                    text("INSERT INTO tb_18 (cl_18a, cl_18b, created_at) VALUES (:post, :user, now())"),
+                    {"post": postId, "user": USER_A},
+                )
+                session.flush()
+
+        assert "row-level security" in str(raised.value).lower()
+
+    def test_deleting_a_post_takes_the_comments_under_rls(self, rls_engine, post):
+        """The cascade runs as the table owner — B's comment goes with A's post
+        even though A could not have deleted it through the policy alone."""
+        postId, commentId = post
+        with _asUser(rls_engine, USER_A) as session:
+            session.execute(text("DELETE FROM tb_16 WHERE cl_16a = :id"), {"id": postId})
+            session.commit()
+
+        with Session(rls_engine) as session:
+            count = session.execute(text("SELECT count(*) FROM tb_17 WHERE cl_17a = :id"), {"id": commentId}).scalar()
+
+        assert count == 0

@@ -27,6 +27,7 @@ class ModerationNoticeRepository:
             message=model.message,
             issued_by=model.issued_by,
             acknowledged_at=model.acknowledged_at,
+            excerpt=model.excerpt,
             created_at=model.created_at,
             updated_at=model.updated_at
         )
@@ -39,7 +40,8 @@ class ModerationNoticeRepository:
                 kind=notice.kind,
                 reason=notice.reason,
                 message=notice.message,
-                issued_by=notice.issued_by
+                issued_by=notice.issued_by,
+                excerpt=notice.excerpt
             )
 
             self.session.add(model)

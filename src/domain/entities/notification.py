@@ -10,6 +10,7 @@ class Notification:
     device_fcm: str
     messages: bool = True
     friends: bool = True
+    community: bool = True
     id: Optional[UUID] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

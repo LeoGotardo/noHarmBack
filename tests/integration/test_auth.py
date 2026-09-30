@@ -101,9 +101,12 @@ class TestLogin:
         assert "accessToken" in body
         assert "refreshToken" in body
 
-    def test_nonexistent_uid_returns_401(self, client):
+    def test_a_google_account_with_no_noharm_account_is_404(self, client):
+        """Not 401: the app reads 401 as an expired session and told people who
+        had never signed up to sign in again."""
         resp = client.post("/auth/login", json={"idToken": fake_id_token(str(uuid.uuid4()))})
-        assert resp.status_code == 401
+        assert resp.status_code == 404
+        assert resp.json()["errorCode"] == "ACCOUNT_NOT_FOUND"
 
     def test_bare_uid_is_not_accepted(self, client):
         # The old contract, and the hole it left: anyone who had seen another

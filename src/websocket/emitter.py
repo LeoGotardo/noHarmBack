@@ -278,3 +278,32 @@ def notifyFriendship(event: str, actorId: Any, targetId: Any) -> None:
         _schedule(_friendshipEmit(event, actor, target))
     except Exception:
         logger.exception("failed to schedule '%s' emit to user %s", event, target)
+
+
+# ── community ─────────────────────────────────────────────────────────────────
+
+def notifyPostComment(postAuthorId: Any, postId: Any, commentId: Any, commenterId: Any, commenterUsername: str) -> None:
+    """Tell a post's author that someone commented on it.
+
+    Called from PostService after the comment is written and after the
+    visibility check that allowed it — the same placement rule as
+    `notifyFriendship`, for the same reason. Never for the author's own
+    comments, and never for likes (D6): a counter that pings is a counter
+    people start watching.
+
+    The payload names the commenter but carries no text. The client fetches
+    the thread if it wants it, through the route that re-checks visibility.
+    """
+    author = str(postAuthorId)
+    if not author or author == str(commenterId):
+        return
+
+    emit(
+        "post_comment",
+        {
+            "post_id": str(postId),
+            "comment_id": str(commentId),
+            "author": {"id": str(commenterId), "username": commenterUsername},
+        },
+        room=f"user_{author}",
+    )

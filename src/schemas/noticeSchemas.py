@@ -38,9 +38,13 @@ class WarnRequest(BaseModel):
 
 class NoticeResponse(BaseModel):
     id: UUID
-    kind: str = Field(..., description="warning · suspension · rename · picture")
+    kind: str = Field(..., description="warning · suspension · rename · picture · post_removed · comment_removed")
     reason: str = Field(..., description="The conduct it names")
     message: Optional[str] = Field(None, description="The moderator's words, if any")
+    excerpt: Optional[str] = Field(
+        None,
+        description="post_removed / comment_removed only: the start of what was removed"
+    )
     acknowledged_at: Optional[datetime] = Field(None, description="When the user read it")
     created_at: datetime
 

@@ -45,10 +45,11 @@ anything that runs a second Postgres. There is 2 GB of swap to absorb the rest.
 30 4 * * * cd /home/ec2-user/noHarmBack/docker && docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-accounts >> /home/ec2-user/purge.log 2>&1
 45 4 * * 0 cd /home/ec2-user/noHarmBack/docker && docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-evidence >> /home/ec2-user/purge.log 2>&1
 50 4 * * 0 cd /home/ec2-user/noHarmBack/docker && docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-errors >> /home/ec2-user/purge.log 2>&1
+40 4 * * * cd /home/ec2-user/noHarmBack/docker && docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-removed-content >> /home/ec2-user/purge.log 2>&1
 */10 * * * * /home/ec2-user/noHarmBack/docker/collect-ssh-access.sh >> /home/ec2-user/ssh-access.log 2>&1
 ```
 
-All six are UTC. The backup runs nightly at 04:00; the certificate renewal
+All seven are UTC. The backup runs nightly at 04:00; the certificate renewal
 runs Mondays at 03:00 — weekly against a 90-day certificate, so roughly twelve
 chances to notice a failure before anything expires.
 
@@ -120,6 +121,25 @@ Run it by hand:
 ```bash
 cd ~/noHarmBack/docker
 docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-evidence
+```
+
+### The removed-content sweep
+
+Deletes posts and comments a moderator removed more than
+`REMOVED_CONTENT_RETENTION_DAYS` (default 30) ago. Removal is a status so an
+appeal can restore it; this is what makes "kept for 30 days" in the Privacy
+Policy true. **Daily**, unlike the evidence sweep: the policy states a window,
+and a weekly run would overshoot it by up to six days. A post's comments and
+likes go with it. What the author deletes never reaches this job — that is a
+real DELETE at the time.
+
+```bash
+docker exec postgres_db psql -U <owner> -d noharm-db -c \
+  "SELECT (SELECT count(*) FROM tb_16 WHERE cl_16e = 3 AND cl_16f <= NOW() - INTERVAL '30 days') AS posts,
+          (SELECT count(*) FROM tb_17 WHERE cl_17e = 3 AND cl_17f <= NOW() - INTERVAL '30 days') AS comments;"
+
+cd ~/noHarmBack/docker
+docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-removed-content
 ```
 
 ### The error retention sweep

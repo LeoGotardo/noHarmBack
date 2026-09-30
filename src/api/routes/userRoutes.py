@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from api.dependencies.auth import getAdminUser, getCurrentUser
 from api.dependencies.database import getDb, getDbWithRLS
 from domain.services.consentService import ConsentService
 from domain.services.exportService import ExportService
+from domain.services.friendshipService import FriendshipService
 from domain.services.noticeService import NoticeService
+from domain.services.postService import PostService
 from domain.services.userService import UserService
 from schemas.consentSchemas import (
     ConsentAcceptRequest,
@@ -13,7 +15,9 @@ from schemas.consentSchemas import (
     ConsentStatusResponse,
     ConsentWithdrawResponse,
 )
+from schemas.friendshipSchemas import FriendshipResponse
 from schemas.noticeSchemas import NoticeResponse, WarnRequest
+from schemas.postSchemas import PostPageResponse
 from schemas.userSchemas import (
     MeResponse,
     UserResponse,
@@ -306,6 +310,83 @@ def getPublicStats(
     try:
         service = UserService(db)
         return UserStatsResponse(**service.getPublicStats(currentUserId, userId))
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+
+
+@router.get(
+    "/{userId}/posts",
+    response_model=PostPageResponse,
+    summary="Read one user's posts",
+    description=(
+        "The posts on a profile, newest first, as the caller may see them: "
+        "`friends` posts only for an accepted friend, nothing at all across a "
+        "block or from an account that is not enabled — an empty page, not an "
+        "error. Keyset-paginated like `GET /posts`."
+    )
+)
+@limiter.limit("60/minute")
+def getUserPosts(
+    userId: str,
+    request: Request,
+    cursor: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=50),
+    db: Session = Depends(getDbWithRLS),
+    currentUserId: str = Depends(getCurrentUser)
+):
+    # NoHarmException reaches main.py unconverted, as in postRoutes: an
+    # INVALID_CURSOR is worth keeping as a code.
+    return PostService(db).byAuthor(currentUserId, userId, cursor, limit)
+
+
+# ── blocking anyone ───────────────────────────────────────────────────────────
+
+@router.post(
+    "/{userId}/block",
+    response_model=FriendshipResponse,
+    summary="Block a user",
+    description=(
+        "Blocks an account whether or not you are friends — what the Community "
+        "tab needs, since a stranger can comment on you. Moves an existing "
+        "friendship to blocked, or creates the row. Idempotent.\n\n"
+        "Each side then disappears for the other: posts, comments, profile, "
+        "friend requests and chats. The blocked account is not notified. Only "
+        "whoever blocked can unblock (`blocked_by` on the response)."
+    )
+)
+@limiter.limit("10/minute")
+def blockUser(
+    userId: str,
+    request: Request,
+    db: Session = Depends(getDbWithRLS),
+    currentUserId: str = Depends(getCurrentUser)
+):
+    try:
+        service = FriendshipService(db)
+        return service.enrich(service.blockUser(currentUserId, userId))
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+
+
+@router.delete(
+    "/{userId}/block",
+    response_model=FriendshipResponse,
+    summary="Unblock a user",
+    description=(
+        "Lifts a block you placed. 403 when the other account placed it — the "
+        "blocked side cannot unblock itself. 404 when there is no block."
+    )
+)
+@limiter.limit("10/minute")
+def unblockUser(
+    userId: str,
+    request: Request,
+    db: Session = Depends(getDbWithRLS),
+    currentUserId: str = Depends(getCurrentUser)
+):
+    try:
+        service = FriendshipService(db)
+        return service.enrich(service.unblockUser(currentUserId, userId))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 

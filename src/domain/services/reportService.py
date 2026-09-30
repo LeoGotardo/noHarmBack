@@ -3,6 +3,8 @@ from infrastructure.database.repositories.reportEvidenceRepository import Report
 from infrastructure.database.repositories.chatRepository import ChatRepository
 from infrastructure.database.repositories.messageRepository import MessageRepository
 from infrastructure.database.repositories.userRepository import UserRepository
+from infrastructure.database.repositories.postRepository import PostRepository
+from infrastructure.database.repositories.postCommentRepository import PostCommentRepository
 from infrastructure.database.repositories.auditLogsRepository import AuditLogsRepository
 from infrastructure.database.models.auditLogsModel import AuditLogsModel
 from domain.entities.report import Report
@@ -94,6 +96,8 @@ class ReportService:
         self.chatRepository = ChatRepository(self.database)
         self.messageRepository = MessageRepository(self.database)
         self.userRepository = UserRepository(self.database)
+        self.postRepository = PostRepository(self.database)
+        self.commentRepository = PostCommentRepository(self.database)
         self.auditRepository = AuditLogsRepository(self.database)
 
     def _logAudit(self, actionType: int, catalystId: str, description: str) -> None:
@@ -220,7 +224,9 @@ class ReportService:
         reportedId: str,
         reason: str,
         details: Optional[str] = None,
-        chatId: Optional[UUID] = None
+        chatId: Optional[UUID] = None,
+        postId: Optional[UUID] = None,
+        commentId: Optional[UUID] = None
     ) -> Report:
         """File a report about another user.
 
@@ -256,6 +262,24 @@ class ReportService:
         ever the difference between a safety report being filed and not: the
         quotas are tens per day, and the pair cooldown only follows a moderator
         deciding the last one was baseless.
+
+        ## Posts and comments
+
+        `postId` / `commentId` name what in the Community tab the report is
+        about. The same rules as `chatId`: an id and never the text, the target
+        has to be visible to the reporter (404 otherwise), and it has to have
+        been written by the person being reported (400
+        `REPORT_TARGET_MISMATCH`). They exclude each other and combine with
+        `chatId`.
+
+        **D8 — a second report with something new in it.** A reporter whose
+        report about this person is still open gets a 409 for a second one,
+        which is right for the same complaint and wrong for a new post: the
+        second offensive post would never reach the moderator. So a filing that
+        names a post or comment while a report is open adds that as evidence to
+        the open report and answers with it, `appended=True`. It spends no
+        quota — nothing new was filed — and is not held back by the backlog
+        cap for the same reason.
         """
         if reporterId == reportedId:
             raise NoHarmException(
@@ -270,6 +294,18 @@ class ReportService:
                 errorCode="INVALID_REASON",
                 message="Unknown report reason."
             )
+
+        if postId is not None and commentId is not None:
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="REPORT_TARGET_AMBIGUOUS",
+                message="Report a post or a comment, not both."
+            )
+
+        if postId is not None or commentId is not None:
+            appended = self._appendToOpenReport(reporterId, reportedId, postId, commentId, details)
+            if appended is not None:
+                return appended
 
         # Redis before Postgres: the cheapest refusal comes first, and an
         # account already over its quota should not cost a user lookup per
@@ -302,6 +338,10 @@ class ReportService:
         if chatId is not None:
             self._assertChatBetween(chatId, reporterId, reportedId)
 
+        # Same placement and the same reason: resolved and checked before the
+        # report exists.
+        target = self._resolveTarget(reporterId, reportedId, postId, commentId)
+
         cleaned = Sanitizer.cleanHtml(details).strip() if details else None
 
         created = self.reportRepository.create(Report(
@@ -311,7 +351,13 @@ class ReportService:
             reported_username=reported.username,
             reason=reason,
             details=cleaned or None,
-            status=config.STATUS_CODES[_OPEN]
+            status=config.STATUS_CODES[_OPEN],
+            target_kind=(
+                "comment" if commentId is not None
+                else "post" if postId is not None
+                else "chat" if chatId is not None
+                else None
+            )
         ))
 
         # Charged here, not at the check: a reporter turned away by the
@@ -321,7 +367,7 @@ class ReportService:
         # limiter's problem.
         _reportLimiter.spend(reporterId)
 
-        self._captureEvidence(created, reported, chatId)
+        self._captureEvidence(created, reported, chatId, target)
 
         # Catalyst is the reporter: tb_7's select policy is catalyst-only, so
         # the entry is readable by the person who filed it and by nobody else.
@@ -460,7 +506,7 @@ class ReportService:
 
         return evidence
 
-    def _captureEvidence(self, report: Report, reported, chatId: Optional[UUID]) -> None:
+    def _captureEvidence(self, report: Report, reported, chatId: Optional[UUID], target: Optional[list] = None) -> None:
         """Copy what the report is about, at the moment it is filed.
 
         Two kinds of item:
@@ -469,6 +515,10 @@ class ReportService:
           a username and picture are what an impersonation report *is*, and both
           can be changed in the seconds after a report is filed.
         - `message` — the tail of the named conversation, both sides.
+        - `post` / `comment` — the Community item named, as it read when the
+          report was filed. A comment brings its post too: a reply with no
+          context is half a conversation, the same argument as copying both
+          sides of a chat.
 
         Capture runs on the request's own session, which carries the reporter's
         RLS context: `tb_3` and `tb_4` are participant-scoped, so a reporter can
@@ -498,6 +548,8 @@ class ReportService:
 
             if chatId is not None:
                 items.extend(self._captureChat(chatId, report.id))
+
+            items.extend(self._targetEvidence(target or [], report.id))
 
             self.evidenceRepository.createMany(items)
         except Exception:
@@ -543,6 +595,110 @@ class ReportService:
             )
             for message in messages
         ]
+
+    # ── posts and comments as evidence ────────────────────────────────────────
+
+    def _resolveTarget(
+        self,
+        reporterId: str,
+        reportedId: str,
+        postId: Optional[UUID],
+        commentId: Optional[UUID]
+    ) -> list:
+        """The post or comment a report names, checked, as `[(kind, row), ...]`.
+
+        A comment comes back with its post after it, so both are captured.
+        Visibility is the reporter's: something they cannot see is a 404
+        exactly as it is on the post routes, so a report cannot be used to
+        learn that a hidden post exists.
+        """
+        if commentId is not None:
+            comment = self.commentRepository.findVisible(commentId, reporterId)
+            if str(comment.author_id) != str(reportedId):
+                raise self._targetMismatch()
+            post = self.postRepository.findById(comment.post_id)
+            return [("comment", comment), ("post", post)]
+
+        if postId is not None:
+            post = self.postRepository.findVisible(postId, reporterId)
+            if str(post.author_id) != str(reportedId):
+                raise self._targetMismatch()
+            return [("post", post)]
+
+        return []
+
+    @staticmethod
+    def _targetMismatch() -> NoHarmException:
+        return NoHarmException(
+            statusCode=400,
+            errorCode="REPORT_TARGET_MISMATCH",
+            message="That was not written by the user you are reporting."
+        )
+
+    @staticmethod
+    def _targetEvidence(target: list, reportId) -> list[ReportEvidence]:
+        return [
+            ReportEvidence(
+                report=reportId,
+                kind=kind,
+                source_id=str(row.id),
+                author_id=row.author_id,
+                content=row.content,
+                occurred_at=row.created_at
+            )
+            for kind, row in target
+        ]
+
+    def _appendToOpenReport(
+        self,
+        reporterId: str,
+        reportedId: str,
+        postId: Optional[UUID],
+        commentId: Optional[UUID],
+        details: Optional[str]
+    ) -> Optional[Report]:
+        """D8: add a post or comment to the open report instead of a 409.
+
+        Returns None when there is no open report to add to, and the caller
+        files a new one as usual.
+
+        Only the post or comment is captured — the conversation, if the
+        original report named one, is already there. The reporter's `details`
+        become a `note` item rather than being dropped: the report already has
+        their first account in its own column, and this is the second.
+        """
+        last = self.reportRepository.findRecentByPair(reporterId, reportedId)
+        if last is None or last.status != config.STATUS_CODES[_OPEN]:
+            return None
+
+        self._assertReporterEligible(reporterId)
+
+        target = self._resolveTarget(reporterId, reportedId, postId, commentId)
+        items = self._targetEvidence(target, last.id)
+
+        note = Sanitizer.cleanHtml(details).strip() if details else None
+        if note:
+            items.append(ReportEvidence(
+                report=last.id,
+                kind="note",
+                source_id=None,
+                author_id=reporterId,
+                content=note,
+                occurred_at=datetime.now(timezone.utc).replace(tzinfo=None)
+            ))
+
+        # Unlike capture at filing, a failure here is the whole request: there
+        # is no new report standing to fall back on.
+        self.evidenceRepository.createMany(items)
+
+        self._logAudit(
+            _AUDIT_REPORT,
+            reporterId,
+            f"Added {target[0][0]} evidence to report {last.id}"
+        )
+
+        last.appended = True
+        return last
 
     # ── the review lock ───────────────────────────────────────────────────────
 

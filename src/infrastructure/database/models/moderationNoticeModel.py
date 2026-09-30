@@ -21,7 +21,7 @@ class ModerationNoticeModel(Base, TimestampMixin):
     banned or left alone, and a warning was a thing a moderator could think but
     not send.
 
-    Four kinds:
+    Six kinds:
 
     - `warning` — nothing changes about the account. A moderator reviewed a
       report, agreed with it, and is saying so once.
@@ -32,7 +32,10 @@ class ModerationNoticeModel(Base, TimestampMixin):
     - `picture` — the profile picture was removed and cannot be replaced until
       a moderator lifts the block.
 
-    The last two change the account without limiting it: the account keeps its
+    - `post_removed` / `comment_removed` — a moderator took something the user
+      wrote off the Community tab. `excerpt` says which.
+
+    `rename` and `picture` change the account without limiting it: the account keeps its
     streak, its friends and its history, because the problem was a name or a
     photo and the sanction is exactly that wide.
 
@@ -58,3 +61,7 @@ class ModerationNoticeModel(Base, TimestampMixin):
     # that person's account, the same as everywhere else in moderation.
     issued_by: Mapped[Optional[str]] = mapped_column("cl_12f", String, nullable=True)
     acknowledged_at: Mapped[Optional[datetime.datetime]] = mapped_column("cl_12g", DateTime, nullable=True)
+    # For `post_removed` / `comment_removed`: the start of what was removed.
+    # Copied, not referenced — the post is purged after
+    # REMOVED_CONTENT_RETENTION_DAYS and the notice is kept.
+    excerpt: Mapped[Optional[str]] = mapped_column("cl_12h", StringEncryptedType(Text, _encryption_key, AesGcmEngine, 'pkcs5'), nullable=True)

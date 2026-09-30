@@ -97,7 +97,7 @@ class TestReportUserRoute:
                 json={"reason": "spam", "details": "unsolicited links"},
             )
         MockService.return_value.report.assert_called_once_with(
-            _USER_ID, "uid-reported", "spam", "unsolicited links", None
+            _USER_ID, "uid-reported", "spam", "unsolicited links", None, None, None
         )
 
     def test_chat_id_is_forwarded_as_an_id_and_nothing_else(self, client):

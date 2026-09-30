@@ -185,7 +185,7 @@ def test_login_survives_a_failed_picture_write(mock_db):
         service.userRepository.session.rollback.assert_called()
 
 
-def test_login_user_not_found_raises_401(mock_db):
+def test_login_user_not_found_raises_404_account_not_found(mock_db):
     with patch("domain.services.authService._loginLimiter") as mock_limiter, \
          patch("domain.services.authService._jwtHandler"):
 
@@ -196,7 +196,9 @@ def test_login_user_not_found_raises_401(mock_db):
 
         with pytest.raises(NoHarmException) as exc:
             service.login(_login_request())
-        assert exc.value.statusCode == 401
+        # Not 401: the app reads 401 as an expired session.
+        assert exc.value.statusCode == 404
+        assert exc.value.errorCode == "ACCOUNT_NOT_FOUND"
 
 
 def test_login_rate_limit_raises_429(mock_db):

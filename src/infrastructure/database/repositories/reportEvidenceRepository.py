@@ -62,9 +62,18 @@ class ReportEvidenceRepository:
             ]
 
             self.session.add_all(models)
+            # Read back after the flush and before the commit. The capture runs
+            # on the reporter's RLS session, and tb_11 is readable only without
+            # a context: reading the rows after the commit expired them makes
+            # SQLAlchemy re-select them, which the policy answers with nothing,
+            # so the call raised ObjectDeletedError *after* the rows were
+            # safely stored — and every report logged a capture failure that
+            # had not happened.
+            self.session.flush()
+            captured = [self._toEntity(model) for model in models]
             self.session.commit()
 
-            return [self._toEntity(model) for model in models]
+            return captured
         except Exception as e:
             self.session.rollback()
             if isinstance(e, NoHarmException):

@@ -6,6 +6,8 @@ from infrastructure.database.repositories.consentRepository import ConsentReposi
 from infrastructure.database.repositories.errorLogRepository import ErrorLogRepository
 from infrastructure.database.repositories.hostAccessRepository import HostAccessRepository
 from infrastructure.database.repositories.auditLogsRepository import AuditLogsRepository
+from infrastructure.database.repositories.postRepository import PostRepository
+from infrastructure.database.repositories.postCommentRepository import PostCommentRepository
 from infrastructure.database.models.auditLogsModel import AuditLogsModel
 from domain.services.consentService import ConsentService, REQUIRED_DOCUMENTS
 from security.suspiciousTraffic import SuspiciousTraffic
@@ -88,6 +90,8 @@ class AdminService:
         self.errorRepository = ErrorLogRepository(self.database)
         self.hostAccessRepository = HostAccessRepository(self.database)
         self.auditRepository = AuditLogsRepository(self.database)
+        self.postRepository = PostRepository(self.database)
+        self.commentRepository = PostCommentRepository(self.database)
         self._redis = redisClient
         self._suspicious = SuspiciousTraffic(redisClient)
 
@@ -207,6 +211,10 @@ class AdminService:
                 "evidence_overdue": self.evidenceRepository.countExpired(
                     config.REPORT_EVIDENCE_RETENTION_DAYS
                 ),
+                # The third retention cron. Removed posts past their window are
+                # still held about their author, which the Privacy Policy says
+                # they are not.
+                "removed_content_overdue": self._removedContentOverdue(now),
                 "error_occurrences_24h": self.errorRepository.countSince(
                     now - timedelta(hours=24)
                 ),
@@ -223,6 +231,7 @@ class AdminService:
                 "periods": list(SERIES_PERIODS),
                 "signups": self.userRepository.countCreatedPerDay(period),
                 "reports": self.reportRepository.countCreatedPerDay(period),
+                "posts": self.postRepository.countCreatedPerDay(period),
             },
             "security": {
                 # A prompt to look, never an action. Blocking on these numbers
@@ -232,6 +241,10 @@ class AdminService:
             },
             "generated_at": now.isoformat(),
         }
+
+    def _removedContentOverdue(self, now: datetime) -> int:
+        cutoff = now - timedelta(days=config.REMOVED_CONTENT_RETENTION_DAYS)
+        return self.postRepository.countRemovedBefore(cutoff) + self.commentRepository.countRemovedBefore(cutoff)
 
     # ── the cache ─────────────────────────────────────────────────────────────
 

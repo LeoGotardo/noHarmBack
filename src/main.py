@@ -40,6 +40,7 @@ from api.routes.notificationRoutes import router as notificationRouter
 from api.routes.noticeRoutes import router as noticeRouter
 from api.routes.adminRoutes import router as adminRouter
 from api.routes.reportRoutes import router as reportRouter
+from api.routes.postRoutes import router as postRouter
 from websocket.socketManager import socketApp
 from websocket import emitter
 
@@ -95,6 +96,7 @@ app.include_router(notificationRouter)
 app.include_router(reportRouter)
 app.include_router(noticeRouter)
 app.include_router(adminRouter)
+app.include_router(postRouter)
 
 
 _GENERIC_500 = {"errorCode": "INTERNAL_ERROR", "message": "An internal server error occurred."}

@@ -32,6 +32,7 @@ class ReportRepository:
             status=model.status,
             locked_by=model.locked_by,
             locked_at=model.locked_at,
+            target_kind=model.target_kind,
             created_at=model.created_at,
             updated_at=model.updated_at
         )
@@ -421,7 +422,8 @@ class ReportRepository:
                 reported_username=report.reported_username,
                 reason=report.reason,
                 details=report.details,
-                status=report.status
+                status=report.status,
+                target_kind=report.target_kind
             )
 
             self.session.add(reportModel)

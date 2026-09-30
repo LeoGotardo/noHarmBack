@@ -334,6 +334,34 @@ updated_at  datetime
 
 ---
 
+## 8b. Community (posts)
+
+The contract is section 3 of [`POSTS_PLAN.md`](POSTS_PLAN.md) — shapes,
+endpoints, errors — and the backend implements it as written. What the plan
+left open, and how it was settled:
+
+- `GET /posts` defaults to `scope=friends` when the parameter is omitted. Send
+  it explicitly.
+- A 403 `CONSENT_REQUIRED` carries `details.pending` (`["terms"]`,
+  `["privacy"]` or both). Refetch `GET /users/me` and the gate appears.
+- A 400 `INVALID_CURSOR` means the cursor was mangled; drop it and reload from
+  the top.
+- Blocking anyone: `POST /users/{userId}/block` / `DELETE /users/{userId}/block`,
+  answering a `FriendshipResponse`. Every `FriendshipResponse` now carries
+  `blocked_by`: show "Unblock" only when it is the current user (or null, on
+  rows blocked before it existed). The blocked side gets 403 on unblock; no
+  block is 404 `NOT_BLOCKED`.
+- A report that joins an open one (D8) answers **200** with `appended: true`;
+  a new report is still 201. `target_kind` is on every report.
+- Removal notices: `NoticeResponse.kind` is `post_removed` / `comment_removed`
+  and `excerpt` holds the first 200 characters of what was removed.
+- Moderator actions (`PUT /posts/{id}/remove`, `…/restore`, and the comment
+  pair) answer `{id, kind, author_id, status, removed_at}` — never the content.
+- Push: `POST /notifications` takes `community` beside `messages` and
+  `friends` (default `true`).
+
+---
+
 ## 9. Real-Time (WebSocket / Socket.IO)
 
 Connection is authenticated via JWT at connect time. Users auto-join their personal room `user_{userId}`.
@@ -368,6 +396,11 @@ Connection is authenticated via JWT at connect time. Users auto-join their perso
 | `friend_remove` | Someone removed you |
 | `friend_block` | Someone blocked you |
 | `friend_unblock` | Someone unblocked you |
+
+#### Community events (server → client, pushed to `user_{id}` room)
+| Event | Payload | Meaning |
+|-------|---------|---------|
+| `post_comment` | `{ post_id, comment_id, author: { id, username } }` | Someone commented on your post. Never sent for your own comments, never for likes, and never with the text |
 
 ---
 

@@ -46,7 +46,7 @@ def test_findById_success(repo, session):
 
 
 def test_findByUsers_not_found_raises_404(repo, session):
-    session.query.return_value.filter.return_value.first.return_value = None
+    session.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
     with pytest.raises(NoHarmException) as exc:
         repo.findByUsers("uid-a", "uid-b")
     assert exc.value.statusCode == 404
@@ -111,7 +111,7 @@ def test_softDelete_sets_deleted_status(repo, session):
 
 def test_findByUsers_success_returns_friendship(repo, session):
     mock_fs = MagicMock()
-    session.query.return_value.filter.return_value.first.return_value = mock_fs
+    session.query.return_value.filter.return_value.order_by.return_value.first.return_value = mock_fs
     result = repo.findByUsers("uid-a", "uid-b")
     assert result.id is mock_fs.id
 

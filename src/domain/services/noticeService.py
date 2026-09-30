@@ -29,6 +29,20 @@ SUSPENSION = "suspension"
 # carry on, and the other is a thing that has already happened to their profile.
 RENAME = "rename"
 PICTURE_BLOCK = "picture"
+# Something the user wrote was taken off the Community tab. The account is
+# untouched — removing a post and sanctioning its author are separate decisions.
+POST_REMOVED = "post_removed"
+COMMENT_REMOVED = "comment_removed"
+
+# A removal may name `self_harm`, which a warning may not: taking a crisis post
+# off a public feed can be right, and the app answers that notice with crisis
+# resources rather than a rebuke.
+REMOVAL_REASONS = NOTICE_REASONS | {"self_harm"}
+
+# How much of the removed text the notice carries. Enough to recognise it;
+# the notice outlives the post, which is purged after
+# REMOVED_CONTENT_RETENTION_DAYS.
+_EXCERPT_CHARS = 200
 
 # Audit type 5 is "account status changed"; a warning changes no status, so it
 # is logged as a moderation action on the account with type 12.
@@ -162,6 +176,29 @@ class NoticeService:
         except Exception:
             return None
 
+    def noticeOfContentRemoval(
+        self,
+        userId: str,
+        kind: str,
+        reason: str,
+        adminUserId: str,
+        content: str,
+        message: Optional[str] = None
+    ) -> Optional[ModerationNotice]:
+        """Tell the author which post or comment was removed, and why.
+
+        Carries the first `_EXCERPT_CHARS` of it: "a post of yours was removed"
+        without saying which is a notice nobody can act on, or appeal.
+
+        Best effort, like the other sanction notices — the removal has already
+        happened, and failing here would leave the moderator unsure of that.
+        """
+        try:
+            excerpt = content if len(content) <= _EXCERPT_CHARS else content[:_EXCERPT_CHARS].rstrip() + "…"
+            return self._issue(userId, kind, reason, adminUserId, message, excerpt=excerpt, reasons=REMOVAL_REASONS)
+        except Exception:
+            return None
+
     def acknowledge(self, noticeId: str, userId: str) -> ModerationNotice:
         """Mark a notice read. Only its own recipient may."""
         notice = self.noticeRepository.findById(noticeId)
@@ -179,15 +216,25 @@ class NoticeService:
 
     # ── internals ─────────────────────────────────────────────────────────────
 
-    def _issue(self, userId: str, kind: str, reason: str, adminUserId: str, message: Optional[str]) -> ModerationNotice:
+    def _issue(
+        self,
+        userId: str,
+        kind: str,
+        reason: str,
+        adminUserId: str,
+        message: Optional[str],
+        excerpt: Optional[str] = None,
+        reasons: frozenset = NOTICE_REASONS
+    ) -> ModerationNotice:
         cleaned = Sanitizer.cleanHtml(message).strip() if message else None
 
         notice = self.noticeRepository.create(ModerationNotice(
             user_id=userId,
             kind=kind,
-            reason=(reason if reason in NOTICE_REASONS else "other"),
+            reason=(reason if reason in reasons else "other"),
             message=cleaned or None,
-            issued_by=adminUserId
+            issued_by=adminUserId,
+            excerpt=excerpt
         ))
 
         # Catalyst is the moderator, so the entry reads as their action. The

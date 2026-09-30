@@ -85,8 +85,14 @@ services:
     # this mount the reloader watches the frozen copy inside the image, so
     # nothing reloads: every change needed a rebuild. .secrets.toml lives in
     # /app, outside the mount.
+    #
+    # alembic/ is mounted for the same reason: the command runs `alembic
+    # upgrade head` on start, and against the image's frozen copy that is the
+    # head of whenever the image was built. New code in src/ then queried
+    # tables the database never got.
     volumes:
       - ../src:/app/src
+      - ../alembic:/app/alembic
     # 'depends_on' guarantees the app only starts after the database and redis
     # are up. It only applies to a fresh container: if the app is already Running
     # from a previous attempt, compose leaves it as is and the condition is not

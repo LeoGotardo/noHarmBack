@@ -386,7 +386,16 @@ class AuthService:
             user = self.userRepository.findById(uid)
         except NoHarmException:
             self._logAudit(2, uid, "Failed login — user not found")
-            raise genericError
+            # 404, not the generic 401. The caller has just proved it holds
+            # this Google identity, so "no account for it" tells them only
+            # about themselves — there is nothing to enumerate. And a 401 is
+            # what the app reads as an expired session: it tried a refresh and
+            # told someone who had never registered to sign in again.
+            raise NoHarmException(
+                statusCode=404,
+                errorCode="ACCOUNT_NOT_FOUND",
+                message="No account found for this Google account. Sign up instead."
+            )
 
         user = self._liftExpiredSuspension(user)
 

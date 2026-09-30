@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 from dataclasses import asdict
 from typing import Literal, Optional, Union
@@ -53,6 +53,13 @@ def _moderated(report: Report, signals: dict[str, dict]) -> ModeratedReportRespo
         "messages as evidence. The body carries the id only — never the text — so "
         "a report cannot quote words the other person did not write. Naming a chat "
         "you are not in is a 403; naming one the reported user is not in is a 400.\n\n"
+        "`postId` or `commentId` (not both; either combines with `chatId`) names "
+        "something in the Community tab, copied the same way. It must be visible "
+        "to the reporter (404 `POST_NOT_FOUND` / `COMMENT_NOT_FOUND`) and written "
+        "by the reported user (400 `REPORT_TARGET_MISMATCH`). When this reporter "
+        "already has an open report about the same user, the post or comment is "
+        "added to it instead of the 409: the answer is **200** with that report "
+        "and `appended: true`, and no quota is spent.\n\n"
         "**Per-account ceilings** (the rate limit above is per IP, which a single "
         "account reporting many different people never trips):\n"
         "- 403 `REPORTER_NOT_ELIGIBLE` — the reporter's own account is not enabled\n"
@@ -71,6 +78,7 @@ def reportUser(
     reportedUserId: str,
     request: Request,
     body: ReportRequest,
+    response: Response,
     db: Session = Depends(getDbWithRLS),
     currentUserId: str = Depends(getCurrentUser)
 ):
@@ -83,7 +91,20 @@ def reportUser(
     # carries the date it lifts in `details.canReportAgainAt`. Flattened to
     # `detail=e.message`, every one of them arrives as a generic 4xx.
     service = ReportService(db)
-    return service.report(currentUserId, reportedUserId, body.reason, body.details, body.chatId)
+    report = service.report(
+        currentUserId,
+        reportedUserId,
+        body.reason,
+        body.details,
+        body.chatId,
+        body.postId,
+        body.commentId
+    )
+    if getattr(report, "appended", False):
+        # Nothing was created: the evidence went into a report that already
+        # existed, and 201 would say otherwise.
+        response.status_code = 200
+    return report
 
 
 # ── my reports ────────────────────────────────────────────────────────────────

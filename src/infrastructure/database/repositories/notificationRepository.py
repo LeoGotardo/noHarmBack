@@ -20,6 +20,7 @@ class NotificationRepository:
             device_fcm=model.device_fcm,
             messages=model.messages,
             friends=model.friends,
+            community=model.community,
             created_at=model.created_at,
             updated_at=model.updated_at
         )
@@ -38,7 +39,7 @@ class NotificationRepository:
             raise NoHarmException(statusCode=404, message="Device not found")
         return device
 
-    def add(self, user_id: str, device_fcm: str, messages: bool = True, friends: bool = True) -> Notification:
+    def add(self, user_id: str, device_fcm: str, messages: bool = True, friends: bool = True, community: bool = True) -> Notification:
         """Register a token, or refresh the row that already holds it.
 
         An upsert because the app registers on every start: inserting each time
@@ -62,6 +63,7 @@ class NotificationRepository:
             device.status = config.STATUS_CODES["enabled"]
             device.messages = messages
             device.friends = friends
+            device.community = community
             self.session.commit()
             return self._toEntity(device)
         except Exception as e:

@@ -26,6 +26,8 @@ class NotificationModel(Base, TimestampMixin):
     # category is decided.
     messages: Mapped[bool] = mapped_column("cl_9e", Boolean, nullable=False, default=True, server_default="true")
     friends: Mapped[bool] = mapped_column("cl_9f", Boolean, nullable=False, default=True, server_default="true")
+    # A comment on one of your posts (migration 20261001_01).
+    community: Mapped[bool] = mapped_column("cl_9g", Boolean, nullable=False, default=True, server_default="true")
 
     @validates('device_fcm')
     def _hash_device_fcm(self, _key, value):

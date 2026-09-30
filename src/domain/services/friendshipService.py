@@ -264,7 +264,13 @@ class FriendshipService:
                 message="You are not a participant in this friendship."
             )
 
-        blocked = self.friendshipRepository.updateStatus(friendshipId, "blocked")
+        if friendship.status == config.STATUS_CODES.get("blocked"):
+            # Already blocked — by this user, or by the other one. Either way
+            # both are hidden from each other, and re-stamping `blocked_by`
+            # would hand the unblock to whoever asked second.
+            return friendship
+
+        blocked = self.friendshipRepository.setBlocked(friendshipId, requestingUserId)
 
         emitter.notifyFriendship("friend_block", requestingUserId, self._otherParticipant(friendship, requestingUserId))
 
@@ -272,7 +278,12 @@ class FriendshipService:
 
 
     def unblock(self, friendshipId: str, requestingUserId: str) -> Friendship:
-        """Unblock a previously blocked friendship (§3.3)."""
+        """Unblock a previously blocked friendship (§3.3).
+
+        Only whoever blocked may unblock. Before `blocked_by` existed either
+        participant could, which meant the blocked one could undo it; rows from
+        that time have no record of who blocked and keep the old rule.
+        """
         friendship = self.friendshipRepository.findById(friendshipId)
 
         if str(friendship.sender) != str(requestingUserId) and str(friendship.reciver) != str(requestingUserId):
@@ -289,9 +300,91 @@ class FriendshipService:
                 message="Only blocked requests can be unblocked."
             )
 
-        unblocked = self.friendshipRepository.updateStatus(friendshipId, "disabled")
+        self._assertMayUnblock(friendship, requestingUserId)
+
+        unblocked = self.friendshipRepository.clearBlock(friendshipId)
 
         emitter.notifyFriendship("friend_unblock", requestingUserId, self._otherParticipant(friendship, requestingUserId))
+
+        return unblocked
+
+
+    @staticmethod
+    def _assertMayUnblock(friendship: Friendship, requestingUserId: str) -> None:
+        if friendship.blocked_by is not None and str(friendship.blocked_by) != str(requestingUserId):
+            raise NoHarmException(
+                statusCode=403,
+                errorCode="FORBIDDEN",
+                message="Only the person who blocked can unblock."
+            )
+
+
+    # ── blocking anyone, friend or not (§1.1 of docs/POSTS_PLAN.md) ──────────
+
+    def blockUser(self, requestingUserId: str, targetId: str) -> Friendship:
+        """Block an account whether or not there is a friendship with it.
+
+        Blocking used to exist only on top of a friendship row, which was
+        enough while only friends could reach each other. In the Community tab a
+        stranger can comment on you, and without this there was no way to stop
+        them. An existing row between the two is moved to blocked; otherwise
+        one is created for the purpose.
+
+        No push and nothing visible to the blocked account. The `friend_block`
+        socket event still goes out, and the app only refetches its list on it.
+        """
+        if str(requestingUserId) == str(targetId):
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="SELF_BLOCK",
+                message="You cannot block yourself."
+            )
+
+        # 404 for an account that does not exist. A deleted or banned one can
+        # still be blocked: that is exactly the account that may come back.
+        UserRepository(self.database).findById(targetId)
+
+        rows = self.friendshipRepository.findAllBetween(requestingUserId, targetId)
+
+        existing = next((r for r in rows if r.status == config.STATUS_CODES["blocked"]), None)
+        if existing is not None:
+            return existing
+
+        # The live row if there is one — deleted rows are history, and blocking
+        # on top of one would leave an accepted friendship beside the block.
+        live = next((r for r in rows if r.status != config.STATUS_CODES["deleted"]), None)
+        if live is not None:
+            blocked = self.friendshipRepository.setBlocked(str(live.id), requestingUserId)
+        else:
+            blocked = self.friendshipRepository.create(FriendshipModel(
+                sender=requestingUserId,
+                reciver=targetId,
+                status=config.STATUS_CODES["blocked"],
+                blocked_by=requestingUserId
+            ))
+
+        emitter.notifyFriendship("friend_block", requestingUserId, targetId)
+
+        return blocked
+
+
+    def unblockUser(self, requestingUserId: str, targetId: str) -> Friendship:
+        """Lift a block by the other account's id. Only whoever blocked may."""
+        rows = self.friendshipRepository.findAllBetween(requestingUserId, targetId)
+
+        blockedRow = next((r for r in rows if r.status == config.STATUS_CODES["blocked"]), None)
+        if blockedRow is None:
+            raise NoHarmException(
+                statusCode=404,
+                errorCode="NOT_BLOCKED",
+                message="This user is not blocked."
+            )
+
+        self._assertMayUnblock(blockedRow, requestingUserId)
+
+        unblocked = self.friendshipRepository.clearBlock(str(blockedRow.id))
+
+        emitter.notifyFriendship("friend_unblock", requestingUserId, targetId)
 
         return unblocked
 

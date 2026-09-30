@@ -32,6 +32,15 @@ class ReportRequest(BaseModel):
         None,
         description="Conversation the report is about; its last messages are captured as evidence"
     )
+    # Two more places a report can be filed from, both ids for the same reason
+    # as `chatId`. Either one combines with `chatId` — the app sends the chat
+    # whenever the two have one, and a post is no reason to drop it — but not
+    # with each other (400 REPORT_TARGET_AMBIGUOUS).
+    postId: Optional[UUID] = Field(None, description="Post the report is about; copied as evidence")
+    commentId: Optional[UUID] = Field(
+        None,
+        description="Comment the report is about; copied as evidence together with the post it is under"
+    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -47,6 +56,14 @@ class ReportResponse(BaseModel):
     reason: str = Field(..., description="Report reason code")
     details: Optional[str] = Field(None, description="Free-text description")
     status: int = Field(..., description="4 open · 5 actioned · 6 dismissed")
+    target_kind: Optional[str] = Field(None, description="Where it was filed from: chat · post · comment · null (a profile)")
+    appended: bool = Field(
+        False,
+        description=(
+            "True when this filing added its post or comment to your open report "
+            "about the same person instead of opening a second one (answered 200, not 201)"
+        )
+    )
     created_at: datetime = Field(..., description="Created at")
     updated_at: datetime = Field(..., description="Updated at")
 
@@ -133,7 +150,7 @@ class ReportEvidenceResponse(BaseModel):
     """
     id: UUID
     report: UUID
-    kind: str = Field(..., description="message · profile")
+    kind: str = Field(..., description="profile · message · post · comment · note")
     source_id: Optional[str] = Field(None, description="Id of the row this was copied from")
     author_id: Optional[str] = Field(None, description="Who wrote it")
     content: str = Field(..., description="The copy taken at filing time")

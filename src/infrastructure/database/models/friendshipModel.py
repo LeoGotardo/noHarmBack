@@ -21,3 +21,8 @@ class FriendshipModel(Base, TimestampMixin):
     sender: Mapped[str] = mapped_column("cl_2b", String, ForeignKey("tb_0.cl_0a"), nullable=False)
     reciver: Mapped[str] = mapped_column("cl_2c", String, ForeignKey("tb_0.cl_0a"), nullable=False)
     status: Mapped[int] = mapped_column("cl_2f", Integer, nullable=False)
+    # Who put the block on. Only they may lift it — without this, `unblock`
+    # accepted either participant, the blocked one included (migration
+    # 20261001_01). NULL for rows blocked before the column existed, and for
+    # every row that is not blocked.
+    blocked_by: Mapped[Optional[str]] = mapped_column("cl_2g", String, ForeignKey("tb_0.cl_0a", ondelete="SET NULL"), nullable=True)

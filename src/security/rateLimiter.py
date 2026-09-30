@@ -515,3 +515,98 @@ class ReportQuotaLimiter:
             out.append(max(0, maximum - int(used)))
 
         return out[0], out[1]
+
+
+# One window, read-only — the single-window sibling of _QUOTA_PEEK_LUA.
+#   KEYS: 1=zset
+#   ARGV: 1=now_ms 2=windowMs 3=max
+# Returns: {allowed, retryAfterSeconds}
+_DAILY_PEEK_LUA = """
+local now = tonumber(ARGV[1])
+local windowMs = tonumber(ARGV[2])
+
+redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, now - windowMs)
+if redis.call('ZCARD', KEYS[1]) < tonumber(ARGV[3]) then
+    return {1, 0}
+end
+
+local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+local wait = 1
+if oldest[2] ~= nil then
+    wait = math.ceil((tonumber(oldest[2]) + windowMs - now) / 1000)
+    if wait < 1 then
+        wait = 1
+    end
+end
+return {0, wait}
+"""
+
+#   KEYS: 1=zset   ARGV: 1=now_ms 2=windowMs 3=unique member
+_DAILY_SPEND_LUA = """
+redis.call('ZADD', KEYS[1], tonumber(ARGV[1]), ARGV[3])
+redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[2]))
+return 1
+"""
+
+
+class ContentQuotaLimiter:
+    """Per-account daily ceiling on posts, or on comments — one instance each.
+
+    The same reasoning as `ReportQuotaLimiter`: the per-route limits key on the
+    client IP, which one account on many networks never trips and a shared
+    mobile NAT trips because of strangers. This keys on the account.
+
+    One 24-hour window rather than two. What it protects is everybody else's
+    feed from one account, and the per-minute route limits already bound the
+    burst; a second, hourly window would only be a second number to explain.
+
+    Check and spend are separate, and spend is called only once the row
+    exists, for the reason given on `ReportQuotaLimiter`.
+    """
+
+    _PREFIX = "rl:content:"
+
+    def __init__(self, kind: str, maximum: int, client: Optional[redis.Redis] = None):
+        self._redis = client or _syncRedis
+        self._kind = kind
+        self._windowMs = 24 * 60 * 60 * 1000
+        self._max = maximum
+
+    def _key(self, userId: str) -> str:
+        return f"{self._PREFIX}{self._kind}:{userId}"
+
+    def check(self, userId: str) -> tuple[bool, int]:
+        """(allowed, seconds until a unit frees up). Records nothing."""
+        try:
+            allowed, retryAfter = _evalSync(
+                self._redis,
+                _DAILY_PEEK_LUA,
+                1,
+                self._key(userId),
+                str(_nowMs()),
+                str(self._windowMs),
+                str(self._max),
+            )
+        except Exception:
+            logger.exception("%s quota store unreachable — allowing %s", self._kind, userId)
+            return True, 0
+
+        if int(allowed) == 1:
+            return True, 0
+
+        return False, max(1, int(retryAfter))
+
+    def spend(self, userId: str) -> None:
+        """Charge one unit. Call only once the post or comment was written."""
+        try:
+            _evalSync(
+                self._redis,
+                _DAILY_SPEND_LUA,
+                1,
+                self._key(userId),
+                str(_nowMs()),
+                str(self._windowMs),
+                _member(),
+            )
+        except Exception:
+            logger.exception("could not record %s quota for %s", self._kind, userId)

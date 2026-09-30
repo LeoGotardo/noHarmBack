@@ -39,6 +39,10 @@ class FriendshipResponse(FriendshipBase):
     updated_at: datetime = Field(..., description="Updated at")
     sender_user: Optional[FriendUserInfo] = Field(None, description="Sender's public profile")
     reciver_user: Optional[FriendUserInfo] = Field(None, description="Receiver's public profile")
+    blocked_by: Optional[str] = Field(
+        None,
+        description="Who placed the block, when status is blocked — only they can lift it. Null on older rows"
+    )
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 

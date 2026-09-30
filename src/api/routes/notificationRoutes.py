@@ -18,6 +18,7 @@ class DeviceBody(BaseModel):
     # getting every push as before.
     messages: bool = Field(True, description="Push new messages to this device")
     friends: bool = Field(True, description="Push friend requests and acceptances to this device")
+    community: bool = Field(True, description="Push comments on my posts to this device")
 
 
 class UpdateDeviceBody(BaseModel):
@@ -44,7 +45,7 @@ def addDevice(
 ):
     try:
         service = NotificationService(db)
-        notification = service.addDevice(currentUserId, body.deviceFCM, body.messages, body.friends)
+        notification = service.addDevice(currentUserId, body.deviceFCM, body.messages, body.friends, body.community)
         return NotificationResponse.model_validate(notification)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

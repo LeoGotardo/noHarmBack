@@ -52,3 +52,7 @@ class ReportModel(Base, TimestampMixin):
     # the moderator's account.
     locked_by: Mapped[Optional[str]] = mapped_column("cl_10i", String, nullable=True)
     locked_at: Mapped[Optional[datetime.datetime]] = mapped_column("cl_10j", DateTime, nullable=True)
+    # Where the report was filed from — `chat`, `post`, `comment`, or NULL for
+    # a report about a profile. The report is still about a person; this is
+    # where the moderator should look first (migration 20261001_01).
+    target_kind: Mapped[Optional[str]] = mapped_column("cl_10k", String(16), nullable=True)

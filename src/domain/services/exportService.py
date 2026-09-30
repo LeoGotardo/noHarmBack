@@ -6,6 +6,8 @@ from infrastructure.database.repositories.friendshipRepository import Friendship
 from infrastructure.database.repositories.messageRepository import MessageRepository
 from infrastructure.database.repositories.moderationNoticeRepository import ModerationNoticeRepository
 from infrastructure.database.repositories.notificationRepository import NotificationRepository
+from infrastructure.database.repositories.postRepository import PostRepository
+from infrastructure.database.repositories.postCommentRepository import PostCommentRepository
 from infrastructure.database.repositories.reportRepository import ReportRepository
 from infrastructure.database.repositories.streakRepository import StreakRepository
 from infrastructure.database.repositories.userBadgesRepository import UserBadgesRepository
@@ -55,7 +57,7 @@ class ExportService:
 
     The profile, the consent history, streaks, friendships, badges, device
     registrations, moderation notices addressed to this account, the reports it
-    filed, its audit trail, and its conversations — **including messages the
+    filed, its audit trail, its posts, comments and likes, and its conversations — **including messages the
     other person sent**. A thread with one side removed is not a record of a
     conversation, and the user read those messages when they arrived; the
     export is not showing them anything new.
@@ -104,6 +106,8 @@ class ExportService:
         self.notificationRepository = NotificationRepository(self.database)
         self.noticeRepository = ModerationNoticeRepository(self.database)
         self.reportRepository = ReportRepository(self.database)
+        self.postRepository = PostRepository(self.database)
+        self.commentRepository = PostCommentRepository(self.database)
         self.auditRepository = AuditLogsRepository(self.database)
 
     def _logAudit(self, actionType: int, catalystId: str, description: str) -> None:
@@ -142,6 +146,9 @@ class ExportService:
             ("friendships", lambda: self._friendships(userId)),
             ("badges", lambda: self._badges(userId)),
             ("conversations", lambda: self._conversations(userId)),
+            ("posts", lambda: self._posts(userId)),
+            ("comments", lambda: self._comments(userId)),
+            ("likes", lambda: self._likes(userId)),
             ("devices", lambda: self._devices(userId)),
             ("moderation_notices", lambda: self._notices(userId)),
             ("reports_filed", lambda: self._reportsFiled(userId)),
@@ -302,6 +309,50 @@ class ExportService:
 
         return conversations
 
+    def _posts(self, userId: str) -> list[dict]:
+        """Every post this account wrote — **including** ones a moderator removed.
+
+        A removed post still exists for REMOVED_CONTENT_RETENTION_DAYS, and the
+        right of access covers data for as long as it is held, not only while
+        it is on display. `removed_at` says which is which.
+        """
+        return [
+            {
+                "id": str(post.id),
+                "content": post.content,
+                "visibility": post.visibility,
+                "removed_by_moderation": post.status == config.STATUS_CODES["blocked"],
+                "removed_at": _iso(post.removed_at),
+                "created_at": _iso(post.created_at),
+            }
+            for post in self.postRepository.findAllByAuthor(userId)
+        ]
+
+    def _comments(self, userId: str) -> list[dict]:
+        """This account's comments, removed ones included, for the same reason.
+
+        Other people's comments on this account's posts are not here: they are
+        someone else's words, and unlike a conversation the author never
+        addressed them to this user alone.
+        """
+        return [
+            {
+                "id": str(comment.id),
+                "post_id": str(comment.post_id),
+                "content": comment.content,
+                "removed_by_moderation": comment.status == config.STATUS_CODES["blocked"],
+                "removed_at": _iso(comment.removed_at),
+                "created_at": _iso(comment.created_at),
+            }
+            for comment in self.commentRepository.findAllByAuthor(userId)
+        ]
+
+    def _likes(self, userId: str) -> list[dict]:
+        return [
+            {"post_id": str(postId), "liked_at": _iso(likedAt)}
+            for postId, likedAt in self.postRepository.likedPostIds(userId)
+        ]
+
     def _devices(self, userId: str) -> dict:
         """Device registrations, counted — never the tokens themselves."""
         tokens = self.notificationRepository.findActiveByUserId(userId)
@@ -336,6 +387,7 @@ class ExportService:
                 "reason": report.reason,
                 "details": report.details,
                 "status": report.status,
+                "target_kind": report.target_kind,
                 "created_at": _iso(report.created_at),
                 # No `reported`, `reported_uid` or `reported_username`: see the
                 # class docstring.

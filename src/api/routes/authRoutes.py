@@ -52,7 +52,9 @@ def register(request: Request, body: AuthRegisterRequest, db: Session = Depends(
         "Rate-limited to 5 attempts / 15 min per UID. "
         "Banned and blocked accounts are rejected with 403. A deleted account still inside "
         "its grace window answers 403 ACCOUNT_PENDING_DELETION with `details.deletionScheduledAt`, "
-        "which POST /auth/reactivate can undo; past the window it is 403 ACCOUNT_DELETED."
+        "which POST /auth/reactivate can undo; past the window it is 403 ACCOUNT_DELETED. "
+        "A valid Google identity with no NoHarm account is 404 ACCOUNT_NOT_FOUND — never 401, "
+        "which the app reads as an expired session."
     )
 )
 @limiter.limit("10/minute")

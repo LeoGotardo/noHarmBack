@@ -96,6 +96,16 @@ if [[ "${1:-}" == "purge-evidence" ]]; then
     exit $?
 fi
 
+# ── One-shot removed-content retention sweep ───────────────────────────────
+# `docker compose run --rm app purge-removed-content` deletes posts and
+# comments a moderator removed over REMOVED_CONTENT_RETENTION_DAYS ago — the
+# window an appeal has to restore them. Cron runs it beside the other purges.
+if [[ "${1:-}" == "purge-removed-content" ]]; then
+    log "retention task: deleting removed posts and comments past the retention window"
+    cd /app/src && python -m jobs.purgeRemovedContent
+    exit $?
+fi
+
 # ── One-shot error retention sweep ─────────────────────────────────────────
 # `docker compose run --rm app purge-errors` deletes faults nothing has hit in
 # ERROR_LOG_RETENTION_DAYS. The table is grouped by fingerprint so it grows

@@ -1,7 +1,7 @@
 """Unit tests for FriendshipService."""
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from core.config import config
 from exceptions.baseExceptions import NoHarmException
@@ -14,12 +14,15 @@ def _make_service(mock_db):
     return service
 
 
-def _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=None):
+def _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=None, blocked_by=None):
     f = MagicMock()
     f.id = "friendship-001"
     f.sender = sender
     f.reciver = reciver
     f.status = config.STATUS_CODES["pending"] if status is None else status
+    # Explicit: a MagicMock attribute is never None, and every unblock would
+    # read as someone else's block.
+    f.blocked_by = blocked_by
     return f
 
 
@@ -143,20 +146,20 @@ def test_block_by_sender_succeeds(mock_db):
     service = _make_service(mock_db)
     friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver")
     service.friendshipRepository.findById.return_value = friendship
-    service.friendshipRepository.updateStatus.return_value = MagicMock()
+    service.friendshipRepository.setBlocked.return_value = MagicMock()
 
     service.block("friendship-001", "uid-sender")
-    service.friendshipRepository.updateStatus.assert_called_once_with("friendship-001", "blocked")
+    service.friendshipRepository.setBlocked.assert_called_once_with("friendship-001", "uid-sender")
 
 
 def test_block_by_receiver_succeeds(mock_db):
     service = _make_service(mock_db)
     friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver")
     service.friendshipRepository.findById.return_value = friendship
-    service.friendshipRepository.updateStatus.return_value = MagicMock()
+    service.friendshipRepository.setBlocked.return_value = MagicMock()
 
     service.block("friendship-001", "uid-receiver")
-    service.friendshipRepository.updateStatus.assert_called_once()
+    service.friendshipRepository.setBlocked.assert_called_once_with("friendship-001", "uid-receiver")
 
 
 def test_block_by_non_participant_raises_403(mock_db):
@@ -175,10 +178,10 @@ def test_unblock_by_participant_restores_disabled(mock_db):
     service = _make_service(mock_db)
     friendship = _mock_friendship(sender="uid-sender", reciver="uid-receiver", status=config.STATUS_CODES["blocked"])
     service.friendshipRepository.findById.return_value = friendship
-    service.friendshipRepository.updateStatus.return_value = MagicMock()
+    service.friendshipRepository.clearBlock.return_value = MagicMock()
 
     service.unblock("friendship-001", "uid-sender")
-    service.friendshipRepository.updateStatus.assert_called_once_with("friendship-001", "disabled")
+    service.friendshipRepository.clearBlock.assert_called_once_with("friendship-001")
 
 
 def test_unblock_by_non_participant_raises_403(mock_db):
@@ -363,3 +366,90 @@ def test_delete_by_a_non_participant_notifies_nobody(mock_db, notifications):
         service.delete("friendship-001", "uid-intruder")
 
     emitter.notifyFriendship.assert_not_called()
+
+
+# ── blocking by user id, and who may lift a block ─────────────────────────────
+
+def test_the_blocked_side_cannot_unblock(mock_db):
+    service = _make_service(mock_db)
+    service.friendshipRepository.findById.return_value = _mock_friendship(
+        status=config.STATUS_CODES["blocked"], blocked_by="uid-sender"
+    )
+
+    with pytest.raises(NoHarmException) as exc:
+        service.unblock("friendship-001", "uid-receiver")
+
+    assert exc.value.statusCode == 403
+    service.friendshipRepository.clearBlock.assert_not_called()
+
+
+def test_a_legacy_block_with_no_owner_keeps_the_old_rule(mock_db):
+    service = _make_service(mock_db)
+    service.friendshipRepository.findById.return_value = _mock_friendship(
+        status=config.STATUS_CODES["blocked"], blocked_by=None
+    )
+
+    service.unblock("friendship-001", "uid-receiver")
+
+    service.friendshipRepository.clearBlock.assert_called_once()
+
+
+def test_blocking_an_already_blocked_row_changes_nothing(mock_db):
+    """Re-stamping `blocked_by` would hand the unblock to whoever asked second."""
+    service = _make_service(mock_db)
+    service.friendshipRepository.findById.return_value = _mock_friendship(
+        status=config.STATUS_CODES["blocked"], blocked_by="uid-receiver"
+    )
+
+    service.block("friendship-001", "uid-sender")
+
+    service.friendshipRepository.setBlocked.assert_not_called()
+
+
+def test_blockUser_creates_a_row_for_a_stranger(mock_db):
+    service = _make_service(mock_db)
+    service.friendshipRepository.findAllBetween.return_value = []
+
+    with patch("domain.services.friendshipService.UserRepository"):
+        service.blockUser("uid-a", "uid-b")
+
+    created = service.friendshipRepository.create.call_args[0][0]
+    assert created.sender == "uid-a" and created.reciver == "uid-b"
+    assert created.status == config.STATUS_CODES["blocked"]
+    assert created.blocked_by == "uid-a"
+
+
+def test_blockUser_moves_the_live_row_not_a_deleted_one(mock_db):
+    service = _make_service(mock_db)
+    deleted = _mock_friendship(status=config.STATUS_CODES["deleted"])
+    deleted.id = "old"
+    live = _mock_friendship(status=config.STATUS_CODES["accepted"])
+    live.id = "live"
+    service.friendshipRepository.findAllBetween.return_value = [deleted, live]
+
+    with patch("domain.services.friendshipService.UserRepository"):
+        service.blockUser("uid-sender", "uid-receiver")
+
+    service.friendshipRepository.setBlocked.assert_called_once_with("live", "uid-sender")
+    service.friendshipRepository.create.assert_not_called()
+
+
+def test_blockUser_refuses_yourself(mock_db):
+    service = _make_service(mock_db)
+
+    with pytest.raises(NoHarmException) as exc:
+        service.blockUser("uid-a", "uid-a")
+
+    assert exc.value.errorCode == "SELF_BLOCK"
+
+
+def test_unblockUser_with_no_block_is_404(mock_db):
+    service = _make_service(mock_db)
+    service.friendshipRepository.findAllBetween.return_value = [
+        _mock_friendship(status=config.STATUS_CODES["accepted"])
+    ]
+
+    with pytest.raises(NoHarmException) as exc:
+        service.unblockUser("uid-sender", "uid-receiver")
+
+    assert exc.value.statusCode == 404

@@ -234,6 +234,21 @@ class Config:
             # brigade is buying.
             self.REPORT_BRIGADING_THRESHOLD: int = _optional_int("REPORT_BRIGADING_THRESHOLD", 5)
 
+            # ── posts ─────────────────────────────────────────────────────────
+            # Per-account daily ceilings on what one user can put in front of
+            # everyone else. The per-IP limits on the routes have the same holes
+            # "Report abuse ceilings" describes, and a feed is a worse place to
+            # flood than a moderation queue: every other user reads it. Counted
+            # only on posts and comments that were actually written.
+            self.POST_MAX_PER_DAY: int = _optional_int("POST_MAX_PER_DAY", 20)
+            self.COMMENT_MAX_PER_DAY: int = _optional_int("COMMENT_MAX_PER_DAY", 200)
+
+            # How long a post or comment a moderator removed is kept before
+            # `purge-removed-content` deletes it. Removal is a status, not a
+            # delete, so an appeal can restore it — and this is how long an
+            # appeal has. What the author deletes themselves goes at once.
+            self.REMOVED_CONTENT_RETENTION_DAYS: int = _optional_int("REMOVED_CONTENT_RETENTION_DAYS", 30)
+
             # Longest suspension `PUT /users/{id}/suspend` will set. Past this
             # the honest action is a permanent ban, chosen deliberately rather
             # than arrived at by typing a large number of days.

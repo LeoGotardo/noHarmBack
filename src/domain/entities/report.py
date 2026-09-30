@@ -27,6 +27,12 @@ class Report:
     # `REPORT_LOCK_MINUTES` counts as released — see `Report.isLockedBySomeoneElse`.
     locked_by: Optional[str] = None
     locked_at: Optional[datetime] = None
+    # `chat`, `post`, `comment` or None — where the report was filed from.
+    target_kind: Optional[str] = None
+    # Not stored. True only on the answer to a filing that added evidence to
+    # this reporter's already-open report about the same person instead of
+    # opening a second one (D8 in docs/POSTS_PLAN.md).
+    appended: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     id: Optional[UUID] = None

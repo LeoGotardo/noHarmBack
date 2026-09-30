@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 # `NotificationModel` (migration 20260928_01). A push sent without a category
 # goes to every enabled device — badges today, which only the master switch
 # (unregistering the token) silences.
-CATEGORIES = ("messages", "friends")
+CATEGORIES = ("messages", "friends", "community")
 
 
 def sendPushToUser(user_id: str, title: str, body: str, category: str | None = None) -> None:

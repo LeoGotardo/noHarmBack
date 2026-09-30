@@ -68,6 +68,10 @@ class HealthPanel(BaseModel):
     """
     purge_overdue: int = Field(..., description="Accounts past their purge date; non-zero means the cron stopped")
     evidence_overdue: int = Field(..., description="Report evidence past retention and still stored")
+    removed_content_overdue: int = Field(
+        0,
+        description="Posts and comments removed by moderation past REMOVED_CONTENT_RETENTION_DAYS and still stored"
+    )
     error_occurrences_24h: int
     distinct_faults: int = Field(..., description="Rows in the error log — kinds of failure, not hits")
     last_host_access: Optional[datetime] = Field(None, description="Most recent SSH login to the machine")
@@ -107,6 +111,7 @@ class SeriesPanel(BaseModel):
     periods: list[int] = Field(..., description="The windows the board offers")
     signups: list[DayCount]
     reports: list[DayCount]
+    posts: list[DayCount] = Field(default_factory=list, description="Posts published per day — a count, never the posts")
 
 
 class AdminOverviewResponse(BaseModel):
