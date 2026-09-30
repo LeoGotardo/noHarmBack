@@ -37,7 +37,7 @@ Backend of the **NoHarm** application — a mobile app for addiction recovery su
 
 ## Frontend
 
-The sole consumer of this API is [`noHarm`](../../noHarm/), a separate sibling
+The sole consumer of this API is [`noHarm`](https://github.com/LeoGotardo/noHarm), a separate sibling
 repository — a Vite + React 19 SPA wrapped with Capacitor for iOS/Android. It
 consumes the REST API (`VITE_API_URL`) and the Socket.IO server
 (`VITE_SOCKET_URL`) documented below, authenticating with the JWT access/refresh
