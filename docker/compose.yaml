@@ -77,6 +77,8 @@ services:
       # Two of them: the report lock only means anything with more than one
       # moderator, and a collision cannot be tested with a single uid.
       - ADMIN_USER_IDS=["e2e-moderator","e2e-moderator-2", "XyeS5lvpHaRzod77qswzMYDIBlv2"]
+      # NoHarm's own account, so the Official mark shows in dev too.
+      - OFFICIAL_USER_IDS=["q6cLsGAozqcKddbWPLEsFZzrjy03"]
     ports:
       - "8080:8080"
     # run.py passes reload=DEBUG to uvicorn, and DEBUG is true in dev. Without

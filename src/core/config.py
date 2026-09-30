@@ -247,6 +247,12 @@ class Config:
             # for an environment that has no administrators.
             self.ADMIN_USER_IDS: list = _optional_json("ADMIN_USER_IDS", [])
 
+            # UIDs of NoHarm's own accounts — the ones that speak for the app.
+            # Grants nothing: it only puts an "Official" mark beside the name
+            # (see core/roles.py), so nobody can pass a look-alike handle off
+            # as the app. Empty by default.
+            self.OFFICIAL_USER_IDS: list = _optional_json("OFFICIAL_USER_IDS", [])
+
             # Global IP floor. Per-route slowapi limits are the real ceilings.
             self.RATE_LIMIT_MAX_REQUESTS: int = _optional_int("RATE_LIMIT_MAX_REQUESTS", 240)
             self.RATE_LIMIT_WINDOW_SECONDS: int = _optional_int("RATE_LIMIT_WINDOW_SECONDS", 60)

@@ -1,4 +1,5 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from core.roles import RoleField, publicRole
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
@@ -22,8 +23,14 @@ class FriendUserInfo(BaseModel):
     id: str = Field(..., description="User ID")
     username: str = Field(..., description="User display name")
     profile_picture: Optional[str] = Field(None, description="Profile picture URL")
+    role: RoleField = Field(None, description="`official`, `admin` or null — see UserResponse.role")
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    @model_validator(mode="after")
+    def _deriveRole(self):
+        self.role = publicRole(self.id)
+        return self
 
 
 class FriendshipResponse(FriendshipBase):

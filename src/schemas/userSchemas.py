@@ -1,4 +1,5 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from core.roles import RoleField, publicRole
 from schemas.types import Email
 from typing import Optional
 from datetime import datetime
@@ -41,8 +42,21 @@ class UserResponse(UserBase):
     profile_picture: Optional[str]
     created_at: datetime
     updated_at: datetime
+    role: RoleField = Field(
+        None,
+        description=(
+            "The mark beside the name: `official` for NoHarm's own accounts, "
+            "`admin` for moderators, null for everyone else. Derived from the "
+            "allowlists on every response; anything a client sends is ignored."
+        )
+    )
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    @model_validator(mode="after")
+    def _deriveRole(self):
+        self.role = publicRole(self.id)
+        return self
 
 
 class MeResponse(UserResponse):
