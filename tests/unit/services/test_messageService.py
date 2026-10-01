@@ -134,6 +134,39 @@ def test_sendMessage_empty_content_raises_400(mock_db):
     assert exc.value.statusCode == 400
 
 
+def test_sendMessage_over_the_limit_raises_400_before_anything_is_written(mock_db):
+    """The socket path has no schema, so the service is the only cap it meets."""
+    from domain.services.messageService import MAX_MESSAGE_LENGTH
+    service = _make_service(mock_db)
+    service.chatRepository.findById.return_value = _mock_chat(
+        sender="uid-sender", status=config.STATUS_CODES["enabled"]
+    )
+
+    with pytest.raises(NoHarmException) as exc:
+        service.sendMessage("chat-001", "uid-sender", "a" * (MAX_MESSAGE_LENGTH + 1))
+    assert exc.value.statusCode == 400
+    assert exc.value.errorCode == "MESSAGE_TOO_LONG"
+    service.messageRepository.create.assert_not_called()
+
+
+def test_sendMessage_at_the_limit_is_accepted(mock_db):
+    from domain.services.messageService import MAX_MESSAGE_LENGTH
+    service = _make_service(mock_db)
+    service.chatRepository.findById.return_value = _mock_chat(
+        sender="uid-sender", status=config.STATUS_CODES["enabled"]
+    )
+
+    service.sendMessage("chat-001", "uid-sender", "a" * MAX_MESSAGE_LENGTH)
+    service.messageRepository.create.assert_called_once()
+
+
+def test_sendMessage_non_text_content_raises_400(mock_db):
+    service = _make_service(mock_db)
+    with pytest.raises(NoHarmException) as exc:
+        service.sendMessage("chat-001", "uid-sender", {"not": "text"})
+    assert exc.value.statusCode == 400
+
+
 def test_sendMessage_html_content_is_sanitized(mock_db):
     """Script tags are stripped; inner text preserved → MessageModel called with clean content."""
     from unittest.mock import patch as _patch

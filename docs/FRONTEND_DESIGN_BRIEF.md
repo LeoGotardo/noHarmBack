@@ -9,7 +9,7 @@
 
 - **Core loop**: user registers → starts a streak → checks in daily → earns badges at milestones → connects with friends for accountability → chats for peer support.
 - Audience: people in recovery from addiction. Tone should feel **safe, warm, motivating** — not clinical or harsh.
-- App is **mobile-first** (React Native / Expo).
+- App is **mobile-first**: a Vite + React 19 SPA, wrapped with Capacitor for iOS and Android, and served on the web at `noharm.site` (phone layout below 900px, a side rail above).
 
 ---
 
@@ -21,8 +21,8 @@ Authentication uses **Firebase** for identity, then the app issues its own JWT t
 | Screen | Description |
 |--------|-------------|
 | Splash / Onboarding | Brand introduction, "Get Started" CTA |
-| Register | Fields: `username` (3–50 chars), `email`, optional profile picture URL. Username must be unique. |
-| Login | Fields: `email` (Firebase auth). Banned/blocked/deleted accounts are rejected with error messaging. |
+| Register | **Google sign-in** (Firebase). The app sends the Firebase ID token plus a username (3–50 chars, `[a-zA-Z0-9_-]`, unique), a date of birth (refused under `MINIMUM_AGE_YEARS`, 18) and three separate answers: terms, privacy, health data. The first two are required. |
+| Login | **Google sign-in**; the backend takes the Firebase ID token only. Banned (`ACCOUNT_BANNED`, or `ACCOUNT_SUSPENDED` with a date), blocked and deleted accounts are refused with their own codes; one inside its deletion window gets `ACCOUNT_PENDING_DELETION` and can be restored. |
 | Token Refresh | Transparent background refresh — no dedicated screen, but the app must handle 401 silently. |
 
 ### Token details (for navigation logic)
@@ -36,13 +36,15 @@ Authentication uses **Firebase** for identity, then the app issues its own JWT t
 
 ### Data shape
 ```
-id            UUID
-username      string (3–50 chars, unique)
-email         string
-status        int  (see Status Codes)
-profile_picture  string | null  (URL)
+id            string   — the Firebase UID, not a UUID
+username      string   (3–50 chars, unique)
+profile_picture  string | null  (URL, from the Google account)
+role          "official" | "admin" | null   — the mark beside the name
 created_at    datetime
 updated_at    datetime
+
+GET /users/me adds: email, status, health_data_consent, pending_consents,
+must_change_username, picture_blocked
 ```
 
 ### Screens needed
@@ -61,21 +63,24 @@ The streak is the **core feature**. A streak tracks how many consecutive days th
 
 ### Data shape
 ```
-id          UUID
-owner_id    UUID
-start       datetime     — when streak started
-end         datetime|null — when streak ended (null = active)
-status      int          (1=active, 0=expired/ended)
-is_record   bool         — true if this is the user's longest streak
-created_at  datetime
-updated_at  datetime
+id            UUID
+owner_id      string        — Firebase UID
+start_at      datetime      — when the streak started (may be backdated)
+end_at        datetime|null — when it ended (null = active)
+last_checkin  datetime|null — the most recent check-in
+status        int           (1=active, 0=ended)
+is_record     bool          — true if this is the user's longest streak
+created_at    datetime
+updated_at    datetime
+
+All instants are UTC with an explicit offset.
 ```
 
 ### Business rules
 - User can only have one **active** streak at a time.
-- User must **check in** at least once every 24 h — otherwise the streak auto-expires on next fetch.
-- Ending a streak checks if it was a personal record, then immediately starts a fresh streak.
-- Streak age in days = `(now - start)` in hours / 24.
+- A streak **never expires**. Check-ins are a daily ritual, not a condition: a missed one changes nothing on the server, and the app asks about the missed days when the user comes back.
+- Ending a streak (relapse) checks if it was a personal record, then immediately starts a fresh streak.
+- Streak age in days = `(now - start_at)` in hours / 24. Starting a streak needs health-data consent (`HEALTH_CONSENT_REQUIRED` otherwise).
 
 ### Screens needed
 | Screen | Notes |
@@ -128,6 +133,7 @@ updated_at  datetime
 - Cannot send a request to yourself.
 - Cannot send if a non-deleted friendship already exists (even pending/blocked).
 - Blocked users cannot view the profile of their blocker.
+- Anyone can block anyone — a friend or a stranger (`POST /users/{id}/block`) — and only the person who blocked can unblock.
 
 ### Reporting a user
 
@@ -242,7 +248,7 @@ makes moderation feel arbitrary.
 
 ## 6. Chat
 
-1-on-1 only (no group chats). **Both users must be accepted friends** to start a chat.
+1-on-1 only (no group chats). **Both users must be accepted friends** to start a chat — except an official account, which can write to anyone, and whose conversations are read-only for the other side.
 
 ### Data shape
 ```
@@ -413,10 +419,10 @@ Used across all entities.
 | 0 | Disabled | Users, Streaks, Badges, UserBadges |
 | 1 | Enabled / Active | Users, Streaks, Badges, Chats, Friendships |
 | 2 | Deleted (soft) | Users, Friendships |
-| 3 | Blocked | Users (account banned), Friendships |
+| 3 | Blocked | Users (account blocked), Friendships, removed posts/comments |
 | 4 | Pending | Friendships, Chats |
 | 5 | Accepted | Friendships |
-| 6 | Ignored / Rejected | Friendships |
+| 6 | Ignored / Rejected | Friendships, dismissed reports |
 | 7 | Unread | Messages |
 | 8 | Read | Messages |
 | 9 | Banned | Users (account level ban) |
@@ -445,13 +451,14 @@ Main Tab Navigator (authenticated)
 │   ├── Chat List
 │   └── Chat Thread
 │
-├── Badges (Tab 4)
-│   └── Badge Showcase → Badge Detail
+├── Community (Tab 4)
+│   ├── Feed (Everyone / Friends)
+│   └── Post Detail → comments
 │
 └── Profile (Tab 5)
-    ├── My Profile
+    ├── My Profile → Badges → Badge Detail
     ├── Edit Profile
-    └── Settings / Delete Account
+    └── Settings → Privacy & data, Notifications, moderation and admin (admins only), Delete Account
 ```
 
 ---
@@ -466,5 +473,5 @@ Main Tab Navigator (authenticated)
 6. **Friend request notifications** arrive in real-time — show in-app notification or badge on Friends tab.
 7. **Profile pictures** are URLs (currently optional/nullable) — always design with a fallback avatar.
 8. **No group chats** — all messaging is strictly 1-on-1.
-9. **No in-app email verification UI** — Firebase handles that externally.
+9. **No in-app email verification UI** — Google sign-in arrives verified.
 10. Pagination is supported on all list endpoints — design list screens to support infinite scroll or load-more.

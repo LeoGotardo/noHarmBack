@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from core.config import config
 from typing import Generator
 
-# Registers every model with SQLAlchemy. The package imports all fourteen — the
+# Registers every model with SQLAlchemy. The package imports every model — the
 # relationships are declared as strings and only resolve once the classes they
 # name have been imported (see models/__init__.py).
 import infrastructure.database.models  # noqa: F401

@@ -31,7 +31,6 @@ from schemas.userSchemas import (
 )
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
-from domain.entities.user import User
 from security.limiter import limiter
 from typing import Optional, Union
 
@@ -395,7 +394,7 @@ def unblockUser(
 
 @router.get(
     "",
-    response_model=Union[PaginatedResponse[User], UserListResponse],
+    response_model=Union[PaginatedResponse[UserResponse], UserListResponse],
     summary="Get all users",
     description=(
         "Returns the user directory. Pass `search` with a full username or email "
@@ -417,9 +416,19 @@ def getAllUsers(
         service = UserService(db)
 
         if paginated:
-            if search:
-                return service.search(search, paginatedParams)
-            return service.findAll(paginatedParams)
+            page = service.search(search, paginatedParams) if search else service.findAll(paginatedParams)
+            # The entities carry e-mail, birth date and moderation state; the
+            # directory is readable by every signed-in account, so it goes
+            # through the public schema like everything else here.
+            return PaginatedResponse[UserResponse](
+                items=[UserResponse.model_validate(u) for u in page.items],
+                total=page.total,
+                page=page.page,
+                pageSize=page.pageSize,
+                totalPages=page.totalPages,
+                hasNext=page.hasNext,
+                hasPrevious=page.hasPrevious,
+            )
 
         users = service.search(search) if search else service.findAll()
         return UserListResponse(users=[UserResponse.model_validate(u) for u in users], total=len(users))
@@ -443,7 +452,7 @@ def getAllUsers(
         "`self_harm` is refused here (400 `NOT_A_WARNING`). A report about "
         "someone's safety is usually a frightened friend, and answering it with "
         "a telling-off is the worst available move. Restricted to "
-        "ADMIN_USER_IDS; any other caller gets a 404."
+        "administrators; any other caller gets a 404."
     )
 )
 @limiter.limit("20/minute")
@@ -476,7 +485,7 @@ def warnUser(
         "Separate from resolving a report on purpose: closing a complaint and "
         "punishing an account are two decisions, and a queue where one implies "
         "the other is a queue moderators stop reading. Restricted to "
-        "ADMIN_USER_IDS; any other caller gets a 404.\n\n"
+        "administrators; any other caller gets a 404.\n\n"
         "To end a suspension early, set the account back to enabled with "
         "`PUT /users/{id}/status/1` — that clears the date with it."
     )
@@ -528,7 +537,7 @@ def suspendUser(
         "`must_change_username` then makes the app ask for a real name before "
         "anything else; setting one through `PUT /users/me` is what lifts it. "
         "Nothing else changes — the account is not banned or limited and keeps "
-        "its streak, friends and history. Restricted to ADMIN_USER_IDS; any "
+        "its streak, friends and history. Restricted to administrators; any "
         "other caller gets a 404."
     )
 )
@@ -573,7 +582,7 @@ def resetUsername(
         "and `PUT /users/me` would undo it sooner than that.\n\n"
         "Unblocking restores nothing: the old picture is gone, and the next "
         "sign-in pulls whatever the Google account holds now, which was always "
-        "the only copy. Restricted to ADMIN_USER_IDS; any other caller gets a "
+        "the only copy. Restricted to administrators; any other caller gets a "
         "404."
     )
 )
@@ -609,12 +618,12 @@ def setPictureBlocked(
 
 @router.put(
     "/{userId}/status/{status}",
-    response_model=UserResponse,
+    response_model=SuspensionResponse,
     status_code=200,
     summary="Update a user status (admin)",
     description=(
         "Updates the status of an existing user. Admin action — creates audit log type=5. "
-        "Restricted to the UIDs in ADMIN_USER_IDS; any other caller gets a 404. This is the "
+        "Restricted to administrators; any other caller gets a 404. This is the "
         "route that bans, unbans and undeletes, so leaving it open to any signed-in user "
         "would let anyone lift their own ban."
     )
@@ -634,7 +643,7 @@ def updateUserStatus(
     try:
         service = UserService(db)
         updatedUser = service.updateStatus(userId, status, requestingUserId=currentUserId)
-        return updatedUser
+        return SuspensionResponse.model_validate(updatedUser)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 

@@ -5,7 +5,7 @@ from typing import Optional
 
 from api.dependencies.auth import getCurrentUser, getOfficialUser
 from api.dependencies.database import getDbWithRLS
-from domain.services.messageService import MessageService
+from domain.services.messageService import MAX_MESSAGE_LENGTH, MessageService
 from schemas.messageSchemas import MessageResponse, MessageListResponse
 from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/messages", tags=["Messages"])
 
 
 class SendMessageRequest(BaseModel):
-    content: str = Field(..., min_length=1, max_length=2000)
+    content: str = Field(..., min_length=1, max_length=MAX_MESSAGE_LENGTH)
     chatId: Optional[UUID] = Field(None, description="Existing chat to send to")
     recipientId: Optional[str] = Field(None, description="Recipient user ID — the chat is created if none exists yet")
 
@@ -141,7 +141,7 @@ def sendMessage(
 
 
 class BroadcastRequest(BaseModel):
-    content: str = Field(..., min_length=1, max_length=2000)
+    content: str = Field(..., min_length=1, max_length=MAX_MESSAGE_LENGTH)
 
 
 class BroadcastResponse(BaseModel):

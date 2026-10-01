@@ -76,35 +76,36 @@ and a second one fails the apply.
 
 ### 3. Fill the application secret
 
-Five values, none of which Terraform should ever see. `DATABASE_PASSWORD` is
-not among them: RDS generates and rotates it in its own secret, and the task
-definition reads it from there.
+Six values, none of which Terraform should ever see — the six `infra/ecs.tf`
+maps into the container. `DATABASE_PASSWORD` is not among them: RDS generates
+and rotates it in its own secret, and the task definition reads it from there.
+
+The normal way is `put-secrets.sh`, which reads them from your local
+`.secrets.toml` and pipes them straight to Secrets Manager (nothing printed,
+nothing in shell history). It also refuses the mistakes that have no other
+symptom: an empty or `REPLACE_ME` value, a production `DATABASE_ENCRYPTION_KEY`
+or `BLIND_INDEX_KEY` shared with dev, and a blind-index key equal to the column
+key.
 
 ```bash
-# Fernet key for the column-level encryption. LOSING IT MAKES EVERY ENCRYPTED
-# FIELD UNREADABLE — there is no recovery path.
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-
-# Two DISTINCT JWT keys. One key for both makes a 7-day refresh token
-# acceptable as a 15-minute access token.
-python -c "import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"
-
-aws secretsmanager put-secret-value \
-  --secret-id "$(terraform output -raw app_secret_arn)" \
-  --secret-string "$(jq -n \
-      --arg enc "$ENCRYPTION_KEY" \
-      --arg dbenc "$DATABASE_ENCRYPTION_KEY" \
-      --arg jwt "$JWT_SECRET_KEY" \
-      --arg jwtr "$JWT_REFRESH_SECRET_KEY" \
-      --arg fb "$(cat firebase-service-account.json)" \
-      '{ENCRYPTION_KEY:$enc, DATABASE_ENCRYPTION_KEY:$dbenc,
-        JWT_SECRET_KEY:$jwt, JWT_REFRESH_SECRET_KEY:$jwtr,
-        FIREBASE_SERVICE_ACCOUNT:$fb}')"
+cd infra && ./put-secrets.sh
 ```
 
-`FIREBASE_SERVICE_ACCOUNT` is the whole service-account JSON as a single
-string. Without it every login and registration fails — it is what verifies
-Firebase ID tokens.
+Where the values come from:
+
+| Key | Section of `.secrets.toml` | Notes |
+|-----|---------------------------|-------|
+| `DATABASE_ENCRYPTION_KEY` | `[prod]` | The AES-GCM column key. **Losing it makes every encrypted column unreadable** — there is no recovery path |
+| `BLIND_INDEX_KEY` | `[prod]` | HMAC key for the lookup indexes. Must differ from the one above; rotating it means re-running migration `20260902_01` |
+| `ENCRYPTION_KEY` | `[default]` | |
+| `JWT_SECRET_KEY`, `JWT_REFRESH_SECRET_KEY` | `[default]` | Two **distinct** keys. One key for both makes a 7-day refresh token acceptable as a 15-minute access token |
+| `FIREBASE_SERVICE_ACCOUNT` | `[default]` | The whole service-account JSON as one string. Without it every login and registration fails — it is what verifies Firebase ID tokens |
+
+To generate a fresh key:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
 
 ### 4. Point CI at the account
 
@@ -115,7 +116,7 @@ From the outputs, into the backend repo's Actions settings:
 | Variable | `AWS_ROLE_ARN` | `terraform output -raw github_deploy_role_arn` |
 | Variable | `TASK_SUBNET_IDS` | `terraform output -json task_subnet_ids \| jq -r 'join(",")'` |
 | Variable | `APP_SECURITY_GROUP_ID` | `terraform output -raw app_security_group_id` |
-| Variable | `VITE_FIREBASE_*` | the seven web-config values, baked into the bundle at build time |
+| Variable | `VITE_FIREBASE_*` | the six web-config values, baked into the bundle at build time |
 | Secret | `FRONTEND_REPO_TOKEN` | PAT with read access to `LeoGotardo/noHarm` |
 
 The frontend token is not optional: the image's first build stage compiles
@@ -124,7 +125,7 @@ cannot check out the other one.
 
 ### 5. Deploy
 
-Push to `main`, or run the `deploy` workflow by hand. It builds the image from
+Run the `deploy` workflow by hand (Actions → deploy → Run workflow). Its `push` trigger is commented out in `.github/workflows/deploy.yml` while this stack is not the deployment; restore it to deploy on every push to `main`. It builds the image from
 both repos, pushes it under the commit SHA, runs the migration task and waits
 for it, then rolls the service.
 

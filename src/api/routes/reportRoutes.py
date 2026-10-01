@@ -146,7 +146,7 @@ def getMyReports(
     description=(
         "Returns every report, optionally filtered by status "
         "(4 open · 5 actioned · 6 dismissed). Restricted to the UIDs in "
-        "ADMIN_USER_IDS; any other caller gets a 404.\n\n"
+        "administrators; any other caller gets a 404.\n\n"
         "`locked_by` / `locked_at` say who is reviewing a report right now. A "
         "lock older than REPORT_LOCK_MINUTES (30) is stale and anyone may claim "
         "it — the queue should treat it as free.\n\n"
@@ -200,7 +200,7 @@ def getReports(
     "/{reportId}",
     response_model=ReportResponse,
     summary="Get a report by ID (admin)",
-    description="Returns a single report. Restricted to ADMIN_USER_IDS."
+    description="Returns a single report. Restricted to administrators."
 )
 @limiter.limit("30/minute")
 def getReportById(
@@ -223,7 +223,7 @@ def getReportById(
     description=(
         "Returns what was captured when the report was filed — the reported "
         "profile as it was, and the tail of the conversation when one was named. "
-        "Restricted to ADMIN_USER_IDS; any other caller gets a 404.\n\n"
+        "Restricted to administrators; any other caller gets a 404.\n\n"
         "Every call writes an audit entry (type 11). This is private "
         "correspondence between two users, and a power to read it that leaves no "
         "trace is indistinguishable from one being abused."

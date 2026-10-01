@@ -9,7 +9,6 @@ from schemas.paginationSchemas import PaginationParams, PaginatedResponse
 from exceptions.baseExceptions import NoHarmException
 from security.limiter import limiter
 from typing import Optional, Union
-from domain.entities.streak import Streak
 
 
 router = APIRouter(prefix="/streaks", tags=["Streaks"])
@@ -59,7 +58,7 @@ def getRecordStreak(
 
 @router.get(
     "/history",
-    response_model=Union[PaginatedResponse[Streak], StreakListResponse],
+    response_model=Union[PaginatedResponse[StreakResponse], StreakListResponse],
     summary="Get my streak history",
     description="Returns all past and current streaks for the authenticated user."
 )
@@ -74,7 +73,18 @@ def getStreakHistory(
     try:
         service = StreakService(db)
         if paginated:
-            return service.getAllByUserId(currentUserId, paginatedParams)
+            # Through StreakResponse, like the list form: it is what marks the
+            # stored (naive UTC) instants as UTC for the client.
+            page = service.getAllByUserId(currentUserId, paginatedParams)
+            return PaginatedResponse[StreakResponse](
+                items=[StreakResponse.model_validate(s) for s in page.items],
+                total=page.total,
+                page=page.page,
+                pageSize=page.pageSize,
+                totalPages=page.totalPages,
+                hasNext=page.hasNext,
+                hasPrevious=page.hasPrevious,
+            )
         streaks = service.getAllByUserId(currentUserId)
         return StreakListResponse(
             streaks=[StreakResponse.model_validate(s) for s in streaks],

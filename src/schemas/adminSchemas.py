@@ -176,3 +176,19 @@ class AdminHostAccessRow(BaseModel):
     result: str
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+
+class AdminAccountRow(BaseModel):
+    """One account that can use the admin routes, and why.
+
+    `source` is what decides whether the app can revoke it: only `granted`
+    (promoted from inside the app) can be. `official` and `env` come from the
+    environment, and only the environment takes them back.
+    """
+    id: str
+    username: Optional[str] = None
+    source: str = Field(..., description="official · env · granted")
+    granted_by: Optional[str] = None
+    granted_at: Optional[datetime] = None
+
+    model_config = ConfigDict(extra="forbid")

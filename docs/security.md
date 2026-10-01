@@ -47,7 +47,7 @@ Login → issue accessToken (15 min) + refreshToken (7 days)
         │
         ├─ Each request → verify accessToken → check blacklist
         │
-        └─ On expiry → POST /refresh → verify refreshToken
+        └─ On expiry → POST /auth/refresh → verify refreshToken
                                       → revoke old refreshToken (blacklist)
                                       → issue new accessToken + new refreshToken
 
@@ -77,13 +77,13 @@ container on the same host, reached over the compose network as
 | Lockout duration | 30 minutes |
 | Reset on success | Yes — `onSuccess(username)` clears the attempt history |
 
-`IpRateLimiter` — per-IP sliding window:
+`IpRateLimiter` — per-IP sliding window, in Redis:
 
 | Configuration | Value |
 |---------------|-------|
-| Window | 60 seconds |
-| Max requests | 60 |
-| Block duration | 60 minutes |
+| Window | 60 seconds (`RATE_LIMIT_WINDOW_SECONDS`) |
+| Max requests | 240 (`RATE_LIMIT_MAX_REQUESTS`) |
+| Block duration | 60 s on the first breach, doubling on repeat, capped at 900 s (`RATE_LIMIT_BLOCK_SECONDS`, `RATE_LIMIT_MAX_BLOCK_SECONDS`) |
 
 **Pending countermeasures:**
 - [ ] Constant-time response (add `time.sleep(0.1)` regardless of success/failure to prevent timing attacks)
@@ -151,15 +151,12 @@ user = session.query(UserModel).filter(UserModel.email == email).first()
 
 Pydantic schemas act as an explicit whitelist. Only fields declared in a schema can be updated. FastAPI ignores any extra fields by default.
 
-**Response schemas with `extra="forbid"`:** `TokenResponse`, `StreakResponse`, `UserPrivateResponse`, `UserPublicResponse`, `ChatResponse`, `BadgeResponse`, `AuditLogsResponse`, `UserBadgeResponse`, `MessageResponse`.
+**Schemas with `extra="forbid"`:** every single-entity response (`AuthResponse`, `UserResponse`, `MeResponse`, `StreakResponse`, `ChatResponse`, `FriendshipResponse`, `MessageResponse`, `BadgeResponse`, `UserBadgeResponse`, `AuditLogsResponse`, the report, notice, consent and post responses) and the request bodies where an extra field would be an attack — `ReportRequest` (no message text), `ConsentAcceptRequest` (no version), the post and comment bodies.
 
-**Missing `extra="forbid"`:**
-- All **response** schemas in `friendshipSchemas.py` — no `model_config` at all
-- All **input/create/update** schemas across every file (`AuthRegisterRequest`, `AuthLoginRequest`, `AuthRefreshRequest`, `UserCreate`, `UserUpdate`, `ChatCreate`, `ChatUpdate`, `FriendshipCreate`, `FriendshipUpdate`, `MessageCreate`, `MessageUpdate`)
+**Still missing `extra="forbid"`:** most other **input** schemas — `AuthRegisterRequest`, `AuthLoginRequest`, `AuthReactivateRequest`, `AuthRefreshRequest`, `ProfileUpdateRequest`, `StreakStartRequest`, `StreakEndRequest`, and the `*Update` schemas. They ignore unknown fields rather than refusing them.
 
 **Pending countermeasures:**
-- [ ] Add `model_config = ConfigDict(extra='forbid')` to `friendshipSchemas.py` response schemas
-- [ ] Add `model_config = ConfigDict(extra='forbid')` to all input/create/update schemas to actively reject unexpected fields rather than silently ignore them
+- [ ] Add `model_config = ConfigDict(extra='forbid')` to the input schemas above, to reject unexpected fields rather than silently ignore them
 
 ---
 
@@ -201,11 +198,11 @@ In `development`, `ALLOWED_ORIGINS = ["*"]` is acceptable. In `staging` and `pro
 **Countermeasures implemented (`src/security/rateLimiter.py`, `src/security/middleware.py`, `src/security/limiter.py`):**
 
 `RateLimitMiddleware` applies `IpRateLimiter` globally on every request:
-- 60 requests / 60 seconds per IP
-- Excess requests → 429 with `Retry-After: 60`
-- IP blocked for 60 minutes after exceeding the limit
+- 240 requests / 60 seconds per IP
+- Excess requests → 429 with `Retry-After`
+- The block starts at 60 s and doubles on repeat breaches, up to 900 s
 
-`LoginRateLimiter` applies per-username limits on the login endpoint (see §1.2).
+`LoginRateLimiter` applies per-UID limits on the login endpoint (see §1.2).
 
 **Per-route rate limits via `slowapi` (`src/security/limiter.py`):**
 
@@ -219,11 +216,10 @@ Every HTTP endpoint carries a `@limiter.limit(...)` decorator. The shared `Limit
 | Write | create/update/delete mutations across all routes | 5–10/minute |
 | Read | all GET endpoints | 30–60/minute |
 
-Exceeding a per-route limit returns 429. The JWT blacklist already uses Redis. To make `slowapi` per-route counters and `IpRateLimiter` / `LoginRateLimiter` also share state across workers, they need to be migrated to Redis as well — see §8.2.
+Exceeding a per-route limit returns 429. All of it — `slowapi`, `IpRateLimiter`, `LoginRateLimiter` and the JWT blacklist — keeps its state in Redis, shared across workers and instances (§8.2).
 
 **Pending countermeasures:**
 - [ ] Burst protection (e.g. max 10 requests/second before sliding window kicks in)
-- [ ] Redis-backed rate limiting for multi-instance deployments (current in-memory state is not shared across workers)
 
 ---
 
@@ -231,10 +227,11 @@ Exceeding a per-route limit returns 429. The JWT blacklist already uses Redis. T
 
 **What it is:** Attacker keeps thousands of connections half-open, exhausting server threads.
 
-**Countermeasures (infrastructure-level, pending):**
+**In place:** nginx fronts uvicorn and caps request bodies at `client_max_body_size 4m` (`docker/nginx.conf`).
+
+**Pending (infrastructure-level):**
 - [ ] Configure Uvicorn `timeout_keep_alive=5`, `limit_concurrency=1000`
-- [ ] Nginx reverse proxy with `client_header_timeout 10s`, `client_body_timeout 10s`, `keepalive_timeout 5s`
-- [ ] `client_max_body_size 1m` to reject oversized payloads early
+- [ ] Tighten nginx timeouts: `client_header_timeout 10s`, `client_body_timeout 10s`, `keepalive_timeout 5s` (today `keepalive_timeout 65`)
 
 ---
 
@@ -247,12 +244,13 @@ Exceeding a per-route limit returns 429. The JWT blacklist already uses Redis. T
 **Countermeasures implemented:**
 
 **Field-level encryption at rest** (`src/security/encryption.py`):
-- All sensitive columns (username, email, message content, timestamps) are encrypted with AES-256 (Fernet) before being written to PostgreSQL
+- Sensitive columns (username, email, message content, timestamps, report details, post content, …) are encrypted with AES-GCM by `sqlalchemy_utils`' `StringEncryptedType`, under `DATABASE_ENCRYPTION_KEY`
 - Obfuscated column names (`cl_0a`, `cl_0b`, ...) add an additional layer of obscurity
-- Each encrypted column has a parallel `_hash` column (SHA-256) for equality queries
+- The columns looked up by equality (username, email, device token) carry a parallel `_h` column: an HMAC-SHA256 blind index under `BLIND_INDEX_KEY`
 
 **Response filtering:**
 - Pydantic `response_model` on every route ensures only declared fields are returned
+- Another user is always `UserResponse` (id, username, picture, timestamps, role); e-mail and status exist only on `MeResponse`. Routes never return a domain entity directly — `GET /users?paginated=true` once returned the `User` entity, e-mail and birth date included, to any signed-in account
 - `passwordHash` and internal columns are never included in any response schema
 
 **Pending countermeasures:**
@@ -290,12 +288,13 @@ Exceeding a per-route limit returns 429. The JWT blacklist already uses Redis. T
 | Mandatory JWT auth | `connect` event extracts token from `auth` dict or query string, rejects connection if invalid |
 | User session binding | `sio.save_session(sid, {"userId": userId})` stores authenticated user |
 | Room isolation | Users join personal room `user_{userId}` on connect; chat rooms `chat_{chatId}` joined via events |
-| Presence tracking | `connectedUsers` dict tracks userId → sid mapping |
+| Presence tracking | Registry in Redis, multi-device and shared across instances |
+| Event rate limits | `@wsLimit` per user: `send_message` 30/min, `typing` 60/min |
+| Connection cap | 3 simultaneous connections per user (`WsConnectionLimiter`, Redis); the fourth is refused with `too_many_connections` |
+| Payload size | `max_http_buffer_size` 2 MB on the server; message content capped at 2000 characters in `MessageService.sendMessage`, shared with the REST path |
 
 **Pending countermeasures:**
-- [ ] Rate limiting on message events (max 20 messages / minute per user)
-- [ ] Maximum 5 simultaneous connections per user — evict oldest on overflow
-- [ ] Strict payload size limits — reject oversized content
+- [ ] Evict the oldest connection instead of refusing the newest, so a phone left open does not lock out a laptop
 
 ---
 
@@ -342,14 +341,14 @@ Exceeding a per-route limit returns 429. The JWT blacklist already uses Redis. T
 - Users register and verify email via Firebase Auth (frontend)
 - Backend receives Firebase identity data including `emailVerified` flag
 - On registration: `status = enabled` if `emailVerified`, else `status = pending`
-- Users with `pending` status cannot access protected endpoints
+- `pending` is **recorded, not enforced** at the door: `getCurrentUser` rejects only deleted, banned and blocked accounts. What it gates is filing reports (`REPORTER_NOT_ELIGIBLE`) and writing posts (`POSTER_NOT_ELIGIBLE`), both of which require `enabled`. Google sign-in always arrives verified, so in practice no account is `pending`
 
 **Countermeasures implemented:**
 - Email ownership verified by Firebase (Google infrastructure)
 - `status` field controls access to protected resources
 - Duplicate email check prevents account enumeration (returns generic 409)
 
-**Note:** Custom email verification via `emailService.py` is not implemented — Firebase handles this.
+**Note:** There is no email service in the backend — Firebase sends the verification email.
 
 ---
 
@@ -427,6 +426,11 @@ POST /auth/refresh
 | 10 | `reportService` | User reported another user · report resolved |
 | 11 | `reportService` | Moderator read the evidence behind a report |
 | 12 | `noticeService` | Warning or suspension notice sent to a user |
+| 13 / 14 | `consentService` | Consent given / health-data consent withdrawn |
+| 15 | `exportService` | Data export downloaded |
+| 16 | `adminService` | Admin board opened |
+| 17 / 18 | `postService` | Post or comment removed / restored by a moderator |
+| 19 / 20 | `adminGrantService` | Administrator promoted / demoted by an official account |
 
 **Pending:**
 - [ ] Define a `LOG_TYPES` enum (e.g. `LOGIN_SUCCESS=1`, `LOGIN_FAILURE=2`, ...) to replace bare integer literals
@@ -501,9 +505,10 @@ it, but in that mode the ceilings apply per instance again.
 
 **What it is:** Without a maximum body size, an attacker can send a gigabyte-sized JSON payload to any endpoint, causing memory exhaustion or a slow-upload DoS.
 
+**In place:** nginx refuses bodies over 4 MB (`client_max_body_size 4m`), and uvicorn is reachable only through nginx.
+
 **Pending countermeasures:**
-- [ ] Set `app = FastAPI(...)` with no built-in limit, but configure Uvicorn: `--limit-request-body-size 1048576` (1 MB)
-- [ ] Nginx: `client_max_body_size 1m`
+- [ ] Lower the nginx cap to what the API actually needs (no endpoint takes more than a few KB today)
 - [ ] For file upload endpoints (profile picture): validate content type and enforce a stricter limit (e.g. 5 MB) at the route level using `UploadFile` with explicit size checks
 
 **Where to implement:** `run.py` (Uvicorn config), Nginx config
@@ -512,9 +517,9 @@ it, but in that mode the ceilings apply per instance again.
 
 ### 8.4 Encryption Key Compromise & Rotation
 
-**What it is:** A single `ENCRYPTION_KEY` is used to encrypt every sensitive field across all tables. If this key is ever exposed (leaked secret, compromised environment), an attacker with a database dump can decrypt everything — all usernames, emails, and messages retroactively.
+**What it is:** A single `DATABASE_ENCRYPTION_KEY` encrypts every sensitive column across all tables. If this key is ever exposed (leaked secret, compromised environment), an attacker with a database dump can decrypt everything — all usernames, emails, and messages retroactively.
 
-**Current risk:** The key is stored in `.secrets.toml` alongside the database password. A single secret file compromise exposes both.
+**Current risk:** The column key is `DATABASE_ENCRYPTION_KEY`, kept in `prod.env` on the instance alongside the database password. A single secret file compromise exposes both.
 
 **Pending countermeasures:**
 - [ ] Key versioning: prefix encrypted values with a key version identifier (e.g. `v1:...`). When rotating, re-encrypt rows in batches using the new key while old ones are still decryptable with the old key
@@ -553,7 +558,7 @@ if config.DEBUG and config.EXEC_MODE in ("prod", "staging"):
 - [ ] Add `BASE_URL` to the `.secrets.toml` config and validate it on startup
 - [ ] Nginx: use `if ($host !~* "^noharm\.app$") { return 444; }` to reject requests with unexpected Host headers before they reach the app
 
-**Where to implement:** `config.py`, `emailService.py`, Nginx config
+**Where to implement:** `config.py`, any future email service, Nginx config
 
 ---
 
@@ -632,16 +637,16 @@ pip-audit -r requirements.txt
 | Authentication | JWT access + refresh tokens with unique JTI |
 | Authentication | Persistent JWT blacklist (Redis `SETEX` + TTL auto-expiry, SHA-256 hashed JTIs) |
 | Authentication | Refresh token rotation — old token revoked on every `/refresh` call |
-| Authentication | Per-IP rate limiting (60 req/min, 60-min block) — global middleware |
-| Authentication | Per-username login rate limiting (5 attempts, 30-min lockout) |
+| Authentication | Per-IP rate limiting (240 req/min, escalating 60–900 s block) — global middleware, Redis |
+| Authentication | Per-UID login rate limiting (5 attempts / 15 min, 30-min lockout) |
 | Authentication | Per-route rate limits via `slowapi` — stricter ceilings on auth and mutation endpoints |
 | Authentication | Generic "Invalid credentials" (401) for user-not-found — no UID enumeration |
 | Authentication | Generic 409 on registration — no enumeration of conflicting field (email vs username) |
 | Authentication | Refresh token revocation via Redis JTI blacklist (TTL-based auto-expiry) |
 | WebSocket | JWT authentication on connection |
-| Data at rest | AES-256 field-level encryption for all sensitive columns |
-| Data at rest | SHA-256 hash index for encrypted field lookups |
-| Data at rest | Argon2 password hashing |
+| Data at rest | AES-GCM column encryption for sensitive columns |
+| Data at rest | Keyed (HMAC-SHA256) blind index for encrypted field lookups |
+| Data at rest | No passwords stored — identity is Firebase's |
 | Data at rest | PostgreSQL Row Level Security (RLS) policies |
 | Authorization | Service-layer ownership checks on all mutating/read operations |
 | Input validation | Pydantic schemas on all routes |
@@ -669,6 +674,10 @@ When paginating with `getDbWithRLS`, the `total` count reflects only rows the us
 | `tb_10` (reports) | `tb_10_select_own` | Counts reports the user filed — never reports filed about them |
 | `tb_11` (report evidence) | `tb_11_select_admin` | Nothing: readable only by a context-free (admin) session |
 | `tb_12` (moderation notices) | `tb_12_select_own` | Counts the notices sent to the user themselves |
+| `tb_13` (consent records) | owner | Counts the user's own consent rows |
+| `tb_14` (error log), `tb_15` (host access) | `*_admin_all` | Nothing: only a context-free session sees them |
+| `tb_16` / `tb_17` / `tb_18` (posts, comments, likes) | SELECT open | **No effect** — visibility is `PostService`'s SQL, not RLS |
+| `tb_19` (admin grants) | `tb_19_select_all` | **No effect** — the mark is public anyway |
 
 Policies read `app_current_user_id()`, a helper over
 `current_setting('app.current_user_id', true)` created by the same migration.
@@ -681,7 +690,7 @@ Rules requiring changes outside routes/services (new tables, models, external se
 
 | Rule | Requirement | Why Blocked |
 |------|-------------|-------------|
-| 1.1 — Email Verification | Send verification email, middleware guard for `status=pending` | `emailService.py` is empty; needs new table for tokens |
+| 1.1 — Email Verification | Send verification email, middleware guard for `status=pending` | No email service exists — Firebase sends email; would need one plus a token table |
 | ~~7.2 — Badge Milestones~~ | Grant badges at streak milestones | Unblocked — migration `20260831_01` seeds `tb_5` |
 | 8.1 — Password/Email Change Audit | Log type=3 (password), type=4 (email) changes | Auth delegated to Firebase; no backend endpoints to instrument |
 
@@ -692,22 +701,22 @@ Rules requiring changes outside routes/services (new tables, models, external se
 ### 11.1 Users
 - Username: 3-50 chars, `^[a-zA-Z0-9_-]+$`, globally unique
 - Email: valid RFC-5321, globally unique, error messages must not reveal which field duplicated
-- Password: min 8 chars, hashed with Argon2id
+- No password: identity is a Firebase ID token (Google sign-in); nothing password-shaped is stored
 - On registration: `status = pending` (if email unverified) or `enabled`
 - Profile updates: only `username`, `profilePicture` allowed; `status` changes via admin only
 
 ### 11.2 Authentication & Tokens
 - Access token: 15 min, `JWT_SECRET_KEY`, claims: `sub`, `type:access`, `exp`, `iat`, `jti`
-- Refresh token: 7 days, `JWT_REFRESH_SECRET_KEY`, stored hashed in `tb_8`
+- Refresh token: 7 days, `JWT_REFRESH_SECRET_KEY`, not stored — revoked through the Redis blacklist (`tb_8` is unused, §7.4)
 - Login rate limit: 5 attempts / 15 min, 30-min lockout
-- IP rate limit: 60 req / 60 sec, 60-min block
+- IP rate limit: 240 req / 60 sec, 60 s block doubling up to 900 s
 
 ### 11.3 Friendships
 - Cannot send request to self
 - Cannot send if any active friendship exists (unless `deleted`)
 - Only receiver may accept/reject
-- Either may block; blocked users cannot send requests or view profiles
-- Chat pre-condition: must be `accepted` friends
+- Either may block — a friend or a stranger (`POST /users/{id}/block`); **only the one who blocked may unblock** (`cl_2g`). Blocked users cannot send requests or view profiles
+- Chat pre-condition: must be `accepted` friends — except an official account, which may open a chat with anyone
 
 ### 11.4 Chats
 - Creation requires `accepted` friendship
@@ -727,7 +736,7 @@ Rules requiring changes outside routes/services (new tables, models, external se
 - On reset: sets `end_at`, creates new streak, updates `isRecord` if longest
 
 ### 11.7 Badges
-- Granted via `BadgeService.checkAndGrantBadges()` after streak updates
+- Granted by `StreakService._checkAndGrantBadges()` on start, check-in, relapse and every `GET /streaks/current` (clean days accrue with time, so a read is the accrual trigger)
 - One per user only; `givenAt` set on grant
 
 ### 11.8 Audit Logs
@@ -745,6 +754,11 @@ Rules requiring changes outside routes/services (new tables, models, external se
 | User reported / report resolved | 10 |
 | Moderator read report evidence | 11 |
 | Warning or suspension notice sent | 12 |
+| Consent given / health consent withdrawn | 13 / 14 |
+| Data export | 15 |
+| Admin board read | 16 |
+| Content removed / restored | 17 / 18 |
+| Administrator promoted / demoted | 19 / 20 |
 
 ### 11.8.1 Reports
 
@@ -753,7 +767,10 @@ Rules requiring changes outside routes/services (new tables, models, external se
   rest in `tb_10.cl_10e`).
 - Cannot report yourself; cannot report an account that does not exist or is
   deleted; one **open** report per (reporter, reported) pair — a second before
-  the first is reviewed is 409 `REPORT_ALREADY_OPEN`. Rate limited to 5/minute.
+  the first is reviewed is 409 `REPORT_ALREADY_OPEN` — unless the new report
+  names a post or comment, in which case it is appended to the open one (D8,
+  200 `appended: true`). Rate limited to 5/minute per IP, plus the per-account
+  ceilings in the root `CLAUDE.md`, "Report abuse ceilings".
 - **Only the reporter can read a report.** `GET /reports/mine` returns their own;
   the reported user has no way to learn a report exists or who filed it, in the
   service and in the `tb_10_select_own` policy both.
@@ -761,7 +778,7 @@ Rules requiring changes outside routes/services (new tables, models, external se
   Blocking stays the separate, visible action the reporter can also take.
 - Moderation (`GET /reports`, `GET /reports/{id}`,
   `PUT /reports/{id}/resolve/{status}`) is behind `getAdminUser` — the
-  `ADMIN_USER_IDS` allowlist — and runs on `getDb`, because the table's policies
+  `ADMIN_USER_IDS` allowlist, official accounts and `tb_19` grants — and runs on `getDb`, because the table's policies
   are reporter-scoped. Resolving never changes an account: banning is still
   `PUT /users/{id}/status/{status}`.
 - Reports are append-only from the application: `tb_10` has an UPDATE policy
@@ -911,8 +928,8 @@ that conversation.
 
 **Admin surface.** `PUT /users/{id}/status/{status}` can set any account to any
 status — it is how a ban is applied, lifted, or a deletion undone. It sits
-behind `getAdminUser`, an allowlist of Firebase UIDs in `ADMIN_USER_IDS`, empty
-by default. Before that dependency existed the route was authenticated-only,
+behind `getAdminUser`: the `ADMIN_USER_IDS` allowlist, the official accounts, and
+the accounts an official account promoted (`tb_19`) — all empty by default. Before that dependency existed the route was authenticated-only,
 which let any signed-in user unban themselves or ban anyone else, and made every
 banned-account check elsewhere unenforceable.
 
@@ -1037,16 +1054,15 @@ the table, so without them each read is a sequential scan.
 | Priority | Control | Section | Location |
 |----------|---------|---------|----------|
 | **High** | Implement `refreshTokenRepository.py` + wire `tb_8` — enables "revoke all sessions" | §7.4 | `refreshTokenRepository.py`, `authService.py` |
-| **High** | Redis-backed rate limiting (multi-worker) | §4.1, §8.2 | `rateLimiter.py`, `limiter.py` |
 | **High** | Constant-time login response (timing attack) | §1.2 | `authRoutes.py` |
 | **High** | Fix `authService.register()` — non-404 DB error during uniqueness check falls through silently | §7.1 | `authService.py` |
 | **High** | Structured log sanitisation + server-side traceback logging | §5.1, §8.1 | logging setup |
 | **High** | Debug mode guard in production | §8.5 | `main.py`, `config.py` |
 | **High** | pip-audit in CI pipeline | §9.1 | `.github/workflows/` |
-| **Medium** | Request body size limit (Uvicorn + Nginx) | §8.3 | `run.py`, Nginx config |
+| **Medium** | Lower the request body cap from 4 MB to what the API needs | §8.3 | Nginx config |
 | **Medium** | CAPTCHA after 3 login failures | §1.2 | `authRoutes.py` |
 | **Medium** | `extra='forbid'` on all **input** schemas (response schemas already done) | §2.3 | `authSchemas.py`, `userSchemas.py`, `friendshipSchemas.py`, `chatSchemas.py`, … |
-| **Medium** | Nginx configuration (timeouts, body size, SSL) | §4.2 | infrastructure |
+| **Medium** | Nginx timeouts | §4.2 | `docker/nginx.conf` |
 | **Medium** | Encryption key versioning and rotation strategy | §8.4 | `encryption.py`, `config.py` |
 | **Medium** | File upload security (MIME validation, UUID rename, private bucket) | §8.7 | `storageService.py` |
 | **Medium** | Extend audit logging to friendship, chat, badge events | §7.5 | `friendshipService.py`, `chatService.py`, `badgeService.py` |
@@ -1059,15 +1075,17 @@ the table, so without them each read is a sequential scan.
 
 ## Dependency Reference
 
-Security-critical packages and their purpose:
+Security-critical packages and their purpose, as pinned in `requirements.txt`:
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `PyJWT` | 2.8.0 | JWT encoding / decoding |
-| `argon2-cffi` | 23.1.0 | Password hashing (Argon2id) |
-| `cryptography` | 41.0.7 | AES-256 (Fernet) field encryption |
-| `bleach` | 6.1.0 | HTML sanitisation (XSS prevention) |
-| `passlib[bcrypt]` | 1.7.4 | bcrypt fallback if needed |
-| `python-jose[cryptography]` | 3.3.0 | Alternative JWT library (unused, available) |
-| `pydantic[email]` | 2.5.0 | Input validation and type enforcement |
-| `email-validator` | 2.1.0 | Email format validation |
+| `PyJWT` | 2.15.1 | JWT encoding / decoding |
+| `firebase-admin` | 6.5.0 | Verifying Firebase ID tokens; FCM push |
+| `SQLAlchemy-Utils` | 0.42.1 | `StringEncryptedType` — AES-GCM column encryption |
+| `cryptography` | 50.0.1 | The AES-GCM primitive under the column encryption |
+| `argon2-cffi` | 23.1.0 | Argon2 helpers in `encryption.py` (no password is stored today) |
+| `bleach` | 6.4.0 | HTML sanitisation (XSS prevention) |
+| `redis` | 5.0.1 | Blacklist, rate limits, quotas, presence |
+| `slowapi` | 0.1.9 | Per-route rate limits |
+| `pydantic` | 2.13.0 | Input validation and type enforcement |
+| `email-validator` | 2.3.0 | Email format validation |

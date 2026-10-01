@@ -83,7 +83,7 @@ not block the others.
 To see what the next run would destroy, without destroying it:
 
 ```bash
-docker exec postgres_db psql -U <owner> -d noharm-db -c \
+sudo docker exec noharm-postgres psql -U noharm -d noharm -c \
   "SELECT cl_0a, cl_0f FROM tb_0 WHERE cl_0e = 2 AND cl_0f <= NOW() - INTERVAL '30 days';"
 ```
 
@@ -111,7 +111,7 @@ breaks, and the system quietly keeps two users' conversation for ever, long
 after the purpose that justified copying it. Check what is eligible with:
 
 ```bash
-docker exec postgres_db psql -U <owner> -d noharm-db -c \
+sudo docker exec noharm-postgres psql -U noharm -d noharm -c \
   "SELECT count(*) FROM tb_11 e JOIN tb_10 r ON r.cl_10a = e.cl_11b
      WHERE r.cl_10f IN (5, 6) AND r.updated_at <= NOW() - INTERVAL '180 days';"
 ```
@@ -134,7 +134,7 @@ likes go with it. What the author deletes never reaches this job — that is a
 real DELETE at the time.
 
 ```bash
-docker exec postgres_db psql -U <owner> -d noharm-db -c \
+sudo docker exec noharm-postgres psql -U noharm -d noharm -c \
   "SELECT (SELECT count(*) FROM tb_16 WHERE cl_16e = 3 AND cl_16f <= NOW() - INTERVAL '30 days') AS posts,
           (SELECT count(*) FROM tb_17 WHERE cl_17e = 3 AND cl_17f <= NOW() - INTERVAL '30 days') AS comments;"
 
@@ -163,7 +163,7 @@ docker compose -f compose.host.yaml --env-file prod.env run --rm app purge-error
 
 ### The SSH access collector
 
-The sixth entry is not a purge. Every ten minutes it reads the last **fifteen**
+The seventh entry is not a purge. Every ten minutes it reads the last **fifteen**
 minutes of the SSH journal and records the successful logins into `tb_15`, which
 the admin board's Access tab shows.
 
@@ -190,8 +190,8 @@ Two things it does **not** do:
   collector reads it. It catches access nobody expected and carelessness — not
   someone covering their tracks.
 
-Each new login also sends an alert to every uid in `ADMIN_USER_IDS` over the
-websocket. **That only reaches an administrator with the app open in a tab**
+Each new login also sends an alert to every administrator over the websocket —
+`ADMIN_USER_IDS`, the official accounts and anyone promoted from the app. **That only reaches an administrator with the app open in a tab**
 (the notification fires when the tab is unfocused, not when the browser is
 closed): there is no Web Push subscription and the FCM path needs the installed
 native app. For a login at 3am that is a real gap, and the board is where these
@@ -211,9 +211,19 @@ running**, and the tab says so rather than implying the first.
 
 ### Reading a report as a moderator
 
-Moderation is the `ADMIN_USER_IDS` allowlist in `prod.env` and nothing else —
-a JSON array of Firebase UIDs, empty by default. It is read when the config
-singleton is built, so adding a uid needs the app restarted:
+Three things make an account a moderator (`core/roles.isAdmin`):
+
+- **`OFFICIAL_USER_IDS`** in `prod.env` — NoHarm's own accounts. They moderate,
+  and they are the only ones who can promote and demote others.
+- **`ADMIN_USER_IDS`** in `prod.env` — administrators named by the environment.
+  The app cannot revoke them.
+- **Promoted from the app** — an official account opens someone's profile,
+  ⋯ → *Make admin*; Settings → *Administrators* lists everyone and removes the
+  ones promoted there. Stored in `tb_19`; a removal takes effect on that
+  account's next request.
+
+The two lists are JSON arrays of Firebase UIDs, empty by default, read when the
+config singleton is built — so editing them needs the app restarted:
 
 ```bash
 cd ~/noHarmBack/docker
@@ -227,7 +237,7 @@ A moderator finds their own uid by signing in and reading `id` from
 **The normal way in is the app itself.** Sign in at https://noharm.site,
 Profile → gear → **Reports**: the queue, each report with the conversation
 captured behind it, and the two buttons that close it or suspend the account.
-The row is not rendered for anyone not on the allowlist. What follows is the
+The row is not rendered for anyone who is not an administrator. What follows is the
 same thing over curl, for a shell or a script:
 
 ```
@@ -397,7 +407,7 @@ ones.** This is the single most confusable thing on the box:
 
 | | Role | Used by | Why |
 |---|---|---|---|
-| `DATABASE_URL` | `noharm_app` | the running app | `NOSUPERUSER`, `NOBYPASSRLS` — the 16 RLS policies actually constrain it |
+| `DATABASE_URL` | `noharm_app` | the running app | `NOSUPERUSER`, `NOBYPASSRLS` — the RLS policies actually constrain it |
 | `DATABASE_URL_UNPOOLED` | `noharm` | Alembic | owner and superuser; DDL needs that, and RLS must not filter a migration |
 
 `noharm` is `POSTGRES_USER` — a superuser, so it ignores every policy. That is
@@ -414,7 +424,8 @@ sudo docker compose --env-file prod.env -f compose.host.yaml exec postgres \
   -c "select count(*) from pg_policies"
 ```
 
-Expected: `noharm_app | f | f`, and 16 policies (across 9 tables). The migration
+Expected: `noharm_app | f | f`, and 44 policies across 19 tables (as of
+migration `20261001_02`; each migration that adds a table adds its own). The migration
 that installs them also warns at upgrade time when `DATABASE_USER` names a role
 that would bypass them.
 

@@ -1,7 +1,7 @@
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class StreakResponse(BaseModel):
@@ -16,6 +16,17 @@ class StreakResponse(BaseModel):
     updated_at: Optional[datetime] = Field(None, description="Updated at")
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    @field_validator("start_at", "end_at", "last_checkin", "created_at", "updated_at")
+    @classmethod
+    def _tagUtc(cls, value: Optional[datetime]) -> Optional[datetime]:
+        # Encrypted DateTime columns decrypt naive values without an offset, and
+        # a timestamp with no offset is parsed as *local* time by JavaScript, so
+        # the client's clock ran hours apart from the server's day count. Naive
+        # values are stored in UTC (see StreakService._asUtc), so tag them.
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
 
 class StreakListResponse(BaseModel):

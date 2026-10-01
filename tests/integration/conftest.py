@@ -141,6 +141,7 @@ def real_account_status_lookups():
     tests.
     """
     import api.dependencies.auth as authDeps
+    import core.roles as roles
 
     class _RealDatabase:
         @property
@@ -151,12 +152,16 @@ def real_account_status_lookups():
         def engine(self):
             return _engine
 
-    original = authDeps.database
-    authDeps.database = _RealDatabase()
+    # core.roles reads tb_19 the same way, and a MagicMock there would make
+    # every promotion invisible to the admin gate.
+    original, originalRoles = authDeps.database, roles.database
+    authDeps.database = roles.database = _RealDatabase()
+    roles.invalidateGrants()
     try:
         yield
     finally:
-        authDeps.database = original
+        authDeps.database, roles.database = original, originalRoles
+        roles.invalidateGrants()
 
 
 # ── DB proxy: gives repositories the Database interface they expect ────────────

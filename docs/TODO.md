@@ -20,10 +20,10 @@ This document tracks the current state of the backend architecture and component
 | **Infra as code**          | Terraform: VPC, RDS, ElastiCache, ECR, ALB, ECS, Secrets (`infra/`)   | ⚠️ Written, **not provisioned** |
 | **CI/CD**                  | `deploy.yml`: build 2 repos → ECR → migration task → service          | ⚠️ Written, `push` trigger disabled — not the current deploy |
 | **Badge seed**             | `20260831_01` seeds tb_5 with 10 milestones (1d → 365d)               | ✅ Complete |
-| **RLS integration tests**  | `test_rls.py`: 12 tests straight against the tables, with a non-bypassing role | ✅ Complete |
-| **Models**                 | All 9 SQLAlchemy models                                               | ✅ Complete |
-| **Encryption**             | AES-256 field-level encryption                                        | ✅ Complete |
-| **Repositories**           | All 9 repositories (full CRUD)                                        | ✅ Complete |
+| **RLS integration tests**  | `test_rls.py`: 35 tests straight against the tables, with a non-bypassing role | ✅ Complete |
+| **Models**                 | One per table, `tb_0`–`tb_19` (`tb_8` is defined but never written) | ✅ Complete |
+| **Encryption**             | AES-GCM column encryption + keyed blind indexes | ✅ Complete |
+| **Repositories**           | One per table that the app reads or writes      | ✅ Complete |
 | **Security**               | Encryption, JWT, Blacklist, Rate Limiting, Per-route limits (slowapi) | ✅ Complete |
 | **Middleware**             | RateLimit, SecurityHeaders                                            | ✅ Complete |
 | **Dependencies**           | getCurrentUser, getDb, getDbWithRLS                                   | ✅ Complete |
@@ -35,7 +35,7 @@ This document tracks the current state of the backend architecture and component
 | **WebSocket**              | Socket.IO + handlers                                                  | ✅ Complete |
 | **Row Level Security**     | Policies in `20260831_02` + per-transaction context                    | ✅ Complete |
 | **Account deletion window**| `20260901_01`: `deleted_at` + purgeable FKs, `POST /auth/reactivate`, `purge-accounts` cron | ✅ Complete |
-| **Admin authorisation**    | `ADMIN_USER_IDS` allowlist + `getAdminUser` on the status and report routes | ✅ Complete |
+| **Admin authorisation**    | `ADMIN_USER_IDS`, official accounts and `tb_19` grants, read by `core/roles.isAdmin` through `getAdminUser` | ✅ Complete |
 | **User reports**           | `20260909_01`: `tb_10` + RLS, `POST /reports/{userId}`, admin queue and resolutions | ✅ Complete |
 | **Moderation notices**     | `20260911_04`: `tb_12`, warnings and suspension notices, `POST /users/{id}/warn` | ✅ Complete |
 | **Name & picture sanctions**| `20260916_01`: `cl_0h`/`cl_0i`, `PUT /users/{id}/username/reset` and `/picture/{block\|unblock}` | ✅ Complete |
@@ -43,111 +43,16 @@ This document tracks the current state of the backend architecture and component
 | **Date of birth**          | `20260916_03`: `cl_0j`, `MINIMUM_AGE_YEARS` enforced at registration   | ✅ Complete |
 | **Data export**            | `GET /users/me/export` — the right of access, answered without a ticket | ✅ Complete |
 | **Pagination**             | Generic pagination system                                             | ✅ Complete |
-| **Unit Tests**             | 1028 tests, 0 failures                                                 | ✅ Complete |
+| **Unit Tests**             | ~1150 tests, 0 failures (`pytest tests/unit -q` for the current number) | ✅ Complete |
 | **Pyright/Pylance config** | `pyrightconfig.json` + `.vscode/settings.json`                        | ✅ Complete |
 
 ---
 
 ## Component Reference
 
-### Models (`src/infrastructure/database/models/`)
-
-| File                   | Table  | Purpose                             |
-| ---------------------- | ------ | ----------------------------------- |
-| `userModel.py`         | `tb_0` | User accounts with encrypted fields |
-| `streakModel.py`       | `tb_1` | Sobriety streaks                    |
-| `friendshipModel.py`   | `tb_2` | Friend relationships                |
-| `chatModel.py`         | `tb_3` | Chat conversations                  |
-| `messageModel.py`      | `tb_4` | Chat messages                       |
-| `badgeModel.py`        | `tb_5` | Achievement badges                  |
-| `userBedgesModel.py`   | `tb_6` | User-badge associations             |
-| `auditLogsModel.py`    | `tb_7` | Audit trail                         |
-| `refreshTokenModel.py` | `tb_8` | Refresh token storage               |
-| `reportModel.py`       | `tb_10` | User reports (moderation)          |
-| `reportEvidenceModel.py` | `tb_11` | Evidence captured with a report   |
-| `moderationNoticeModel.py` | `tb_12` | Warnings and suspension notices  |
-
-### Repositories (`src/infrastructure/database/repositories/`)
-
-| File                        | Entity       | Key Methods                                                       |
-| --------------------------- | ------------ | ----------------------------------------------------------------- |
-| `userRepository.py`         | User         | findById, findByEmail, findByUsername, create, update, softDelete |
-| `streakRepository.py`       | Streak       | findByOwnerId, findCurrentStreak, findCurrentRecord, markAsRecord, updateLastCheckin |
-| `friendshipRepository.py`   | Friendship   | findByPair, findAllBySenderId, findAllByReceiverId                |
-| `chatRepository.py`         | Chat         | findByParticipants, findAllByUserId                               |
-| `messageRepository.py`      | Message      | findByChatId, findUnreadByChatId, markAsRead, markAllAsRead       |
-| `badgeRepository.py`        | Badge        | findAll, findById                                                 |
-| `userBadgesRepository.py`   | UserBadge    | findByUserId, findByBadgeId, existsByUserAndBadge, grant          |
-| `auditLogsRepository.py`    | AuditLogs    | findByType, findByCatalystId, findByDateRange                     |
-| `refreshTokenRepository.py` | RefreshToken | findByTokenHash, deleteByUserId, deleteExpired                    |
-| `reportRepository.py`       | Report       | findById, findOpenByPair, findByReporter, findAll, countByReported, create, updateStatus |
-
-### Services (`src/domain/services/`)
-
-| File                   | Responsibility                                            |
-| ---------------------- | --------------------------------------------------------- |
-| `authService.py`       | Registration, login, logout, token refresh, Firebase auth |
-| `userService.py`       | Profile management, user search, password changes         |
-| `streakService.py`     | Streak lifecycle, check-in tracking, record detection     |
-| `friendshipService.py` | Friend requests, accept/reject/block                      |
-| `chatService.py`       | Conversation management                                   |
-| `messageService.py`    | Message CRUD, read status                                 |
-| `badgeService.py`      | Achievement checking and granting                         |
-| `userBadgeService.py`  | User-badge management                                     |
-| `reportService.py`     | Filing reports, the reporter's own list, admin queue and resolutions |
-| `auditLogsService.py`  | Audit trail operations                                    |
-
-### Routes (`src/api/routes/`)
-
-| File                  | Endpoints                                                                              | Auth Required |
-| --------------------- | -------------------------------------------------------------------------------------- | ------------- |
-| `authRoutes.py`       | POST /auth/register, /auth/login, /auth/refresh, /auth/logout                          | Varies        |
-| `userRoutes.py`       | GET /users/me, PUT /users/me, PUT /users/password, GET /users/{userId}                 | Yes           |
-| `streakRoutes.py`     | GET /streaks/current, /streaks/record, /streaks/history, POST /streaks/start, /streaks/end, /streaks/checkin | Yes           |
-| `friendshipRoutes.py` | GET /friendships, POST /friendships, PUT /friendships/{id}/accept, etc.                | Yes           |
-| `chatRoutes.py`       | GET /chats, GET /chats/{chatId}, POST /chats, PUT /chats/{chatId}/read                 | Yes           |
-| `messageRoutes.py`    | GET /messages/chat/{chatId}, POST /messages, PUT /messages/{id}, DELETE /messages/{id} | Yes           |
-| `badgesRoutes.py`     | GET /badges, GET /badges/all                                                           | Yes           |
-| `userBadgesRoutes.py` | GET /user-badges, POST /user-badges, etc.                                              | Yes           |
-| `reportRoutes.py`     | POST /reports/{userId}, GET /reports/mine; admin: GET /reports, GET /reports/{id}, PUT /reports/{id}/resolve/{status} | Yes           |
-| `auditLogsRoutes.py`  | GET /logs, GET /logs/{logId}, GET /logs/type/{type}, etc.                              | Yes           |
-
-### Schemas (`src/schemas/`)
-
-| File                   | Schemas                                                                         |
-| ---------------------- | ------------------------------------------------------------------------------- |
-| `authSchemas.py`       | AuthRegisterRequest, AuthLoginRequest, TokenResponse                            |
-| `userSchemas.py`       | UserRegisterRequest, UserUpdateRequest, UserPrivateResponse, UserPublicResponse |
-| `streakSchemas.py`     | StreakResponse (start_at, end_at, last_checkin), StreakCreate, StreakUpdate     |
-| `friendshipSchemas.py` | FriendshipRequest, FriendshipResponse, FriendshipListResponse                   |
-| `chatSchemas.py`       | ChatResponse, ConversationResponse                                              |
-| `messageSchemas.py`    | MessageRequest, MessageResponse, MessageListResponse                            |
-| `badgeSchemas.py`      | BadgeResponse, BadgeListResponse                                                |
-| `userBadgeSchemas.py`  | UserBadgeResponse, UserBadgeCreate, UserBadgeListResponse                       |
-| `reportSchemas.py`     | ReportReason, ReportRequest, ReportResponse, ReportListResponse                 |
-| `auditLogsSchemas.py`  | AuditLogsResponse, AuditLogsCreate, AuditLogsListResponse                       |
-| `paginationSchemas.py` | PaginationParams, PaginatedResponse[T]                                          |
-
-### WebSocket (`src/websocket/`)
-
-| File                           | Purpose                                                      |
-| ------------------------------ | ------------------------------------------------------------ |
-| `socketManager.py`             | Socket.IO server, JWT auth on connect, connection management |
-| `handlers/chatHandlers.py`     | Real-time messaging events                                   |
-| `handlers/presenceHandlers.py` | Online/offline status, typing indicators                     |
-
-### Security (`src/security/`)
-
-| File                     | Purpose                                              |
-| ------------------------ | ---------------------------------------------------- |
-| `jwtHandler.py`          | Access/refresh token generation and validation       |
-| `tokenBlacklist.py`      | JWT revocation with persistent storage               |
-| `persistentHashTable.py` | Append-only log for blacklist                        |
-| `rateLimiter.py`         | IP-based and login rate limiting (global middleware) |
-| `limiter.py`             | Shared `slowapi` Limiter for per-route rate limits   |
-| `middleware.py`          | RateLimitMiddleware, SecurityHeadersMiddleware       |
-| `encryption.py`          | AES-256, Argon2, SHA-256                             |
-| `sanitizer.py`           | HTML sanitization via bleach                         |
+The per-file tables — models, repositories, services, routes, schemas,
+security, WebSocket — live in [`README.md`](README.md), "Source Code". They
+were duplicated here and the two copies drifted apart; there is now one.
 
 ---
 
@@ -158,7 +63,7 @@ This document tracks the current state of the backend architecture and component
 | Terms of Use / Privacy Policy **text** | ✅ Complete | In force since 2026-09-28 (`TERMS_VERSION` / `PRIVACY_VERSION` = `"2026-09-28"`). Written from the code, not reviewed by a lawyer yet — worth doing, because of the health-data consent. |
 | `storageService.py` | ⬜ Empty | File uploads, profile pictures. The module holds the declarative `Base` and nothing else. `STORAGE_SERVICE_URI`, `STORAGE_SERVICE_KEY` and `STORAGE_PATH` have been removed from `core/config.py`; whoever builds uploads adds the settings the implementation actually needs. |
 | Backups off the database disk | ⬜ Missing | `backup-db.sh` writes to `~/backups`, on the **same EBS volume** as Postgres. It covers accidental deletion, not loss of the volume. Shipping to S3 requires an instance role — there is no AWS credential on the machine today. |
-| Monitoring / alerting | ⬜ Missing | Nothing warns when a container dies, the dump fails, the certificate renewal does not run, or `purge-accounts` stops purging. All three cron jobs only write to a log — and a purge that never runs is invisible from outside, because a deleted account past its window answers "Account not found." either way. |
+| Monitoring / alerting | ⬜ Missing | Nothing pages anyone when a container dies, the dump fails or the certificate renewal does not run. The cron jobs only write to a log; the admin board's health panel shows a stalled purge, but only to someone who opens it — and a purge that never runs is invisible from outside, because a deleted account past its window answers "Account not found." either way. |
 
 ---
 
@@ -194,10 +99,10 @@ PostgreSQL
 
 ### Key Features
 
-1. **Field-Level Encryption**: All sensitive fields encrypted at rest with AES-256 (Fernet)
+1. **Field-Level Encryption**: Sensitive columns encrypted at rest with AES-GCM (`StringEncryptedType`), keyed blind indexes for lookups
 2. **Row Level Security**: PostgreSQL RLS policies enforce data access control at database level
 3. **JWT Authentication**: Access tokens (15 min) + Refresh tokens (7 days) with blacklist
-4. **Rate Limiting**: Two-layer — global IP floor (60 req/min via middleware) + per-route ceilings via `slowapi` (5/min on register, 10/min on login, etc.)
+4. **Rate Limiting**: Two-layer, both in Redis — global IP floor (240 req/min via middleware) + per-route ceilings via `slowapi` (5/min on register, 10/min on login, etc.)
 5. **Pagination**: Generic pagination system with PaginatedResponse[T]
 6. **WebSocket**: Real-time chat with Socket.IO and JWT authentication
 
@@ -224,7 +129,7 @@ Defined in `.secrets.toml` under `STATUS_CODES`:
 
 ## Known Issues
 
-1. ~~**Bug in `userBedgesModel.py`**~~ — does not exist: `badge_id` references `tb_5.cl_5a` both in the model and in the baseline. The real error was `UserModel.user_badges` declaring the relationship by string: the name only resolves if the class's module has been imported. `models/__init__.py` now imports all ten, and `patch_orm_models` is no longer autouse.
+1. ~~**Bug in `userBadgesModel.py`**~~ — does not exist: `badge_id` references `tb_5.cl_5a` both in the model and in the baseline. The real error was `UserModel.user_badges` declaring the relationship by string: the name only resolves if the class's module has been imported. `models/__init__.py` now imports all ten, and `patch_orm_models` is no longer autouse.
 2. **User ID type**: `tb_0.cl_0a` (and all FK columns referencing it) use `String`/`VARCHAR`, not `UUID`. Firebase UID is the PK. Other tables (`tb_1`–`tb_8`) still use `UUID(as_uuid=True)` for their own PKs.
 
 ---
@@ -235,11 +140,11 @@ Rules requiring infrastructure changes (new tables, models, external services):
 
 | Rule                           | Description                            | Blocked By                                         |
 | ------------------------------ | -------------------------------------- | -------------------------------------------------- |
-| 1.1 — Email Verification       | Backend-initiated verification flow    | `emailService.py` empty; needs token storage table |
+| 1.1 — Email Verification       | Backend-initiated verification flow    | No email service exists (Firebase sends email); would need one plus a token table |
 | ~~7.2 — Badge Milestones~~     | Auto-grant at streak milestones        | ✅ Desbloqueado pela migration `20260831_01`       |
 | 8.1 — Audit Log Password/Email | Type=3 (password), Type=4 (email) logs | Auth delegated to Firebase — no backend endpoints  |
 
-See `docs/UNIMPLEMENTABLE_RULES.md` for full details.
+The same table, with the reasoning, is in `security.md` §10.
 
 ---
 
@@ -249,9 +154,8 @@ See `docs/UNIMPLEMENTABLE_RULES.md` for full details.
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure secrets
-cp .env.example .secrets.toml
-# Edit .secrets.toml with your values
+# Configure secrets: create .secrets.toml with a [dev] section
+# (see README.md, Configuration — there is no template file)
 
 # Run migrations — mandatory: nothing creates the schema at startup, and
 # without them the database has no RLS policies

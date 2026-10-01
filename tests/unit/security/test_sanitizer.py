@@ -72,7 +72,12 @@ def test_invalid_username_too_short():
 
 
 def test_invalid_username_too_long():
-    assert Sanitizer.isValidUsername("a" * 31) is False
+    # Same ceiling as the schemas and UserService: 50.
+    assert Sanitizer.isValidUsername("a" * 51) is False
+
+
+def test_valid_username_at_the_ceiling():
+    assert Sanitizer.isValidUsername("a" * 50) is True
 
 
 def test_invalid_username_space():

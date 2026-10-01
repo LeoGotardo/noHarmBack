@@ -46,5 +46,5 @@ class Sanitizer:
         Returns:
             bool: True if the username matches the allowed pattern, False otherwise.
         """
-        pattern = r'^[a-zA-Z0-9_-]{3,30}$'
+        pattern = r'^[a-zA-Z0-9_-]{3,50}$'
         return bool(re.match(pattern, username))

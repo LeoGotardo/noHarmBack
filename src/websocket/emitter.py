@@ -229,9 +229,9 @@ def notifyAdmins(kind: str, title: str, body: str, **extra: Any) -> None:
     down the thing it was reporting on.
     """
     try:
-        from core.config import config
+        from core.roles import allAdminIds
 
-        for adminId in config.ADMIN_USER_IDS:
+        for adminId in allAdminIds():
             emit(
                 "admin_alert",
                 {"kind": kind, "title": title, "body": body, **extra},

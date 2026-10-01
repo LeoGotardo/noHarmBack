@@ -91,7 +91,7 @@ class Config:
             # the database holds the ciphertext and the index side by side. With
             # an unkeyed digest the index is the weaker of the two by a wide
             # margin — a wordlist of e-mail addresses recovers the column
-            # outright, and a username matching ^[a-zA-Z0-9_-]{3,30}$ falls to
+            # outright, and a username matching ^[a-zA-Z0-9_-]{3,50}$ falls to
             # plain enumeration. Keying it means the index is worth nothing
             # without a secret the database never holds.
             #

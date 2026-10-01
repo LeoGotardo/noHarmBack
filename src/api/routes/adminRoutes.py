@@ -1,13 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from api.dependencies.auth import getAdminUser
+from api.dependencies.auth import getAdminUser, getOfficialUser
 from api.dependencies.database import getDb
 from domain.services.adminService import AdminService
+from domain.services.adminGrantService import AdminGrantService
 from infrastructure.database.repositories.errorLogRepository import ErrorLogRepository
 from infrastructure.database.repositories.hostAccessRepository import HostAccessRepository
 from infrastructure.database.repositories.userRepository import UserRepository
 from schemas.adminSchemas import (
+    AdminAccountRow,
     AdminErrorRow,
     AdminHostAccessRow,
     AdminOverviewResponse,
@@ -56,7 +58,7 @@ except Exception:
         "Cached for 60 seconds; `generated_at` says when the numbers were "
         "actually computed rather than implying the database was just read. "
         "Opening this writes audit type 16.\n\n"
-        "Restricted to ADMIN_USER_IDS; any other caller gets a 404."
+        "Restricted to administrators; any other caller gets a 404."
     ),
 )
 @limiter.limit("30/minute")
@@ -91,7 +93,7 @@ def getOverview(
         "**No e-mail, no streak, nothing about recovery.** The list is "
         "browsable, so everything on it is readable in bulk by anyone holding "
         "one admin credential.\n\n"
-        "Restricted to ADMIN_USER_IDS; any other caller gets a 404."
+        "Restricted to administrators; any other caller gets a 404."
     ),
 )
 @limiter.limit("30/minute")
@@ -135,7 +137,7 @@ def listUsers(
         "SQLAlchemy traceback carries the statement's parameters: a failure in "
         "`messageService` puts a message body there and one in `userService` "
         "puts an e-mail address there.\n\n"
-        "Restricted to ADMIN_USER_IDS; any other caller gets a 404."
+        "Restricted to administrators; any other caller gets a 404."
     ),
 )
 @limiter.limit("30/minute")
@@ -174,7 +176,7 @@ def listErrors(
         "**This is not proof.** Anyone with root on the box can edit the "
         "journal before the collector reads it. It catches access nobody "
         "expected, not an attacker covering their tracks.\n\n"
-        "Restricted to ADMIN_USER_IDS; any other caller gets a 404."
+        "Restricted to administrators; any other caller gets a 404."
     ),
 )
 @limiter.limit("30/minute")
@@ -195,5 +197,84 @@ def listHostAccess(
             hasNext=page.hasNext,
             hasPrevious=page.hasPrevious,
         )
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+
+
+# ── administrators ────────────────────────────────────────────────────────────
+# Official accounts only: an administrator can moderate, but deciding who else
+# may is NoHarm's. Everyone else gets the same 404 as any admin route.
+
+
+@router.get(
+    "/admins",
+    response_model=list[AdminAccountRow],
+    summary="Who can use the admin routes (official)",
+    description=(
+        "Every account `getAdminUser` lets in, and where that comes from: "
+        "`official` and `env` are set in the server configuration, `granted` "
+        "was promoted from the app and is the only kind that can be revoked "
+        "here.\n\n"
+        "Restricted to OFFICIAL_USER_IDS; any other caller gets a 404."
+    ),
+)
+@limiter.limit("30/minute")
+def listAdmins(
+    request: Request,
+    db: Session = Depends(getDb),
+    currentUserId: str = Depends(getOfficialUser),
+):
+    try:
+        rows = AdminGrantService(db).listAdmins()
+        return [AdminAccountRow.model_validate(row) for row in rows]
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+
+
+@router.post(
+    "/admins/{userId}",
+    status_code=204,
+    summary="Make an account an administrator (official)",
+    description=(
+        "Grants everything the admin routes allow: the report queue, "
+        "sanctions, the admin board. Active accounts only; 409 when the "
+        "account already is one. Writes audit type 19.\n\n"
+        "Restricted to OFFICIAL_USER_IDS; any other caller gets a 404."
+    ),
+)
+@limiter.limit("10/minute")
+def promoteAdmin(
+    request: Request,
+    userId: str,
+    db: Session = Depends(getDb),
+    currentUserId: str = Depends(getOfficialUser),
+):
+    try:
+        AdminGrantService(db).promote(currentUserId, userId)
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+
+
+@router.delete(
+    "/admins/{userId}",
+    status_code=204,
+    summary="Remove an administrator (official)",
+    description=(
+        "Revokes a promotion made from the app; takes effect on that "
+        "account's next request. 409 for an administrator set in the server "
+        "configuration, 404 for an account that is not one. Writes audit "
+        "type 20.\n\n"
+        "Restricted to OFFICIAL_USER_IDS; any other caller gets a 404."
+    ),
+)
+@limiter.limit("10/minute")
+def demoteAdmin(
+    request: Request,
+    userId: str,
+    db: Session = Depends(getDb),
+    currentUserId: str = Depends(getOfficialUser),
+):
+    try:
+        AdminGrantService(db).demote(currentUserId, userId)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

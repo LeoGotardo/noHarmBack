@@ -2,9 +2,11 @@
 
 ## Overview
 
-**905 unit tests implemented — 0 failures** (plus 3 xfailed). 196 integration tests.
+**~1150 unit tests, 0 failures** (plus 3 xfailed) and ~360 integration tests. Run
+`pytest tests/unit -q` for the current number rather than trusting this line.
 
-Integration tests truncate `tb_0` and `tb_5` (cascading to everything else)
+Integration tests truncate `tb_0`, `tb_5` and `tb_15` (cascading to everything
+else; `tb_15` has no FK to cascade through)
 before each test *and once when the session ends* — otherwise the last test's
 accounts, reports and audit trail sat in the database until somebody ran the
 suite again.
@@ -47,71 +49,103 @@ python_functions = test_*
 
 ```
 tests/
-├── conftest.py                          # shared fixtures + sys.path + env + DB mock
+├── conftest.py                 # sys.path + env + core.database mocked
 ├── unit/
 │   ├── dependencies/
-│   │   └── test_auth.py                 ✅ getCurrentUser dependency
+│   │   ├── test_auth.py
+│   │   └── test_database.py
 │   ├── exceptions/
-│   │   └── test_exceptions.py           ✅ NoHarmException + database exceptions
-│   ├── repositories/
-│   │   ├── test_auditLogsRepository.py  ✅
-│   │   ├── test_badgeRepository.py      ✅
-│   │   ├── test_chatRepository.py       ✅
-│   │   ├── test_consentRepository.py    ✅ append-only, withdrawal stamps
-│   │   ├── test_friendshipRepository.py ✅
-│   │   ├── test_messageRepository.py    ✅
-│   │   ├── test_streakRepository.py     ✅
-│   │   ├── test_userBadgesRepository.py ✅
-│   │   └── test_userRepository.py       ✅
-│   ├── routes/
-│   │   ├── test_authRoutes.py           ✅
-│   │   ├── test_friendshipRoutes.py     ✅
-│   │   ├── test_reportRoutes.py         ✅
-│   │   ├── test_streakRoutes.py         ✅
-│   │   └── test_userRoutes.py           ✅
-│   ├── schemas/
-│   │   └── test_schemas.py              ✅ all Pydantic DTOs
+│   │   └── test_exceptions.py
 │   ├── infrastructure/
-│   │   └── test_firebaseApp.py          ✅ one app per process, cold-start race
+│   │   ├── test_cursorUtils.py
+│   │   ├── test_fcmService.py
+│   │   └── test_firebaseApp.py
 │   ├── jobs/
-│   │   ├── test_purgeAccounts.py        ✅
-│   │   └── test_purgeEvidence.py        ✅ evidence retention sweep
+│   │   ├── test_ingestHostAccess.py
+│   │   ├── test_purgeAccounts.py
+│   │   ├── test_purgeEvidence.py
+│   │   └── test_purgeRemovedContent.py
+│   ├── repositories/
+│   │   ├── test_auditLogsRepository.py
+│   │   ├── test_badgeRepository.py
+│   │   ├── test_chatRepository.py
+│   │   ├── test_consentRepository.py
+│   │   ├── test_friendshipRepository.py
+│   │   ├── test_messageRepository.py
+│   │   ├── test_notificationRepository.py
+│   │   ├── test_reportRepository.py
+│   │   ├── test_streakRepository.py
+│   │   ├── test_userBadgesRepository.py
+│   │   └── test_userRepository.py
+│   ├── routes/
+│   │   ├── test_appWiring.py
+│   │   ├── test_authRoutes.py
+│   │   ├── test_friendshipRoutes.py
+│   │   ├── test_reportRoutes.py
+│   │   ├── test_streakRoutes.py
+│   │   └── test_userRoutes.py
+│   ├── schemas/
+│   │   ├── test_publicRole.py
+│   │   └── test_schemas.py
 │   ├── security/
-│   │   ├── test_encryption.py           ✅
-│   │   ├── test_jwtHandler.py           ✅
-│   │   ├── test_middleware.py           ✅
-│   │   ├── test_persistentHashTable.py  ✅
-│   │   ├── test_rateLimiter.py          ✅
-│   │   ├── test_sanitizer.py            ✅
-│   │   └── test_tokenBlacklist.py       ✅
-│   └── services/
-│       ├── test_auditLogsService.py     ✅
-│       ├── test_authService.py          ✅
-│       ├── test_badgeService.py         ✅
-│       ├── test_chatService.py          ✅
-│       ├── test_consentService.py       ✅ versions, pending, withdrawal
-│       ├── test_exportService.py        ✅ what the dump holds and omits
-│       ├── test_friendshipService.py    ✅
-│       ├── test_messageService.py       ✅
-│       ├── test_noticeService.py        ✅
-│       ├── test_reportService.py        ✅
-│       ├── test_streakService.py        ✅
-│       ├── test_userBadgeService.py     ✅
-│       └── test_userService.py          ✅
-└── integration/                     ✅ real Postgres + Redis, real HTTP
-    ├── conftest.py                   (test engine, Firebase emulator mode)
-    ├── helpers.py                    (identities, tokens, direct-SQL helpers)
-    ├── test_accountLifecycle.py      ✅ deletion window, bans, admin gate, purge
-    ├── test_auth.py                  ✅
-    ├── test_badges.py / test_chat.py / test_friendship.py / test_message.py
-    ├── test_reports.py                ✅ filing, duplicates, reporter-only reads
-    ├── test_reportEvidence.py         ✅ capture, admin-only reads, surviving a purge, retention
-    ├── test_moderationQueue.py        ✅ the review lock: claim, collision, expiry, release
-    ├── test_consentAndExport.py       ✅ the registration gate, the age floor, a version bump re-gating an existing account, withdrawal deleting streaks, the export
-    ├── test_suspensions.py            ✅ timed bans, the date in the refusal, lifting itself
-    ├── test_notices.py                ✅ warnings, suspension notices, acknowledgement, what they never name
-    ├── test_rls.py / test_security.py / test_streak.py
-    ├── test_user.py / test_websocket.py
+│   │   ├── test_clientIp.py
+│   │   ├── test_encryption.py
+│   │   ├── test_firebaseIdentity.py
+│   │   ├── test_jwtHandler.py
+│   │   ├── test_middleware.py
+│   │   ├── test_persistentHashTable.py
+│   │   ├── test_rateLimiter.py
+│   │   ├── test_sanitizer.py
+│   │   ├── test_suspiciousTraffic.py
+│   │   └── test_tokenBlacklist.py
+│   ├── services/
+│   │   ├── test_auditLogsService.py
+│   │   ├── test_authService.py
+│   │   ├── test_badgeService.py
+│   │   ├── test_chatService.py
+│   │   ├── test_consentService.py
+│   │   ├── test_errorLogService.py
+│   │   ├── test_exportService.py
+│   │   ├── test_friendshipService.py
+│   │   ├── test_messageService.py
+│   │   ├── test_noticeService.py
+│   │   ├── test_postService.py
+│   │   ├── test_reportService.py
+│   │   ├── test_streakService.py
+│   │   ├── test_userBadgeService.py
+│   │   └── test_userService.py
+│   └── websocket/
+│       ├── test_chatHandlers.py
+│       ├── test_emitter.py
+│       ├── test_presence.py
+│       ├── test_presenceHandlers.py
+│       ├── test_socketManager.py
+│       └── test_wsRateLimiter.py
+└── integration/                # real Postgres + Redis, real HTTP
+    ├── conftest.py
+    ├── helpers.py
+    ├── test_accountLifecycle.py
+    ├── test_adminAggregates.py
+    ├── test_adminBoard.py
+    ├── test_adminGrants.py
+    ├── test_auth.py
+    ├── test_badges.py
+    ├── test_chat.py
+    ├── test_consentAndExport.py
+    ├── test_friendship.py
+    ├── test_message.py
+    ├── test_moderationQueue.py
+    ├── test_notices.py
+    ├── test_posts.py
+    ├── test_reportAbuse.py
+    ├── test_reportEvidence.py
+    ├── test_reports.py
+    ├── test_rls.py
+    ├── test_security.py
+    ├── test_streak.py
+    ├── test_suspensions.py
+    ├── test_user.py
+    └── test_websocket.py
 ```
 
 ---
@@ -130,7 +164,7 @@ tests/
 |---------|-------|-------------|
 | `mock_db` | function | `MagicMock` with `.session` and `.engine` attributes |
 | `mock_user` | function | `MagicMock` user with `id`, `username`, `email`, `status` |
-| `patch_orm_models` | function (autouse) | Patches ORM constructors in service modules to prevent SQLAlchemy mapper errors |
+| `patch_orm_models` | function (opt-in) | Patches ORM constructors in service modules to prevent SQLAlchemy mapper errors |
 
 ---
 
@@ -185,9 +219,9 @@ client = TestClient(app)
 
 | File | Coverage |
 |------|----------|
-| `test_encryption.py` | AES-256 encrypt/decrypt roundtrip, SHA-256 hash determinism, Argon2 verify |
+| `test_encryption.py` | Fernet helper roundtrip, keyed blind index (HMAC) determinism, Argon2 verify |
 | `test_jwtHandler.py` | Token creation, expiry, type enforcement, blacklist integration, JTI uniqueness |
-| `test_tokenBlacklist.py` | Add/check/expiry behaviour, file persistence |
+| `test_tokenBlacklist.py` | Add/check/expiry behaviour against Redis |
 | `test_persistentHashTable.py` | Append, lookup, compaction |
 | `test_rateLimiter.py` | Login lockout (5 attempts), IP block, window reset |
 | `test_sanitizer.py` | Script tag removal, attribute stripping, plain text passthrough |
@@ -234,7 +268,7 @@ Every repository is tested for:
 | `test_authRoutes.py` | POST /auth/register, /auth/login, /auth/refresh, /auth/logout |
 | `test_userRoutes.py` | GET /users/me, PUT /users/me, GET /users/{id}, DELETE /users/me, and the admin gate on PUT /users/{id}/status/{status} and PUT /users/{id}/suspend |
 | `test_streakRoutes.py` | GET /streaks/current, /streaks/record, /streaks/history, POST /streaks/start, /streaks/end, /streaks/checkin |
-| `test_friendshipRoutes.py` | POST /friendships, PUT /friendships/{id}/accept, /reject, /block, DELETE /friendships/{id} |
+| `test_friendshipRoutes.py` | GET /friendships, /pending, /sent, /{id}; POST /friendships/{receiverId}; POST /friendships/{id}/accept, /reject, /block; DELETE /friendships/{id} |
 | `test_reportRoutes.py` | POST /reports/{userId} (including `chatId` forwarding and the refusal of any body field carrying message text), GET /reports/mine (which never names the reviewing moderator), and the admin gate on GET /reports, GET /reports/{id}/evidence, POST/DELETE /reports/{id}/claim and PUT /reports/{id}/resolve/{status} |
 
 ### Schemas (`tests/unit/schemas/`)
@@ -251,7 +285,7 @@ Covers all Pydantic DTOs — required fields, optional fields, validation errors
 | `tests/unit/routes/test_messageRoutes.py` | Medium |
 | `tests/unit/routes/test_badgesRoutes.py` | Low |
 | `tests/unit/routes/test_auditLogsRoutes.py` | Low |
-| `tests/integration/` — green (122 passed, 17 skipped; 139 passed with `RLS_TEST_DATABASE_URL` on a NOBYPASSRLS role) | — the 17 skips are `test_rls.py` against a superuser role |
+| `tests/integration/` — green (~320 passed, 35 skipped against a superuser role; the skips are `test_rls.py`, which runs with `RLS_TEST_DATABASE_URL` on a NOBYPASSRLS role). `TestPurge` in `test_accountLifecycle.py` also needs the Firebase Auth emulator listening on `:9099`, because the purge deletes the Firebase user | — |
 
 ---
 
@@ -328,5 +362,5 @@ rejected, and 47 collection errors that do not reproduce anywhere else.
 | Security utilities | Implemented | 95%+ |
 | Services | Implemented | 85%+ |
 | Repositories | Implemented | 80%+ |
-| Routes | Partial (4/9 files) | 75%+ |
+| Routes | Partial — 6 route files of 15 have unit tests; the rest are covered by the integration suite | 75%+ |
 | Integration | Implemented and green | — |

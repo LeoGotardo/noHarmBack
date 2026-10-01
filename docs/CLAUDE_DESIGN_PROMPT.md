@@ -1,5 +1,23 @@
 # Claude Design Prompt — NoHarm Mobile App
 
+> [!NOTE]
+> **Historical.** This is the prompt the first screen prototypes were generated
+> from, kept as a record of that brief. It is not a description of the app
+> today, and where they differ the app wins:
+>
+> - The app is **Vite + React 19, wrapped with Capacitor** — not React Native /
+>   Expo. Motion is CSS, not Animated/Reanimated.
+> - Sign-up and sign-in are **Google sign-in** (Firebase), plus a date of birth
+>   and three consent answers — no email or username typed at the door.
+> - The tabs are **Home, Friends, Chat, Community, Profile**. Badges moved under
+>   Profile when the Community tab took its place.
+> - Streaks **never expire**; only a relapse ends one.
+> - Moderation, the admin board, notices, consent and the legal pages exist
+>   and are not in this brief.
+>
+> The current shapes are in [`FRONTEND_DESIGN_BRIEF.md`](FRONTEND_DESIGN_BRIEF.md)
+> and the front end's `CLAUDE.md`.
+
 Paste this prompt into Claude Design to generate screen prototypes.
 
 ---

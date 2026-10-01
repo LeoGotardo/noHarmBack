@@ -137,7 +137,7 @@ class Encryption:
         It used to be a bare `sha256(value)`, which made the index strictly
         weaker than the ciphertext it sits next to: an attacker reading the
         database recovers e-mails with a wordlist and usernames by enumerating
-        `^[a-zA-Z0-9_-]{3,30}$`, never touching DATABASE_ENCRYPTION_KEY. HMAC
+        `^[a-zA-Z0-9_-]{3,50}$`, never touching DATABASE_ENCRYPTION_KEY. HMAC
         with a key held outside the database closes exactly that gap and
         nothing else — two identical values still produce identical indexes,
         which is the property the lookups depend on.

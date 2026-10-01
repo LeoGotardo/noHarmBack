@@ -154,10 +154,9 @@ def test_a_failed_publish_falls_back_to_scheduling(sio):
     assert sio.sio.emit.called
 
 
-def test_notifyAdmins_reaches_every_allowlisted_uid(sio):
+def test_notifyAdmins_reaches_every_admin(sio):
     with patch.object(emitter, "_hasLoop", return_value=True), \
-         patch("core.config.config") as cfg:
-        cfg.ADMIN_USER_IDS = ["adm-1", "adm-2"]
+         patch("core.roles.allAdminIds", return_value={"adm-1", "adm-2"}):
         emitter.notifyAdmins("host_access", "SSH login", "ubuntu from 1.2.3.4")
 
     assert sorted(_rooms(sio)) == ["user_adm-1", "user_adm-2"]
@@ -168,8 +167,7 @@ def test_notifyAdmins_reaches_every_allowlisted_uid(sio):
 
 def test_notifyAdmins_with_no_admins_emits_nothing(sio):
     with patch.object(emitter, "_hasLoop", return_value=True), \
-         patch("core.config.config") as cfg:
-        cfg.ADMIN_USER_IDS = []
+         patch("core.roles.allAdminIds", return_value=set()):
         emitter.notifyAdmins("error", "New error", "boom")
 
     assert not sio.sio.emit.called

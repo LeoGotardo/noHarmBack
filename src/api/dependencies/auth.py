@@ -1,6 +1,7 @@
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from core.config import config
+from core.roles import isAdmin
 from core.database import database
 from infrastructure.database.models.userModel import UserModel
 from infrastructure.database.rlsContext import RLSContext
@@ -61,10 +62,11 @@ def getCurrentUser(
 def getAdminUser(userId: str = Depends(getCurrentUser)) -> str:
     """Authorise an admin-only endpoint.
 
-    There is no role column and no admin UI: authorisation is the
-    `ADMIN_USER_IDS` allowlist and nothing else. It defaults to empty, so an
-    environment that has named no administrators rejects every admin call
-    rather than falling open.
+    Authorisation is `core.roles.isAdmin`: the `ADMIN_USER_IDS` allowlist, the
+    official accounts, and whoever an official account promoted (tb_19). The
+    allowlists default to empty and tb_19 starts empty, so an environment that
+    has named no administrators rejects every admin call rather than falling
+    open.
 
     This matters more than it looks. `PUT /users/{id}/status/{status}` can set
     any account to any status — it is the only way to ban someone, and equally
@@ -75,7 +77,7 @@ def getAdminUser(userId: str = Depends(getCurrentUser)) -> str:
     Returns 404 rather than 403 for a non-admin: whether an admin surface exists
     here is not something an ordinary caller needs confirmed.
     """
-    if userId not in config.ADMIN_USER_IDS:
+    if not isAdmin(userId):
         raise HTTPException(status_code=404, detail="Not found.")
 
     return userId

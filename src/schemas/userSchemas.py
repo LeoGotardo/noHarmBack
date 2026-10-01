@@ -33,25 +33,32 @@ class ProfileUpdateRequest(BaseModel):
     username: Optional[str] = None
     profile_picture: Optional[str] = None
 
-class UserResponse(UserBase):
-    """
-    Schema for the client response.
-    Has the fields created by the database (ID and timestamps).
+class UserResponse(BaseModel):
+    """Another user, as anyone signed in may see them.
+
+    Not derived from `UserBase` on purpose: that carries `email` and `status`,
+    and this schema answers `GET /users/{id}` and the directory — inheriting
+    them handed every account's e-mail address to anyone who could page
+    `GET /users`. Only what a profile shows belongs here; the owner's own
+    fields are on `MeResponse`.
     """
     id: str
-    profile_picture: Optional[str]
+    username: str
+    profile_picture: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     role: RoleField = Field(
         None,
         description=(
             "The mark beside the name: `official` for NoHarm's own accounts, "
-            "`admin` for moderators, null for everyone else. Derived from the "
-            "allowlists on every response; anything a client sends is ignored."
+            "`admin` for moderators, null for everyone else. Derived on every "
+            "response; anything a client sends is ignored."
         )
     )
 
-    model_config = ConfigDict(from_attributes=True, extra="forbid")
+    # `ignore`, not `forbid`: this is built from the full `User` entity, and
+    # dropping its private fields is exactly the point.
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
 
     @model_validator(mode="after")
     def _deriveRole(self):
@@ -63,11 +70,14 @@ class MeResponse(UserResponse):
     """The signed-in account's own profile.
 
     Separate from `UserResponse` because that one also answers
-    `GET /users/{id}` and the directory: whether an account is under a
-    moderation sanction is its owner's business and nobody else's. A flag
-    visible on a public profile would turn every sanction into a label other
-    users could read.
+    `GET /users/{id}` and the directory. The e-mail address and the account
+    status are the owner's, and so is whether the account is under a
+    moderation sanction — a flag visible on a public profile would turn every
+    sanction into a label other users could read.
     """
+    email: Email = Field(..., description="The account's e-mail address")
+    status: int = Field(..., description="Account status")
+
     must_change_username: bool = Field(
         False,
         description=(

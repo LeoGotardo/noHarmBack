@@ -56,3 +56,26 @@ class TestRLS:
         ids = [u["id"] for u in resp.json()["users"]]
         assert user_a["uid"] in ids
         assert user_b["uid"] in ids
+
+
+class TestNoPrivateFieldsOnOtherUsers:
+    """Every signed-in account can read another's profile and page the whole
+    directory, so neither may carry an e-mail, a birth date or a status."""
+
+    PRIVATE = {"email", "status", "birth_date", "banned_until", "deleted_at",
+               "must_change_username", "picture_blocked"}
+
+    def test_public_profile(self, client, user_a, user_b):
+        body = client.get(f"/users/{user_b['uid']}", headers=user_a["headers"]).json()
+        assert body["id"] == user_b["uid"]
+        assert not self.PRIVATE & set(body)
+
+    def test_directory_both_forms(self, client, user_a, user_b):
+        paged = client.get("/users", params={"paginated": True}, headers=user_a["headers"]).json()
+        listed = client.get("/users", headers=user_a["headers"]).json()
+        for row in paged["items"] + listed["users"]:
+            assert not self.PRIVATE & set(row)
+
+    def test_me_still_has_them(self, client, user_a):
+        body = client.get("/users/me", headers=user_a["headers"]).json()
+        assert "email" in body and "status" in body

@@ -80,10 +80,13 @@ noHarmBack/
 ├── docs/
 │   ├── README.md               # This file
 │   ├── TODO.md                 # Implementation status
-│   ├── security.md             # Security guide
-│   ├── RLS_SETUP.md           # Row Level Security documentation
-│   ├── PAGINATION_GUIDE.md    # Pagination system documentation
-│   └── requirements.txt        # Python dependencies
+│   ├── TESTING.md              # Test suite guide
+│   ├── security.md             # Security guide, RLS (§12), business rules (§11)
+│   ├── operations.md           # Runbook of the live instance
+│   ├── POSTS_PLAN.md           # Design and contract of the Community tab
+│   ├── FRONTEND_DESIGN_BRIEF.md
+│   └── CLAUDE_DESIGN_PROMPT.md
+├── infra/                      # Terraform for an ECS deployment — not provisioned
 ├── src/
 │   ├── api/
 │   │   ├── dependencies/       # FastAPI dependencies (auth, database)
@@ -96,12 +99,13 @@ noHarmBack/
 │   │   ├── database/
 │   │   │   ├── models/         # SQLAlchemy ORM models
 │   │   │   └── repositories/   # Data access layer
-│   │   └── external/           # External services (email, storage)
+│   │   └── external/           # Firebase app, FCM push, declarative Base
 │   ├── schemas/                # Pydantic DTOs
 │   ├── security/               # JWT, encryption, rate limiting
 │   ├── websocket/              # Socket.IO real-time handlers
 │   │   └── handlers/
 │   ├── exceptions/             # Custom exceptions
+│   ├── jobs/                   # Retention crons and the SSH-access collector
 │   ├── main.py                 # FastAPI entry point
 │   └── run.py                  # Uvicorn startup script
 ├── .secrets.toml               # Environment secrets (never commit)
@@ -148,7 +152,7 @@ Reusable FastAPI dependencies injected into routes.
 
 | File | Description |
 |------|-------------|
-| `auth.py` | Extracts and validates the authenticated user from the JWT (`getCurrentUser`) |
+| `auth.py` | `getCurrentUser` (JWT + account status), `getAdminUser` and `getOfficialUser` (see `core/roles.py`) |
 | `database.py` | Provides database sessions: `getDb` (no RLS) and `getDbWithRLS` (with Row Level Security) |
 
 #### `src/api/routes/`
@@ -168,6 +172,9 @@ HTTP endpoints. Each file groups routes for one domain. Routes contain **no busi
 | `auditLogsRoutes.py` | Audit logs: audit trail query with pagination |
 | `reportRoutes.py` | Reports: filing one, the reporter's own list, and the admin queue with its review lock |
 | `noticeRoutes.py` | Moderation notices: what moderation said to this account, and acknowledging it |
+| `postRoutes.py` | The Community tab: feeds, posts, comments, likes, and moderation's remove/restore |
+| `notificationRoutes.py` | This device's FCM token and its push categories |
+| `adminRoutes.py` | The admin board and, for official accounts, promoting administrators |
 
 Consent, the data export and the two profile sanctions live in `userRoutes.py`
 rather than in files of their own, because all six act on the account row:
@@ -185,6 +192,7 @@ Central configuration and resources shared across the entire application.
 |------|-------------|
 | `config.py` | Loads and validates environment variables via Dynaconf |
 | `database.py` | Creates the SQLAlchemy engine and `SessionLocal` |
+| `roles.py` | Who is an administrator (`ADMIN_USER_IDS`, `OFFICIAL_USER_IDS`, `tb_19`) and the public `role` mark |
 
 ---
 
@@ -218,8 +226,8 @@ Orchestrate business rules. Call `Repositories` to access data and apply rules b
 | File | Responsibility |
 |------|----------------|
 | `authService.py` | Login, logout, token refresh, Firebase authentication |
-| `userService.py` | Registration, profile update, user search, password changes |
-| `streakService.py` | Daily increment, expiry check, reset with history |
+| `userService.py` | Profile update, user search, suspensions and the two profile sanctions |
+| `streakService.py` | Start, check-in, relapse with record detection. Streaks never expire on their own |
 | `friendshipService.py` | Friend request lifecycle, blocking, friend lists |
 | `chatService.py` | Chat creation, conversation retrieval |
 | `messageService.py` | Message CRUD and read-status transitions |
@@ -230,6 +238,11 @@ Orchestrate business rules. Call `Repositories` to access data and apply rules b
 | `exportService.py` | Everything this system holds about one account, as one JSON document — the right of access, answered without a support ticket |
 | `reportService.py` | Filing a report, the admin queue, the review lock, the abuse ceilings and the evidence capture |
 | `noticeService.py` | Warnings, suspension notices and the two profile-sanction notices |
+| `postService.py` | The Community tab: visibility, the gates on writing, quotas, moderation |
+| `notificationService.py` | Device tokens and push categories |
+| `adminService.py` | The admin board's aggregates (cached 60 s) |
+| `adminGrantService.py` | Promoting and demoting administrators |
+| `errorLogService.py` | The grouped fault log |
 
 ---
 
@@ -241,21 +254,32 @@ Concrete implementations of data access and external services.
 
 ORM table mappings via SQLAlchemy. Every file defines **only table structure** — no business logic.
 
-All sensitive fields (username, email, message content, timestamps, etc.) are stored **encrypted at rest** using AES-256 (Fernet) and are also indexed by a SHA-256 hash to allow equality queries without exposing plaintext.
+Sensitive columns are **encrypted at rest** with AES-GCM (`sqlalchemy_utils`
+`StringEncryptedType` + `AesGcmEngine`, key `DATABASE_ENCRYPTION_KEY`). The
+columns that are looked up by equality — username, email, device token — also
+carry a keyed blind index (HMAC-SHA256 under `BLIND_INDEX_KEY`).
 
-| File | Table | Encrypted Fields |
+| File | Table | Encrypted fields |
 |------|-------|-----------------|
-| `userModel.py` | `tb_0` | username, email, profilePicture |
-| `streakModel.py` | `tb_1` | start, end |
-| `friendshipModel.py` | `tb_2` | sendAt, receivedAt |
-| `chatModel.py` | `tb_3` | startedAt, endedAt |
-| `messageModel.py` | `tb_4` | message, sendAt, receivedAt |
-| `badgeModel.py` | `tb_5` | name, description, milestone, icon |
-| `userBedgesModel.py` | `tb_6` | givenAt |
+| `userModel.py` | `tb_0` | username, email, profile_picture, birth_date |
+| `streakModel.py` | `tb_1` | start_at, end_at, last_checkin |
+| `friendshipModel.py` | `tb_2` | — |
+| `chatModel.py` | `tb_3` | started_at, ended_at |
+| `messageModel.py` | `tb_4` | message, send_at, recived_at |
+| `badgeModel.py` | `tb_5` | name, description, icon (milestone stays plain — it is compared) |
+| `userBadgesModel.py` | `tb_6` | given_at |
 | `auditLogsModel.py` | `tb_7` | description |
-| `refreshTokenModel.py` | `tb_8` | tokenHash |
-| `consentModel.py` | `tb_13` | — (document, version and both instants are queried and compared, so none is encrypted) |
-| `baseModel.py` | — | TimestampMixin (createdAt, updatedAt) |
+| `refreshTokenModel.py` | `tb_8` | — (defined, never written) |
+| `notificationModel.py` | `tb_9` | device_fcm |
+| `reportModel.py` | `tb_10` | details, reported_username |
+| `reportEvidenceModel.py` | `tb_11` | content |
+| `moderationNoticeModel.py` | `tb_12` | message, excerpt |
+| `consentModel.py` | `tb_13` | — (document, version and both instants are compared) |
+| `errorLogModel.py` | `tb_14` | message, traceback |
+| `hostAccessModel.py` | `tb_15` | — |
+| `postModel.py` / `postCommentModel.py` / `postLikeModel.py` | `tb_16` / `tb_17` / `tb_18` | content / content / — |
+| `adminGrantModel.py` | `tb_19` | — |
+| `baseModel.py` | — | TimestampMixin (created_at, updated_at) |
 
 #### `src/infrastructure/database/repositories/`
 
@@ -263,16 +287,24 @@ Data access layer. Each file encapsulates queries for a specific model. **Servic
 
 | File | Key Methods |
 |------|-------------|
-| `userRepository.py` | `findById`, `findByEmail`, `findByUsername`, `findAll`, `create`, `update`, `updateStatus`, `softDelete` |
-| `streakRepository.py` | `findById`, `findByOwnerId`, `findAllByOwnerId`, `findCurrentStreak`, `findCurrentRecord`, `create`, `update`, `markAsRecord`, `updateStatus` |
-| `friendshipRepository.py` | `findById`, `findByPair`, `findAllByReceiverPending`, `findAllBySenderId`, `create`, `updateStatus` |
-| `chatRepository.py` | `findById`, `findByParticipants`, `findAllByUserId`, `create`, `updateStatus`, `updateEndedAt` |
-| `messageRepository.py` | `findById`, `findByChatId`, `findUnreadByChatId`, `create`, `markAsRead`, `markAllAsRead`, `updateStatus` |
+| `userRepository.py` | `findById`, `findByEmail`, `findByUsername`, `search`, `findAll`, `create`, `update`, `suspend`, `forceUsernameChange`, `setPictureBlocked`, `softDelete`, `restore`, `purge` |
+| `streakRepository.py` | `findById`, `findAllByOwnerId`, `findCurrentStreak`, `findCurrentRecord`, `create`, `updateLastCheckin`, `updateEnd`, `markAsRecord`, `unmarkRecord` |
+| `friendshipRepository.py` | `findById`, `findByUsers`, `findAllByUserId`, `findPendingReceived`, `findPendingSent`, `findBlockedUsers`, `setBlocked`, `clearBlock`, `create`, `updateStatus` |
+| `chatRepository.py` | `findById`, `findBetween`, `findLatestBetween`, `findAllBySenderId`, `findAllByReciverId`, `create`, `updateStatus`, `updateEndedAt` |
+| `messageRepository.py` | `findById`, `findByChatId`, `findUnreadByChatId`, `findRecentByChatId`, `create`, `markAsRead`, `markAllAsRead` |
 | `badgeRepository.py` | `findById`, `findAll`, `create`, `update`, `updateStatus`, `softDelete` |
-| `userBadgesRepository.py` | `findByUserId`, `findByBadgeId`, `existsByUserAndBadge`, `grant`, `revoke`, `listAll` |
-| `auditLogsRepository.py` | `findById`, `findByType`, `findByCatalystId`, `findByDateRange`, `findAllPaginated`, `create` |
-| `refreshTokenRepository.py` | `findByTokenHash`, `create`, `deleteByUserId`, `deleteExpired` |
+| `userBadgesRepository.py` | `findByUserId`, `findByBadgeId`, `existsByUserAndBadge`, `grant`, `revoke` |
+| `auditLogsRepository.py` | `findAll`, `findById`, `findByType`, `findByCatalystId`, `findByDateRange`, `create` |
+| `notificationRepository.py` | `add`, `update`, `findActiveByUserId`, `softDelete` |
 | `consentRepository.py` | `findByUser`, `findCurrent`, `createMany`, `withdraw` — append-only apart from withdrawal: agreeing again writes a new row, and nothing edits the past |
+| `reportRepository.py` / `reportEvidenceRepository.py` | the queue, the review lock, reporter standing; evidence capture and retention |
+| `moderationNoticeRepository.py` | `create`, `findByUser`, `acknowledge` |
+| `postRepository.py` / `postCommentRepository.py` | feeds and the visibility rule as SQL (`postVisibleTo`), likes, removal and retention |
+| `errorLogRepository.py` / `hostAccessRepository.py` | the admin board's Errors and Access tabs |
+| `adminGrantRepository.py` | `exists`, `findAll`, `grant`, `revoke` |
+
+There is no repository for `tb_8`: refresh tokens are revoked through the Redis
+blacklist only (see `security.md` §7.4).
 
 #### `src/infrastructure/external/`
 
@@ -280,8 +312,11 @@ Integrations with external services.
 
 | File | Description |
 |------|-------------|
-| `emailService.py` | Email sending (verification, password recovery) — **empty** |
+| `firebaseApp.py` | The one Firebase Admin app per process, used to verify ID tokens |
+| `fcmService.py` | Push notifications through FCM, filtered by the device's categories |
 | `storageService.py` | Declares `Base` (SQLAlchemy DeclarativeBase) — file uploads planned |
+
+There is no email service: Firebase sends every email the product needs.
 
 ---
 
@@ -291,16 +326,17 @@ DTOs defined with **Pydantic**. Responsible for validating input data and filter
 
 | File | Purpose |
 |------|---------|
-| `authSchemas.py` | `AuthRegisterRequest`, `AuthLoginRequest`, `TokenResponse` |
-| `userSchemas.py` | `UserRegisterRequest`, `UserPrivateResponse`, `UserPublicResponse`, `UserUpdateRequest` |
-| `streakSchemas.py` | `StreakResponse`, `StreakResetRequest` |
-| `friendshipSchemas.py` | `FriendshipRequest`, `FriendshipResponse`, `FriendshipListResponse` |
-| `chatSchemas.py` | `ChatResponse`, `ConversationResponse` |
-| `messageSchemas.py` | `MessageRequest`, `MessageResponse`, `MessageListResponse` |
-| `badgeSchemas.py` | `BadgeResponse`, `BadgeListResponse` |
+| `authSchemas.py` | `AuthRegisterRequest`, `AuthLoginRequest`, `AuthReactivateRequest`, `AuthRefreshRequest`, `AuthResponse` |
+| `userSchemas.py` | `UserCreate`, `UserUpdate`, `ProfileUpdateRequest`, `UserResponse`, `MeResponse`, `UserStatsResponse`, `SuspendRequest`, `SuspensionResponse`, `SanctionRequest`, `SanctionResponse` |
+| `streakSchemas.py` | `StreakResponse`, `StreakListResponse`, `StreakStartRequest`, `StreakEndRequest` |
+| `friendshipSchemas.py` | `FriendshipCreate`, `FriendshipResponse`, `FriendshipListResponse`, `FriendUserInfo` |
+| `chatSchemas.py` | `ChatCreate`, `ChatResponse`, `ChatListResponse` |
+| `messageSchemas.py` | `MessageCreate`, `MessageResponse`, `MessageListResponse` |
+| `badgeSchemas.py` | `BadgeCreate`, `BadgeUpdate`, `BadgeResponse`, `BadgeListResponse` |
 | `userBadgeSchemas.py` | `UserBadgeResponse`, `UserBadgeCreate`, `UserBadgeUpdate`, `UserBadgeListResponse` |
 | `auditLogsSchemas.py` | `AuditLogsResponse`, `AuditLogsCreate`, `AuditLogsListResponse` |
 | `consentSchemas.py` | `ConsentAcceptRequest`, `ConsentRecord`, `ConsentStatusResponse`, `ConsentWithdrawResponse` |
+| `reportSchemas.py` / `noticeSchemas.py` / `postSchemas.py` / `adminSchemas.py` | see the root `CLAUDE.md`, Schemas |
 | `paginationSchemas.py` | `PaginationParams`, `PaginatedResponse[T]` |
 
 ---
@@ -312,32 +348,36 @@ Reusable security modules shared across the application.
 | File | Description |
 |------|-------------|
 | `jwtHandler.py` | Generation and validation of Access and Refresh tokens with blacklist support |
-| `tokenBlacklist.py` | Persistent JWT revocation list (append-only JSONL log + in-memory hashtable) |
-| `persistentHashTable.py` | Append-only log data structure with O(1) write and periodic compaction |
-| `rateLimiter.py` | IP-based rate limiting (sliding window) + login brute-force protection per username — global middleware |
+| `tokenBlacklist.py` | JWT revocation list in Redis (`SETEX` with the token's remaining lifetime) |
+| `persistentHashTable.py` | The older append-only JSONL store — imported by nothing |
+| `rateLimiter.py` | Redis-backed: per-IP sliding window (global middleware), login lockout per UID, and the per-account report and content quotas |
 | `limiter.py` | Shared `slowapi` `Limiter` instance — imported by every route file for per-route `@limiter.limit(...)` decorators |
 | `middleware.py` | `RateLimitMiddleware` and `SecurityHeadersMiddleware` registered globally in `main.py` |
 | `sanitizer.py` | HTML sanitisation via `bleach` for XSS prevention |
-| `encryption.py` | AES-256 symmetric encryption (Fernet) + Argon2 password hashing + SHA-256 hashing |
+| `encryption.py` | Keyed blind index (`hash`, HMAC-SHA256), unkeyed `digest`, Argon2 helpers and Fernet helpers no column uses — column encryption is AES-GCM in the models |
 
 **JWT flow:**
 - Access token: 15-minute lifetime, signed with `JWT_SECRET_KEY`
-- Refresh token: 7-day lifetime, signed with `JWT_REFRESH_SECRET_KEY`, stored hashed in database (`tb_8`)
+- Refresh token: 7-day lifetime, signed with `JWT_REFRESH_SECRET_KEY`. Not stored — `tb_8` exists but is never written
 - Each token carries a unique `jti` claim that enables individual revocation
 - Refresh token rotation: old token is blacklisted on every `/auth/refresh` call before new tokens are issued
-- Revoked JTIs are stored hashed (SHA-256) in a persistent JSONL blacklist
+- Revoked JTIs are stored hashed (SHA-256) in Redis, expiring with the token
 
 **Token blacklist:**
-The blacklist uses `PersistentHashTable` — an append-only JSONL file that survives server restarts. On startup, state is rebuilt by replaying log events. Expired entries are removed via `cleanup()`. JTIs are stored as SHA-256 hashes — plaintext JTIs are never written to disk.
+The blacklist lives in Redis: each revoked JTI is stored as `jti:<sha256>` with a
+TTL equal to the token's remaining lifetime, so expired entries remove
+themselves and a logout is honoured by every instance.
 
 **Rate limiting — two layers:**
 
 | Layer | Implementation | Scope |
 |-------|---------------|-------|
-| Global floor | `RateLimitMiddleware` (`rateLimiter.py`) | 60 req/min per IP, 60-min block |
+| Global floor | `RateLimitMiddleware` (`rateLimiter.py`) | 240 req/min per IP (`RATE_LIMIT_MAX_REQUESTS`); a breach blocks for 60 s, doubling on repeat up to 900 s |
 | Per-route ceiling | `slowapi` decorator (`limiter.py`) | Stricter per endpoint (e.g. 5/min on register, 10/min on login) |
 
-The shared `Limiter` in `limiter.py` uses the same X-Forwarded-For aware IP extraction as the global middleware. To upgrade to Redis-backed storage for multi-worker deployments, change one line: `Limiter(key_func=_getClientIp, storage_uri="redis://...")`.
+Both layers key on `security/clientIp.py` and keep their counters in Redis, so
+they survive a restart and are shared across instances; `limiter.py` falls back
+to in-memory counting if Redis is down at boot.
 
 ---
 
@@ -385,18 +425,26 @@ Convenience script to start the server with Uvicorn using settings from `config`
 
 ## Configuration
 
-The application uses [Dynaconf](https://www.dynaconf.com/) with `.secrets.toml` and supports three environments: `development`, `staging`, and `production`.
+The application uses [Dynaconf](https://www.dynaconf.com/) with `.secrets.toml`,
+whose sections are `[default]`, `[dev]`, `[alembic]` and `[prod]`. `APP_ENV`
+picks one, and **it defaults to `prod`** — an unset or misspelled value silently
+targets production:
 
-Set the active environment with the `ENV` environment variable:
 ```bash
-export ENV=development   # or staging, production
+export APP_ENV=dev   # or alembic, prod
 ```
+
+In the container the values arrive as environment variables instead
+(`docker/prod.env`); `.secrets.toml` never enters the image.
 
 ### Required secrets (`.secrets.toml`)
 
 ```toml
-[development]
-ENCRYPTION_KEY          = "..."   # Master key for AES-256 field encryption
+[dev]
+ENCRYPTION_KEY          = "..."
+DATABASE_ENCRYPTION_KEY = "..."   # AES-GCM key for the encrypted columns
+BLIND_INDEX_KEY         = "..."   # HMAC key for the blind indexes — must differ from the one above
+REDIS_URL               = "redis://localhost:6379/0"
 DATABASE_URL            = "postgres://..."
 DATABASE_URL_UNPOOLED   = "postgresql://..."
 DATABASE_HOST           = "..."
@@ -453,20 +501,16 @@ print(secrets.token_urlsafe(32))  # run three times for the three keys
 
 ## Row Level Security (RLS)
 
-PostgreSQL RLS policies enforce data access control at the database level:
+PostgreSQL RLS policies (migration `20260831_02` and the migrations that added
+each later table) are a floor under the service layer's own checks. The table
+of rules is in the root [`CLAUDE.md`](../CLAUDE.md), Row Level Security, and the
+reasoning, setup and troubleshooting in [`security.md`](security.md) §12. Two
+things to know before reading either:
 
-| Table | Code | Policy | Access Rule |
-|-------|------|--------|-------------|
-| users | `tb_0` | users_own_data | Can only see own row |
-| streaks | `tb_1` | streaks_own_data | Can only see own streaks |
-| friendships | `tb_2` | friendships_participant_data | Can see if sender OR receiver |
-| chats | `tb_3` | chats_participant_data | Can see if sender OR receiver |
-| messages | `tb_4` | messages_sender_data | Can see messages they sent |
-| badges | `tb_5` | badges_read_all | Global read-only table |
-| user_badges | `tb_6` | user_badges_own_data | Can only see own badges |
-| audit_logs | `tb_7` | audit_logs_own_data | Can only see own audit logs |
-
-Use `getDbWithRLS` in routes to automatically filter queries to the authenticated user's data. See `docs/RLS_SETUP.md` for full details.
+- `tb_0` (users) is readable across accounts — search, public profiles and
+  every enriched response need it. Only UPDATE/DELETE are owner-scoped.
+- With no context set, every policy passes. `getDbWithRLS` is what turns RLS on
+  for a request; admin routes and jobs use `getDb` on purpose.
 
 ---
 
@@ -507,20 +551,9 @@ def getItems(
 
 ### Pagination with RLS
 
-When using `getDbWithRLS`, pagination automatically respects Row Level Security policies:
-
-| Table | RLS Policy | Pagination Behavior |
-|-------|------------|---------------------|
-| `tb_0` (users) | users_own_data | Users see only their own record |
-| `tb_1` (streaks) | streaks_own_data | Paginated to user's streaks only |
-| `tb_2` (friendships) | friendships_participant_data | Paginated to user's friendships |
-| `tb_3` (chats) | chats_participant_data | Paginated to user's conversations |
-| `tb_4` (messages) | messages_sender_data | Paginated to messages sent by user |
-| `tb_5` (badges) | badges_read_all | Global read, paginated |
-| `tb_6` (user_badges) | user_badges_own_data | Paginated to user's earned badges |
-| `tb_7` (audit_logs) | audit_logs_own_data | Paginated to user's audit trail |
-
-**Key point**: `total` in paginated responses reflects the RLS-filtered count, not the full table count.
+When using `getDbWithRLS`, `total` reflects the RLS-filtered count, not the
+full table — see `security.md` §10, "Pagination with RLS", for the effect per
+table.
 
 ---
 
@@ -535,9 +568,9 @@ source venv/bin/activate        # Linux / macOS
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure secrets
-cp .env.example .secrets.toml
-# Edit .secrets.toml with your values
+# Configure secrets: create .secrets.toml with a [dev] section (see
+# Configuration above). There is no template file in the repo; for the
+# container path, docker/prod.env.example lists every variable.
 
 # Run database migrations — mandatory, not optional: nothing else creates the
 # schema at startup, and a database without them has no RLS policies.
@@ -649,7 +682,7 @@ See `docs/security.md` for the complete security guide covering:
 | Document | Description |
 |----------|-------------|
 | `docs/TODO.md` | Current implementation status |
-| `docs/TESTING.md` | Test suite guide — 505 unit tests, patterns, coverage |
+| `docs/TESTING.md` | Test suite guide — patterns, layout, how to run the integration suite |
 | `docs/security.md` | Security guide, audit checklist, RLS, pagination, and business rules |
 | `docs/operations.md` | Runbook of the live EC2 instance — access, cron jobs, deploy, migrations, backup/restore, accepted risks |
 | `infra/README.md` | Terraform stack (ECS/RDS/ElastiCache) — **not provisioned** |

@@ -18,6 +18,10 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 
+
+# Shared by the REST schema and the socket path, which has no schema at all.
+MAX_MESSAGE_LENGTH = 2000
+
 class MessageService:
     def __init__(self, db):
         self.database: Database = db
@@ -75,8 +79,24 @@ class MessageService:
         - Chat must be enabled (or pending, which auto-activates on first message)
         - Sender must be the authenticated user (ownership)
         - Content is sanitised; empty after sanitisation → 400
+        - Content longer than MAX_MESSAGE_LENGTH → 400. The REST schema caps it
+          too, but the socket path arrives here with nothing in between, so this
+          is the check both paths share
         - status = unread, sendAt = now
         """
+        if not isinstance(content, str):
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="INVALID_DATA",
+                message="Message content must be text."
+            )
+        if len(content) > MAX_MESSAGE_LENGTH:
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="MESSAGE_TOO_LONG",
+                message=f"Messages can be at most {MAX_MESSAGE_LENGTH} characters."
+            )
+
         chat = self.chatRepository.findById(chatId)
 
         # Ownership check — sender must be a participant (§9.2)
