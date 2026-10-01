@@ -30,3 +30,13 @@ def publicRole(userId) -> Optional[PublicRole]:
     if uid in config.ADMIN_USER_IDS:
         return "admin"
     return None
+
+
+def isOfficial(userId) -> bool:
+    """Whether `userId` is one of NoHarm's own accounts.
+
+    Unlike the mark, this one *does* authorise: an official account may write
+    to anyone (and to everyone, through the broadcast), and nobody may write
+    back into a conversation with it. See ChatService and MessageService.
+    """
+    return str(userId) in config.OFFICIAL_USER_IDS

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional
 
-from api.dependencies.auth import getCurrentUser
+from api.dependencies.auth import getCurrentUser, getOfficialUser
 from api.dependencies.database import getDbWithRLS
 from domain.services.messageService import MessageService
 from schemas.messageSchemas import MessageResponse, MessageListResponse
@@ -136,6 +136,41 @@ def sendMessage(
                 message="Provide exactly one of 'chatId' or 'recipientId'."
             )
         return service.sendMessageToUser(currentUserId, body.recipientId, body.content)
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+
+
+class BroadcastRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=2000)
+
+
+class BroadcastResponse(BaseModel):
+    sent: int = Field(..., description="How many accounts received the message")
+
+
+@router.post(
+    "/broadcast",
+    response_model=BroadcastResponse,
+    status_code=201,
+    summary="Message every user (official accounts)",
+    description=(
+        "Sends one message from the calling official account to every active "
+        "user, each in their own conversation with it — created when missing, "
+        "no friendship required. Those conversations are read-only for the "
+        "user.\n\n"
+        "Restricted to OFFICIAL_USER_IDS; any other caller gets a 404."
+    )
+)
+@limiter.limit("5/hour")
+def broadcastMessage(
+    request: Request,
+    body: BroadcastRequest,
+    db: Session = Depends(getDbWithRLS),
+    currentUserId: str = Depends(getOfficialUser)
+):
+    try:
+        service = MessageService(db)
+        return BroadcastResponse(sent=service.broadcast(currentUserId, body.content))
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)
 

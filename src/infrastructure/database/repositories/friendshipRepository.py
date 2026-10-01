@@ -76,7 +76,11 @@ class FriendshipRepository:
                 )
             ).order_by(
                 case((FriendshipModel.status == config.STATUS_CODES["blocked"], 0), else_=1),
-                case((FriendshipModel.status == config.STATUS_CODES["deleted"], 1), else_=0),
+                # Deleted rows and lifted blocks (`disabled`) are history: a live
+                # row beside one must win, whichever was touched last.
+                case((FriendshipModel.status.in_([
+                    config.STATUS_CODES["deleted"], config.STATUS_CODES["disabled"]
+                ]), 1), else_=0),
                 FriendshipModel.updated_at.desc()
             ).first()
             

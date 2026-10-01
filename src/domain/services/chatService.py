@@ -7,6 +7,7 @@ from schemas.chatSchemas import ChatResponse
 from schemas.messageSchemas import MessageResponse
 from exceptions.baseExceptions import NoHarmException
 from core.config import config
+from core.roles import isOfficial
 from core.database import Database
 
 from datetime import datetime, timezone
@@ -58,10 +59,21 @@ class ChatService:
         """Return existing active chat or create a new one between two users (§4.1).
 
         Rules:
-        - Users must be accepted friends (§3.4)
+        - Users must be accepted friends (§3.4) — unless the sender is an
+          official account, which may write to anyone
+        - Nobody opens a conversation *with* an official account: it speaks,
+          it is not spoken to
         - If an active (pending or enabled) chat already exists, return it (no duplicate)
-        - New chat starts with status = pending
+        - New chat starts with status = pending, or enabled when an official
+          account opens it — there is nothing for the recipient to accept,
+          since they cannot answer anyway
         """
+        if isOfficial(receiverId) and not isOfficial(senderId):
+            raise self._officialReadOnly()
+
+        if isOfficial(senderId):
+            return self.getOrCreateOfficial(senderId, receiverId)
+
         # §3.4 — friendship must be accepted
         try:
             friendship = self.friendshipRepository.findByUsers(senderId, receiverId)
@@ -92,6 +104,44 @@ class ChatService:
             status=config.STATUS_CODES["pending"]
         )
         return self.chatRepository.create(newChat)  
+
+    def getOrCreateOfficial(self, officialId: str, receiverId: str) -> Chat:
+        """The one conversation between an official account and a user.
+
+        No friendship needed and no invitation: it is created enabled. A
+        conversation the user ended is reopened rather than duplicated — every
+        broadcast would otherwise leave one more thread in their list. One they
+        deleted stays deleted, and a fresh one is started beside it.
+        """
+        existing = self.chatRepository.findLatestBetween(
+            officialId, receiverId, excludeStatus=config.STATUS_CODES["deleted"]
+        )
+        if existing:
+            if existing.status != config.STATUS_CODES["enabled"]:
+                self.chatRepository.updateStatus(existing.id, config.STATUS_CODES["enabled"])
+                existing = self.chatRepository.findById(existing.id)
+            return existing
+
+        newChat = ChatModel(
+            sender=officialId,
+            reciver=receiverId,
+            started_at=datetime.now(timezone.utc),
+            ended_at=None,
+            status=config.STATUS_CODES["enabled"]
+        )
+        return self.chatRepository.create(newChat)
+
+    @staticmethod
+    def isOfficialChat(chat: Chat) -> bool:
+        return isOfficial(chat.sender) or isOfficial(chat.reciver)
+
+    @staticmethod
+    def _officialReadOnly() -> NoHarmException:
+        return NoHarmException(
+            statusCode=403,
+            errorCode="OFFICIAL_CHAT_READONLY",
+            message="Conversations with the official NoHarm account are read-only."
+        )
 
     def activate(self, chatId: UUID, requestingUserId: str) -> Chat:
         """Activate a pending chat (pending → enabled) (§4.1).

@@ -9,6 +9,8 @@ from exceptions.baseExceptions import NoHarmException
 from infrastructure.external import fcmService
 from websocket import emitter
 from core.config import config
+from core.roles import isOfficial
+from infrastructure.database.repositories.userRepository import UserRepository
 from core.database import Database
 from typing import Optional, overload
 
@@ -85,6 +87,11 @@ class MessageService:
                 message="You are not a participant in this chat."
             )
 
+        # A conversation with an official account is one-way. The app hides
+        # the composer, and this is what makes that more than cosmetic.
+        if ChatService.isOfficialChat(chat) and not isOfficial(senderId):
+            raise ChatService._officialReadOnly()
+
         # §4.1 / §5.1 — auto-activate pending chat on first message
         if chat.status == config.STATUS_CODES.get("pending"):
             self.chatRepository.updateStatus(chatId, config.STATUS_CODES["enabled"])
@@ -131,6 +138,59 @@ class MessageService:
         """
         chat = ChatService(self.database).getOrCreate(senderId, recipientId)
         return self.sendMessage(chat.id, senderId, content)
+
+    # ── broadcast (official accounts only) ───────────────────────────────────
+
+    def broadcast(self, officialId: str, content: str) -> int:
+        """Send one message from an official account to every active user.
+
+        Each recipient gets it in their own conversation with the account —
+        created on the spot, no friendship needed — so it lands where every
+        other message does, with the same realtime event and push. Nobody can
+        reply: see the read-only check in `sendMessage`.
+
+        Deleted, banned and blocked accounts are skipped (`findAll`'s default),
+        as are the official accounts themselves. One recipient failing does not
+        stop the rest. Returns how many it reached.
+
+        Synchronous: fine for the user base this runs against today; past a
+        few thousand accounts it belongs on a queue.
+        """
+        if not isOfficial(officialId):
+            raise NoHarmException(statusCode=404, errorCode="NOT_FOUND", message="Not found.")
+
+        sanitised = (Sanitizer.cleanHtml(content) or "").strip()
+        if not sanitised:
+            raise NoHarmException(
+                statusCode=400,
+                errorCode="EMPTY_MESSAGE",
+                message="Message content cannot be empty."
+            )
+
+        chatService = ChatService(self.database)
+        recipients = [
+            u.id for u in UserRepository(self.database).findAll()
+            if not isOfficial(u.id)
+        ]
+
+        sent = 0
+        for recipientId in recipients:
+            try:
+                chat = chatService.getOrCreateOfficial(officialId, recipientId)
+                created = self.messageRepository.create(MessageModel(
+                    chat=chat.id,
+                    sender=officialId,
+                    message=sanitised,
+                    status=config.STATUS_CODES["unread"],
+                    send_at=datetime.now(timezone.utc),
+                    recived_at=None
+                ))
+                emitter.notifyNewMessage(created, [officialId, str(recipientId)])
+                fcmService.sendPushToUser(str(recipientId), "NoHarm", sanitised[:200], category="messages")
+                sent += 1
+            except NoHarmException:
+                continue
+        return sent
 
     # ── read receipts (§5.3) ──────────────────────────────────────────────────
 

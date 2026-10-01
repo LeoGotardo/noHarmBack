@@ -101,6 +101,30 @@ class ChatRepository:
             raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
 
 
+    def findLatestBetween(self, userA: str, userB: str, excludeStatus: Optional[int] = None) -> Chat | None:
+        """The most recent chat between two users, optionally skipping one status.
+
+        `findBetween` returns whichever row the database hands back first, which
+        is fine while two people have one chat and wrong as soon as they have
+        had several.
+        """
+        try:
+            query = self.session.query(ChatModel).filter(
+                or_(
+                    and_(ChatModel.sender == userA, ChatModel.reciver == userB),
+                    and_(ChatModel.sender == userB, ChatModel.reciver == userA)
+                )
+            )
+            if excludeStatus is not None:
+                query = query.filter(ChatModel.status != excludeStatus)
+            chat = query.order_by(ChatModel.created_at.desc()).first()
+            return self._toEntity(chat) if chat else None
+        except Exception as e:
+            if isinstance(e, NoHarmException):
+                raise e
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
+
     def findAllBySenderId(self, user_id: str, params: Optional[PaginationParams] = None) -> list[Chat] | PaginatedResponse[Chat]:
         """Find all chats by sender ID, optionally paginated
 

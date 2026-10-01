@@ -79,3 +79,17 @@ def getAdminUser(userId: str = Depends(getCurrentUser)) -> str:
         raise HTTPException(status_code=404, detail="Not found.")
 
     return userId
+
+
+def getOfficialUser(userId: str = Depends(getCurrentUser)) -> str:
+    """Authorise an endpoint only NoHarm's own accounts may call.
+
+    The `OFFICIAL_USER_IDS` allowlist, read directly — the same shape as
+    `getAdminUser` and for the same reasons: empty by default, so an
+    environment that named no official account has none, and 404 rather than
+    403 for everyone else.
+    """
+    if userId not in config.OFFICIAL_USER_IDS:
+        raise HTTPException(status_code=404, detail="Not found.")
+
+    return userId

@@ -85,3 +85,10 @@ def test_invalid_username_special_chars():
 
 def test_invalid_username_empty():
     assert Sanitizer.isValidUsername("") is False
+
+
+def test_cleanHtml_keeps_emoji_intact():
+    """Emoji — including ZWJ sequences and skin tones — pass through untouched."""
+    from security.sanitizer import Sanitizer
+    text = "Day 30 🎉🙌 👍🏽 ❤️‍🩹 🏳️‍🌈"
+    assert Sanitizer.cleanHtml(text) == text

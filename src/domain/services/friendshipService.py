@@ -136,7 +136,8 @@ class FriendshipService:
 
         Rules:
         - Cannot send to self
-        - Cannot send if any non-deleted friendship already exists between the two users
+        - Cannot send if a live friendship (pending, accepted, ignored) already
+          exists between the two users
         - Blocked relationship → 403
         - On creation: status = pending, sendAt = now
         """
@@ -149,8 +150,15 @@ class FriendshipService:
 
         try:
             existing = self.friendshipRepository.findByUsers(senderId, receiverId)
-            if existing.status == config.STATUS_CODES.get("deleted"):
-                # Deleted friendship can be re-initiated; fall through to create
+            if existing.status in (
+                config.STATUS_CODES.get("deleted"),
+                config.STATUS_CODES.get("disabled"),
+            ):
+                # A deleted friendship can be re-initiated, and so can a lifted
+                # block: `clearBlock` leaves the row `disabled` on purpose — an
+                # unblock restores nothing — so it is history, not a live
+                # request. Treating it as one answered 409 "already exists" to
+                # a pair the app (rightly) showed as strangers, forever.
                 pass
             elif existing.status == config.STATUS_CODES.get("blocked"):
                 raise NoHarmException(

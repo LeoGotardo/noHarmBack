@@ -67,6 +67,26 @@ def test_sendRequest_blocked_relationship_raises_403(mock_db):
     assert exc.value.statusCode == 403
 
 
+def test_sendRequest_after_unblock_creates_a_new_request(mock_db):
+    """A lifted block leaves the row `disabled`; that is history, not a request.
+
+    It used to answer 409 "already exists" while the app showed the pair as
+    strangers with an Add friend button — so after an unblock neither side
+    could ever ask again.
+    """
+    service = _make_service(mock_db)
+    existing = _mock_friendship(status=config.STATUS_CODES["disabled"])
+    service.friendshipRepository.findByUsers.return_value = existing
+    service.friendshipRepository.create.side_effect = lambda model: model
+
+    with patch("domain.services.friendshipService.emitter"), \
+         patch("domain.services.friendshipService.fcmService"):
+        created = service.sendRequest("uid-sender", "uid-receiver")
+
+    assert created.status == config.STATUS_CODES["pending"]
+    service.friendshipRepository.create.assert_called_once()
+
+
 def test_sendRequest_accepted_friendship_raises_409(mock_db):
     service = _make_service(mock_db)
     existing = _mock_friendship(status=config.STATUS_CODES["accepted"])

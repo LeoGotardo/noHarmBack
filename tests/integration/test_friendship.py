@@ -51,6 +51,18 @@ class TestBlockUnblock:
         assert resp.status_code == 200
         assert resp.json()["status"] != 3
 
+    def test_friend_request_after_unblock_goes_through(self, client, user_a, user_b):
+        """Either side may ask again once the block is lifted, and it shows up."""
+        fid = make_friends(client, user_a, user_b)
+        client.post(f"/friendships/{fid}/block", headers=user_a["headers"])
+        client.post(f"/friendships/{fid}/unblock", headers=user_a["headers"])
+
+        resp = client.post(f"/friendships/{user_a['uid']}", headers=user_b["headers"])
+        assert resp.status_code == 201, resp.text
+
+        pending = client.get("/friendships/pending", headers=user_a["headers"])
+        assert any(f["sender"] == user_b["uid"] for f in pending.json()["friendships"])
+
 
 class TestListFriendships:
     def test_get_my_friendships_only_shows_own(self, client, user_a, user_b):

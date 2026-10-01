@@ -238,3 +238,52 @@ def test_markAllAsRead_non_participant_raises_403(mock_db):
     with pytest.raises(NoHarmException) as exc:
         service.markAllAsRead("chat-001", "uid-stranger")
     assert exc.value.statusCode == 403
+
+
+# ── official accounts ─────────────────────────────────────────────────────────
+
+@pytest.fixture
+def official():
+    original = list(config.OFFICIAL_USER_IDS)
+    config.OFFICIAL_USER_IDS = original + ["uid-official"]
+    yield "uid-official"
+    config.OFFICIAL_USER_IDS = original
+
+
+def test_sendMessage_user_cannot_reply_to_official_chat(mock_db, official):
+    service = _make_service(mock_db)
+    service.chatRepository.findById.return_value = _mock_chat(sender=official, reciver="uid-receiver")
+
+    with pytest.raises(NoHarmException) as exc:
+        service.sendMessage("chat-001", "uid-receiver", "hi")
+
+    assert exc.value.errorCode == "OFFICIAL_CHAT_READONLY"
+    service.messageRepository.create.assert_not_called()
+
+
+def test_broadcast_refuses_a_non_official_sender(mock_db, official):
+    service = _make_service(mock_db)
+
+    with pytest.raises(NoHarmException) as exc:
+        service.broadcast("uid-sender", "hello")
+
+    assert exc.value.statusCode == 404
+
+
+def test_broadcast_reaches_every_active_user_but_officials(mock_db, official, monkeypatch):
+    from domain.services import messageService as module
+
+    users = [MagicMock(id="uid-a"), MagicMock(id="uid-b"), MagicMock(id=official)]
+    monkeypatch.setattr(module, "UserRepository", lambda db: MagicMock(findAll=lambda: users))
+    chatService = MagicMock()
+    chatService.getOrCreateOfficial.side_effect = lambda o, r: _mock_chat(sender=o, reciver=r)
+    monkeypatch.setattr(module, "ChatService", lambda db: chatService)
+    monkeypatch.setattr(module.fcmService, "sendPushToUser", MagicMock())
+    monkeypatch.setattr(module.emitter, "notifyNewMessage", MagicMock())
+
+    service = _make_service(mock_db)
+    sent = service.broadcast(official, "hello everyone")
+
+    assert sent == 2
+    recipients = [c.args[1] for c in chatService.getOrCreateOfficial.call_args_list]
+    assert recipients == ["uid-a", "uid-b"]

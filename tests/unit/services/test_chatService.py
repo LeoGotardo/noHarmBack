@@ -190,3 +190,46 @@ def test_delete_by_non_participant_raises_403(mock_db):
     with pytest.raises(NoHarmException) as exc:
         service.delete("chat-001", "uid-stranger")
     assert exc.value.statusCode == 403
+
+
+# ── official accounts ─────────────────────────────────────────────────────────
+
+@pytest.fixture
+def official():
+    original = list(config.OFFICIAL_USER_IDS)
+    config.OFFICIAL_USER_IDS = original + ["uid-official"]
+    yield "uid-official"
+    config.OFFICIAL_USER_IDS = original
+
+
+def test_getOrCreate_with_official_receiver_raises_403(mock_db, official):
+    """Nobody opens a conversation with the official account."""
+    service = _make_service(mock_db)
+
+    with pytest.raises(NoHarmException) as exc:
+        service.getOrCreate("uid-001", official)
+
+    assert exc.value.statusCode == 403
+    assert exc.value.errorCode == "OFFICIAL_CHAT_READONLY"
+
+
+def test_getOrCreate_official_sender_skips_friendship_and_starts_enabled(mock_db, official):
+    service = _make_service(mock_db)
+    service.chatRepository.findLatestBetween.return_value = None
+    service.chatRepository.create.side_effect = lambda model: model
+
+    chat = service.getOrCreate(official, "uid-001")
+
+    service.friendshipRepository.findByUsers.assert_not_called()
+    assert chat.status == config.STATUS_CODES["enabled"]
+
+
+def test_getOrCreateOfficial_reopens_an_ended_chat(mock_db, official):
+    service = _make_service(mock_db)
+    ended = _mock_chat(sender=official, reciver="uid-001", status=config.STATUS_CODES["disabled"])
+    service.chatRepository.findLatestBetween.return_value = ended
+
+    service.getOrCreateOfficial(official, "uid-001")
+
+    service.chatRepository.updateStatus.assert_called_once_with(ended.id, config.STATUS_CODES["enabled"])
+    service.chatRepository.create.assert_not_called()
