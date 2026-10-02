@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 import json
 import logging
+from core.auditTypes import AuditType
 
 
 logger = logging.getLogger("noharm")
@@ -25,7 +26,7 @@ logger = logging.getLogger("noharm")
 # 16 is "an administrator looked at the board". Its own type rather than folding
 # into 11 (evidence read): the two answer different questions — 11 is "who read
 # whose messages", and mixing them would make the first hard to search for.
-_AUDIT_BOARD_READ = 16
+_AUDIT_BOARD_READ = AuditType.BOARD_READ
 
 # How long the overview is reused. The panel is seven grouped queries, and a
 # refresh is a thing people do while thinking. Long enough that hammering it

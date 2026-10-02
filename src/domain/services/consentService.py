@@ -9,6 +9,7 @@ from core.config import config
 from core.database import Database
 
 from datetime import datetime, timezone
+from core.auditTypes import AuditType
 
 
 TERMS = "terms"
@@ -28,8 +29,8 @@ REQUIRED_DOCUMENTS = (TERMS, PRIVACY)
 # one with a direction, because the question asked of the audit log is almost
 # always "when did this account agree to X", and a single type answers it with
 # a list the reader has to filter.
-_AUDIT_CONSENT_GIVEN = 13
-_AUDIT_CONSENT_WITHDRAWN = 14
+_AUDIT_CONSENT_GIVEN = AuditType.CONSENT_GIVEN
+_AUDIT_CONSENT_WITHDRAWN = AuditType.CONSENT_WITHDRAWN
 
 
 def _utcNow() -> datetime:

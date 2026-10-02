@@ -22,6 +22,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, overload
 from uuid import UUID
+from core.auditTypes import AuditType
 
 
 # Mirrors `ReportReason` in schemas/reportSchemas.py. Pydantic rejects anything
@@ -44,13 +45,13 @@ _RESOLUTIONS = ("accepted", "ignored")
 
 # Audit log type for "user reported another user" (§7.5). 1/2 are login, 5 is a
 # status change, 6 a logout, 7 a streak reset, 8 a badge grant.
-_AUDIT_REPORT = 10
+_AUDIT_REPORT = AuditType.REPORT
 
 # Type 11 is a moderator opening the evidence behind a report. It is logged for
 # the same reason the evidence exists at all: reading it means reading private
 # messages between two users, and an unlogged power to do that is indist-
 # inguishable from an abused one.
-_AUDIT_EVIDENCE_READ = 11
+_AUDIT_EVIDENCE_READ = AuditType.EVIDENCE_READ
 
 # How much of a conversation is copied when a report names a chat. Both sides,
 # not only the reported user's lines: a recorte of one half is not evidence of

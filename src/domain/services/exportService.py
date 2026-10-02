@@ -19,13 +19,14 @@ from core.database import Database
 
 from datetime import date, datetime, timezone
 from typing import Any, Optional
+from core.auditTypes import AuditType
 
 
 # What the export format itself is. Bumped when the shape changes, so a file
 # someone downloaded a year ago can still be told apart from a current one.
 EXPORT_VERSION = "1"
 
-_AUDIT_DATA_EXPORT = 15
+_AUDIT_DATA_EXPORT = AuditType.DATA_EXPORT
 
 
 def _iso(value: Optional[datetime | date]) -> Optional[str]:

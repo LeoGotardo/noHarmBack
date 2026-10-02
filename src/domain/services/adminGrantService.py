@@ -8,9 +8,10 @@ from core.database import Database
 from core import roles
 
 from datetime import timezone
+from core.auditTypes import AuditType
 
-_AUDIT_ADMIN_GRANTED = 19
-_AUDIT_ADMIN_REVOKED = 20
+_AUDIT_ADMIN_GRANTED = AuditType.ADMIN_GRANTED
+_AUDIT_ADMIN_REVOKED = AuditType.ADMIN_REVOKED
 
 
 class AdminGrantService:

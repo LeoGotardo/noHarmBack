@@ -9,6 +9,7 @@ from core.config import config
 from core.database import Database
 
 from typing import Optional
+from core.auditTypes import AuditType
 
 
 # The conduct a notice can name. Same codes as a report's reason, so a warning
@@ -46,7 +47,7 @@ _EXCERPT_CHARS = 200
 
 # Audit type 5 is "account status changed"; a warning changes no status, so it
 # is logged as a moderation action on the account with type 12.
-_AUDIT_NOTICE = 12
+_AUDIT_NOTICE = AuditType.NOTICE
 
 
 class NoticeService:

@@ -9,6 +9,9 @@ from infrastructure.external import fcmService
 from websocket import emitter
 from core.config import config
 from core.database import Database, database
+from core.auditTypes import AuditType
+from infrastructure.database.repositories.auditLogsRepository import AuditLogsRepository
+from infrastructure.database.models.auditLogsModel import AuditLogsModel
 
 from typing import Optional, overload
 
@@ -17,6 +20,22 @@ class FriendshipService:
     def __init__(self, db):
         self.database: Database = db
         self.friendshipRepository = FriendshipRepository(self.database)
+        self.auditRepository = AuditLogsRepository(self.database)
+
+    def _logAudit(self, actionType: int, catalystId: str, description: str) -> None:
+        """Best effort, like every other audit write: never fails the action.
+
+        Only blocks and unblocks are recorded. They are the safety-relevant
+        edges of the graph — what a moderator reviewing harassment needs to see
+        in order — while requests, accepts and removals are ordinary social
+        activity that an audit trail of a recovery app has no business keeping.
+        """
+        try:
+            self.auditRepository.create(AuditLogsModel(
+                type=actionType, catalyst_id=catalystId, catalyst=None, description=description
+            ))
+        except Exception:
+            pass
 
     # ── notification ──────────────────────────────────────────────────────────
 
@@ -280,7 +299,9 @@ class FriendshipService:
 
         blocked = self.friendshipRepository.setBlocked(friendshipId, requestingUserId)
 
-        emitter.notifyFriendship("friend_block", requestingUserId, self._otherParticipant(friendship, requestingUserId))
+        otherId = self._otherParticipant(friendship, requestingUserId)
+        self._logAudit(AuditType.USER_BLOCKED, requestingUserId, f"Blocked {otherId}")
+        emitter.notifyFriendship("friend_block", requestingUserId, otherId)
 
         return blocked
 
@@ -312,7 +333,9 @@ class FriendshipService:
 
         unblocked = self.friendshipRepository.clearBlock(friendshipId)
 
-        emitter.notifyFriendship("friend_unblock", requestingUserId, self._otherParticipant(friendship, requestingUserId))
+        otherId = self._otherParticipant(friendship, requestingUserId)
+        self._logAudit(AuditType.USER_UNBLOCKED, requestingUserId, f"Unblocked {otherId}")
+        emitter.notifyFriendship("friend_unblock", requestingUserId, otherId)
 
         return unblocked
 
@@ -371,6 +394,7 @@ class FriendshipService:
                 blocked_by=requestingUserId
             ))
 
+        self._logAudit(AuditType.USER_BLOCKED, requestingUserId, f"Blocked {targetId}")
         emitter.notifyFriendship("friend_block", requestingUserId, targetId)
 
         return blocked
@@ -392,6 +416,7 @@ class FriendshipService:
 
         unblocked = self.friendshipRepository.clearBlock(str(blockedRow.id))
 
+        self._logAudit(AuditType.USER_UNBLOCKED, requestingUserId, f"Unblocked {targetId}")
         emitter.notifyFriendship("friend_unblock", requestingUserId, targetId)
 
         return unblocked

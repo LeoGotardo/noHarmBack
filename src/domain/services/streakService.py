@@ -13,6 +13,7 @@ from core.database import Database
 from typing import Optional, overload
 
 from datetime import datetime, timezone
+from core.auditTypes import AuditType
 
 
 class StreakService:
@@ -90,7 +91,7 @@ class StreakService:
                 if self.userBadgesRepository.existsByUserAndBadge(userId, str(badge.id)):
                     continue
                 self.userBadgesRepository.grant(userId, str(badge.id), datetime.now(timezone.utc))
-                self._logAudit(8, userId, f"Badge granted: {badge.name} ({badge.milestone} days)")
+                self._logAudit(AuditType.BADGE_GRANTED, userId, f"Badge granted: {badge.name} ({badge.milestone} days)")
             except Exception:
                 continue
 
@@ -261,7 +262,7 @@ class StreakService:
                 self.streakRepository.markAsRecord(str(streak.id))
 
         # Audit log (§8.1 type=7)
-        self._logAudit(7, userId, f"Streak reset after {endedDuration} days")
+        self._logAudit(AuditType.STREAK_RESET, userId, f"Streak reset after {endedDuration} days")
 
         # Create replacement streak
         newStreak = StreakModel(

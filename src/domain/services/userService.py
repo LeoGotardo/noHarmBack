@@ -20,6 +20,7 @@ def _utcNow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 import re
+from core.auditTypes import AuditType
 
 _USERNAME_RE = re.compile(r'^[a-zA-Z0-9_-]{3,50}$')
 
@@ -260,7 +261,7 @@ class UserService:
         """
         user = self.userRepository.updateStatus(id, status)
         actor = requestingUserId or id
-        self._logAudit(5, actor, f"Account status changed to {status} for user {id}")
+        self._logAudit(AuditType.ACCOUNT_STATUS, actor, f"Account status changed to {status} for user {id}")
         return user
 
     def suspend(self, id: str, days: Optional[int], requestingUserId: str) -> User:
@@ -297,7 +298,7 @@ class UserService:
         user = self.userRepository.suspend(id, until)
 
         self._logAudit(
-            5,
+            AuditType.ACCOUNT_STATUS,
             requestingUserId,
             f"Account {id} suspended until {until.isoformat()}" if until
             else f"Account {id} banned permanently"
@@ -344,7 +345,7 @@ class UserService:
         # nowhere else — which is the only place a moderator should have to
         # look for it.
         self._logAudit(
-            5,
+            AuditType.ACCOUNT_STATUS,
             requestingUserId,
             f"Username of {id} reset from '{previous}' to '{updated.username}'; user must choose a new one"
         )
@@ -390,7 +391,7 @@ class UserService:
 
         updated = self.userRepository.setPictureBlocked(id, blocked)
         self._logAudit(
-            5,
+            AuditType.ACCOUNT_STATUS,
             requestingUserId,
             f"Profile picture of {id} {'blocked' if blocked else 'unblocked'}"
         )
@@ -400,7 +401,7 @@ class UserService:
         """Re-enable an account whose suspension ran out. None when nothing to do."""
         user = self.userRepository.liftExpiredSuspension(id)
         if user is not None:
-            self._logAudit(5, str(id), f"Suspension expired for user {id}; account re-enabled")
+            self._logAudit(AuditType.ACCOUNT_STATUS, str(id), f"Suspension expired for user {id}; account re-enabled")
         return user
 
     def delete(self, userId: str, requestingUserId: str) -> bool:

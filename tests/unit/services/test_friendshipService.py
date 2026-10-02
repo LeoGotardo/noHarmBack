@@ -473,3 +473,25 @@ def test_unblockUser_with_no_block_is_404(mock_db):
         service.unblockUser("uid-sender", "uid-receiver")
 
     assert exc.value.statusCode == 404
+
+
+# ── audit ─────────────────────────────────────────────────────────────────────
+
+def test_block_is_audited_as_type_21_naming_the_other_side(mock_db):
+    from core.auditTypes import AuditType
+    service = _make_service(mock_db)
+    service.auditRepository = MagicMock()
+    service.friendshipRepository.findById.return_value = _mock_friendship(status=config.STATUS_CODES["accepted"])
+    service.block("friendship-001", "uid-sender")
+    entry = service.auditRepository.create.call_args.args[0]
+    assert entry.type == AuditType.USER_BLOCKED == 21
+    assert entry.catalyst_id == "uid-sender"
+    assert "uid-receiver" in entry.description
+
+
+def test_a_failing_audit_never_fails_the_block(mock_db):
+    service = _make_service(mock_db)
+    service.auditRepository = MagicMock()
+    service.auditRepository.create.side_effect = RuntimeError("db down")
+    service.friendshipRepository.findById.return_value = _mock_friendship(status=config.STATUS_CODES["accepted"])
+    service.block("friendship-001", "uid-sender")  # does not raise

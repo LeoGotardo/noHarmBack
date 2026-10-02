@@ -26,13 +26,14 @@ from core.database import Database
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from core.auditTypes import AuditType
 
 
 # 17 is a moderator taking a post or comment down, 18 is putting one back. Two
 # types for the reason consent has two: the question asked of the log is nearly
 # always one direction.
-_AUDIT_CONTENT_REMOVED = 17
-_AUDIT_CONTENT_RESTORED = 18
+_AUDIT_CONTENT_REMOVED = AuditType.CONTENT_REMOVED
+_AUDIT_CONTENT_RESTORED = AuditType.CONTENT_RESTORED
 
 # Module-level like `reportService._reportLimiter`: no per-request state, and
 # the tests patch these names.
