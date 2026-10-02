@@ -37,9 +37,13 @@ class StreakListResponse(BaseModel):
 class StreakStartRequest(BaseModel):
     start_at: Optional[datetime] = Field(None, description="When the streak started (defaults to now)")
 
+    model_config = ConfigDict(extra="forbid")
+
 
 class StreakEndRequest(BaseModel):
     end_at: Optional[datetime] = Field(None, description="When the streak ended (defaults to now)")
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class StreakCreate(BaseModel):

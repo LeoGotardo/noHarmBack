@@ -55,18 +55,20 @@ class TestAuthSchemas:
         with pytest.raises(ValidationError):
             AuthRegisterRequest(username="user")
 
-    def test_register_ignores_client_supplied_identity(self):
+    def test_register_refuses_client_supplied_identity(self):
+        import pytest
+        from pydantic import ValidationError
         from schemas.authSchemas import AuthRegisterRequest
-        # These four used to be the account's identity. They are read from the
-        # token's claims now, so anything sent here is dead weight, not input.
-        r = AuthRegisterRequest(
-            idToken="id-token", username="validuser",
-            birthDate="1990-06-15", acceptedTerms=True, acceptedPrivacy=True,
-            uid="someone-else", email="victim@test.com",
-            emailVerified=True, photoURL="https://evil",
-        )
-        assert not hasattr(r, "uid")
-        assert not hasattr(r, "emailVerified")
+        # These four used to be the account's identity. They come from the
+        # token's claims now, and a body still carrying them is refused rather
+        # than silently trimmed — a client sending them is broken or hostile.
+        with pytest.raises(ValidationError):
+            AuthRegisterRequest(
+                idToken="id-token", username="validuser",
+                birthDate="1990-06-15", acceptedTerms=True, acceptedPrivacy=True,
+                uid="someone-else", email="victim@test.com",
+                emailVerified=True, photoURL="https://evil",
+            )
 
     def test_login_valid(self):
         from schemas.authSchemas import AuthLoginRequest

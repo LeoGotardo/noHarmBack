@@ -39,9 +39,13 @@ class AuthRegisterRequest(BaseModel):
         )
     )
 
+    model_config = ConfigDict(extra="forbid")
+
 
 class AuthLoginRequest(BaseModel):
     idToken: str = Field(..., description="Firebase ID token from the sign-in flow")
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class AuthReactivateRequest(BaseModel):
@@ -51,9 +55,13 @@ class AuthReactivateRequest(BaseModel):
     # anyone else's deletion.
     idToken: str = Field(..., description="Firebase ID token for the account being restored")
 
+    model_config = ConfigDict(extra="forbid")
+
 
 class AuthRefreshRequest(BaseModel):
     refreshToken: str = Field(..., description="Valid refresh token")
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class AuthResponse(BaseModel):

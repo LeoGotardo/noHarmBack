@@ -34,6 +34,10 @@ class BadgeUpdate(BaseModel):
     icon: Optional[str] = Field(None, description="Icon image link")
     
     
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class BadgeResponse(BadgeBase):
     id : UUID
     created_at: datetime

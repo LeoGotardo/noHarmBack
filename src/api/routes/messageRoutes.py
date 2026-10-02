@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 from typing import Optional
 
 from api.dependencies.auth import getCurrentUser, getOfficialUser
@@ -26,6 +26,8 @@ class SendMessageRequest(BaseModel):
         if bool(self.chatId) == bool(self.recipientId):
             raise ValueError("Provide exactly one of 'chatId' or 'recipientId'.")
         return self
+
+    model_config = ConfigDict(extra="forbid")
 
 
 # ── list ──────────────────────────────────────────────────────────────────────
@@ -142,6 +144,8 @@ def sendMessage(
 
 class BroadcastRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=MAX_MESSAGE_LENGTH)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class BroadcastResponse(BaseModel):

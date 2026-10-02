@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from api.dependencies.auth import getCurrentUser
 from api.dependencies.database import getDbWithRLS
@@ -20,9 +20,13 @@ class DeviceBody(BaseModel):
     friends: bool = Field(True, description="Push friend requests and acceptances to this device")
     community: bool = Field(True, description="Push comments on my posts to this device")
 
+    model_config = ConfigDict(extra="forbid")
+
 
 class UpdateDeviceBody(BaseModel):
     newFCM: str = Field(..., description="New FCM device token")
+
+    model_config = ConfigDict(extra="forbid")
 
 
 @router.post(

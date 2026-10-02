@@ -33,6 +33,9 @@ class ProfileUpdateRequest(BaseModel):
     username: Optional[str] = None
     profile_picture: Optional[str] = None
 
+    model_config = ConfigDict(extra="forbid")
+
+
 class UserResponse(BaseModel):
     """Another user, as anyone signed in may see them.
 

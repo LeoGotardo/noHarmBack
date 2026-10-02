@@ -7,7 +7,7 @@ from domain.services.chatService import ChatService
 from schemas.chatSchemas import ChatResponse, ChatListResponse
 from exceptions.baseExceptions import NoHarmException
 from security.limiter import limiter
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from uuid import UUID
 
 
@@ -16,6 +16,8 @@ router = APIRouter(prefix="/chats", tags=["Chats"])
 
 class ChatCreateRequest(BaseModel):
     receiverId: str
+
+    model_config = ConfigDict(extra="forbid")
 
 
 # ── list ──────────────────────────────────────────────────────────────────────

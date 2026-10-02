@@ -19,6 +19,8 @@ class UserBadgeUpdate(BaseModel):
     given_at: Optional[datetime] = Field(None, description="Granted at")
     status: Optional[int] = Field(None, description="Badge status (ex: 1 active, 0 disabled)")
 
+    model_config = ConfigDict(extra="forbid")
+
 
 class UserBadgeResponse(UserBadgeBase):
     id: UUID
