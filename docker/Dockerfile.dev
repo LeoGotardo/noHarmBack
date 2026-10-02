@@ -11,7 +11,7 @@
 #     docker compose -f docker/compose.yaml up
 #
 # The production image is docker/Dockerfile — different context, see its header.
-FROM python:3.12.3-slim
+FROM python:3.14.0-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libpq-dev gcc \
