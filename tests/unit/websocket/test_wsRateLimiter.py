@@ -48,74 +48,26 @@ class TestWsConnectionLimiter:
         from websocket.rateLimiter import WsConnectionLimiter
         return WsConnectionLimiter(maxPerUser=3)
 
-    async def test_tryConnect_returns_true_when_under_limit(self, limiter, mock_redis):
-        mock_redis.incr.return_value = 1
-        assert await limiter.tryConnect("user-1") is True
+    async def test_admit_runs_one_atomic_script_on_the_users_key(self, limiter, mock_redis):
+        mock_redis.eval = AsyncMock(return_value=[])
+        await limiter.admit("user-abc", "sid-1")
+        args = mock_redis.eval.call_args.args
+        assert args[1] == 1 and args[2] == "ws:conns:user-abc"
+        assert args[4] == "sid-1" and args[5] == "3"
 
-    async def test_tryConnect_returns_true_at_exact_limit(self, limiter, mock_redis):
-        mock_redis.incr.return_value = 3
-        assert await limiter.tryConnect("user-1") is True
+    async def test_admit_returns_what_the_script_cut(self, limiter, mock_redis):
+        mock_redis.eval = AsyncMock(return_value=["sid-old"])
+        assert await limiter.admit("user-abc", "sid-new") == ["sid-old"]
 
-    async def test_tryConnect_returns_false_when_over_limit(self, limiter, mock_redis):
-        mock_redis.incr.return_value = 4
-        assert await limiter.tryConnect("user-1") is False
+    async def test_admit_never_returns_the_new_socket_itself(self, limiter, mock_redis):
+        mock_redis.eval = AsyncMock(return_value=["sid-new"])
+        assert await limiter.admit("user-abc", "sid-new") == []
 
-    async def test_tryConnect_rollbacks_decr_when_over_limit(self, limiter, mock_redis):
-        mock_redis.incr.return_value = 4
-        await limiter.tryConnect("user-1")
-        mock_redis.decr.assert_called_once_with("ws:conn:user-1")
+    async def test_onDisconnect_removes_only_that_socket(self, limiter, mock_redis):
+        mock_redis.zrem = AsyncMock()
+        await limiter.onDisconnect("user-abc", "sid-1")
+        mock_redis.zrem.assert_awaited_once_with("ws:conns:user-abc", "sid-1")
 
-    async def test_tryConnect_no_decr_when_under_limit(self, limiter, mock_redis):
-        mock_redis.incr.return_value = 2
-        await limiter.tryConnect("user-1")
-        mock_redis.decr.assert_not_called()
-
-    async def test_tryConnect_sets_expiry_on_key(self, limiter, mock_redis):
-        mock_redis.incr.return_value = 1
-        await limiter.tryConnect("user-1")
-        mock_redis.expire.assert_called_once_with("ws:conn:user-1", 86400)
-
-    async def test_tryConnect_uses_correct_key_prefix(self, limiter, mock_redis):
-        mock_redis.incr.return_value = 1
-        await limiter.tryConnect("abc-123")
-        mock_redis.incr.assert_called_once_with("ws:conn:abc-123")
-
-    async def test_onDisconnect_decrements_when_count_positive(self, limiter, mock_redis):
-        mock_redis.get.return_value = "2"
-        await limiter.onDisconnect("user-1")
-        mock_redis.decr.assert_called_once_with("ws:conn:user-1")
-
-    async def test_onDisconnect_skips_decr_when_count_zero(self, limiter, mock_redis):
-        mock_redis.get.return_value = "0"
-        await limiter.onDisconnect("user-1")
-        mock_redis.decr.assert_not_called()
-
-    async def test_onDisconnect_skips_decr_when_key_missing(self, limiter, mock_redis):
-        mock_redis.get.return_value = None
-        await limiter.onDisconnect("user-1")
-        mock_redis.decr.assert_not_called()
-
-    async def test_different_users_use_different_keys(self, limiter, mock_redis):
-        mock_redis.incr.return_value = 1
-        await limiter.tryConnect("user-A")
-        await limiter.tryConnect("user-B")
-        keys = [call.args[0] for call in mock_redis.incr.call_args_list]
-        assert "ws:conn:user-A" in keys
-        assert "ws:conn:user-B" in keys
-        assert keys[0] != keys[1]
-
-    async def test_custom_max_per_user_respected(self, mock_redis):
-        from websocket.rateLimiter import WsConnectionLimiter
-        limiter = WsConnectionLimiter(maxPerUser=1)
-        mock_redis.incr.return_value = 2
-        assert await limiter.tryConnect("user-1") is False
-
-    async def test_max_per_user_default_is_three(self):
-        from websocket.rateLimiter import WsConnectionLimiter
-        assert WsConnectionLimiter().maxPerUser == 3
-
-
-# ── wsLimit decorator ─────────────────────────────────────────────────────────
 
 class TestWsLimit:
 

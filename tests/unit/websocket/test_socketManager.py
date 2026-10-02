@@ -99,7 +99,7 @@ def wiring():
     """Patch everything `connect` reaches out to, defaulting to the happy path."""
     module = _module()
     limiter = MagicMock()
-    limiter.tryConnect = AsyncMock(return_value=True)
+    limiter.admit = AsyncMock(return_value=[])
     limiter.onDisconnect = AsyncMock()
 
     presence = MagicMock()
@@ -174,25 +174,30 @@ async def test_connect_refuses_when_the_user_row_is_gone(wiring):
             await _handler("connect")("sid-1", {}, {"token": "good"})
 
 
-async def test_connect_refuses_over_the_connection_cap(wiring):
-    wiring.limiter.tryConnect.return_value = False
-    with pytest.raises(ConnectionRefusedError, match="too_many_connections"):
-        await _handler("connect")("sid-1", {}, {"token": "good"})
+async def test_connect_over_the_cap_evicts_the_oldest_not_this_one(wiring):
+    wiring.limiter.admit.return_value = ["sid-old"]
+    with patch.object(wiring.module.sio, "emit", AsyncMock()) as emit, \
+         patch.object(wiring.module.sio, "disconnect", AsyncMock()) as drop:
+        await _handler("connect")("sid-new", {}, {"token": "good"})
+
+    wiring.limiter.admit.assert_awaited_once_with("uid-1", "sid-new")
+    emit.assert_awaited_once_with("session_replaced", {}, to="sid-old")
+    drop.assert_awaited_once_with("sid-old")
+    wiring.presence.add.assert_awaited_once_with("uid-1", "sid-new")
 
 
-async def test_a_refused_connection_records_no_presence(wiring):
-    wiring.limiter.tryConnect.return_value = False
-    with pytest.raises(ConnectionRefusedError):
-        await _handler("connect")("sid-1", {}, {"token": "good"})
-
-    wiring.presence.add.assert_not_awaited()
+async def test_a_failed_eviction_does_not_refuse_the_new_socket(wiring):
+    wiring.limiter.admit.return_value = ["sid-old"]
+    with patch.object(wiring.module.sio, "emit", AsyncMock(side_effect=RuntimeError("gone"))), \
+         patch.object(wiring.module.sio, "disconnect", AsyncMock()):
+        await _handler("connect")("sid-new", {}, {"token": "good"})  # does not raise
 
 
 async def test_disconnect_releases_presence_and_the_cap(wiring):
     await _handler("disconnect")("sid-1")
 
     wiring.presence.remove.assert_awaited_once_with("uid-1", "sid-1")
-    wiring.limiter.onDisconnect.assert_awaited_once_with("uid-1")
+    wiring.limiter.onDisconnect.assert_awaited_once_with("uid-1", "sid-1")
 
 
 async def test_disconnect_without_a_session_user_is_a_no_op(wiring):

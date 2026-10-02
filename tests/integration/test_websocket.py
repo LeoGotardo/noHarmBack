@@ -62,49 +62,46 @@ class TestConnectionLimiter:
     def uid(self):
         return str(uuid.uuid4())
 
-    async def test_up_to_limit_allowed(self, uid):
+    async def test_up_to_the_cap_nothing_is_evicted(self, uid):
         from websocket.rateLimiter import WsConnectionLimiter
         lim = WsConnectionLimiter(maxPerUser=3)
-        for _ in range(3):
-            assert await lim.tryConnect(uid) is True
+        for n in range(3):
+            assert await lim.admit(uid, f"sid-{n}") == []
 
-    async def test_over_limit_refused(self, uid):
+    async def test_past_the_cap_the_oldest_goes(self, uid):
         from websocket.rateLimiter import WsConnectionLimiter
         lim = WsConnectionLimiter(maxPerUser=3)
-        for _ in range(3):
-            await lim.tryConnect(uid)
-        assert await lim.tryConnect(uid) is False
+        for n in range(3):
+            await lim.admit(uid, f"sid-{n}")
+        assert await lim.admit(uid, "sid-3") == ["sid-0"]
+        assert await lim.admit(uid, "sid-4") == ["sid-1"]
 
-    async def test_refused_does_not_increment_counter(self, uid):
+    async def test_the_set_never_exceeds_the_cap(self, uid):
         from websocket.rateLimiter import WsConnectionLimiter, _redis
         lim = WsConnectionLimiter(maxPerUser=3)
-        for _ in range(3):
-            await lim.tryConnect(uid)
-        await lim.tryConnect(uid)  # refused — decr rolls back
-        count = int(await _redis.get(f"ws:conn:{uid}") or 0)
-        assert count == 3
+        for n in range(6):
+            await lim.admit(uid, f"sid-{n}")
+        assert await _redis.zcard(f"ws:conns:{uid}") == 3
 
-    async def test_disconnect_decrements_allowing_reconnect(self, uid):
+    async def test_a_disconnect_frees_a_slot(self, uid):
         from websocket.rateLimiter import WsConnectionLimiter
         lim = WsConnectionLimiter(maxPerUser=3)
-        for _ in range(3):
-            await lim.tryConnect(uid)
-        await lim.onDisconnect(uid)
-        assert await lim.tryConnect(uid) is True
+        for n in range(3):
+            await lim.admit(uid, f"sid-{n}")
+        await lim.onDisconnect(uid, "sid-1")
+        assert await lim.admit(uid, "sid-3") == []
 
-    async def test_disconnect_when_no_connection_does_not_go_negative(self, uid):
-        from websocket.rateLimiter import WsConnectionLimiter, _redis
-        lim = WsConnectionLimiter(maxPerUser=3)
-        await lim.onDisconnect(uid)  # no prior connect
-        count = int(await _redis.get(f"ws:conn:{uid}") or 0)
-        assert count >= 0
-
-    async def test_different_users_have_independent_counters(self):
+    async def test_a_stale_entry_heals_itself(self, uid):
+        """A worker that died without a disconnect leaves an entry behind; it
+        is just the oldest, and the next connection over the cap removes it."""
         from websocket.rateLimiter import WsConnectionLimiter
-        lim = WsConnectionLimiter(maxPerUser=3)
-        uid_a = str(uuid.uuid4())
-        uid_b = str(uuid.uuid4())
-        for _ in range(3):
-            await lim.tryConnect(uid_a)
-        # uid_a is at limit; uid_b should still connect
-        assert await lim.tryConnect(uid_b) is True
+        lim = WsConnectionLimiter(maxPerUser=1)
+        await lim.admit(uid, "sid-from-a-dead-worker")
+        assert await lim.admit(uid, "sid-live") == ["sid-from-a-dead-worker"]
+
+    async def test_users_are_independent(self):
+        from websocket.rateLimiter import WsConnectionLimiter
+        lim = WsConnectionLimiter(maxPerUser=1)
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())
+        await lim.admit(a, "sid-a")
+        assert await lim.admit(b, "sid-b") == []

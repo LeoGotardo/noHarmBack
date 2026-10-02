@@ -100,12 +100,19 @@ async def connect(sid: str, environ: dict, auth: dict | None):
     if status is None or status in _REJECTED_STATUSES:
         raise ConnectionRefusedError("account_unavailable")
 
-    if not await _connectionLimiter.tryConnect(userId):
-        raise ConnectionRefusedError("too_many_connections")
-
     await sio.save_session(sid, {"userId": userId})
     await presence.add(userId, sid)
     await sio.enter_room(sid, f"user_{userId}")
+
+    # Past the per-user cap the oldest sockets go, not this one: the newest
+    # connection is the device the person is holding. The evicted client is
+    # told why before it is dropped, so it does not mistake it for a failure.
+    for oldSid in await _connectionLimiter.admit(userId, sid):
+        try:
+            await sio.emit("session_replaced", {}, to=oldSid)
+            await sio.disconnect(oldSid)
+        except Exception:
+            logger.warning("could not evict socket %s", oldSid, exc_info=True)
 
 
 @sio.event
@@ -113,7 +120,7 @@ async def disconnect(sid: str):
     session = await sio.get_session(sid)
     userId: str | None = session.get("userId")
     if userId:
-        await _connectionLimiter.onDisconnect(userId)
+        await _connectionLimiter.onDisconnect(userId, sid)
         await presence.remove(userId, sid)
 
 
