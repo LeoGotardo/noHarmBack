@@ -74,12 +74,15 @@ Two things this backend owes the frontend:
 
 ```
 noHarmBack/
+├── scripts/                    # gen_api_reference.py, gen_config_reference.py
 ├── alembic/                    # Database migrations
 │   ├── versions/
 │   ├── env.py
 │   └── script.py.mako
 ├── docs/
 │   ├── README.md               # This file
+│   ├── API.md                  # Every route (generated)
+│   ├── CONFIGURATION.md        # Every environment variable (generated)
 │   ├── TODO.md                 # Implementation status
 │   ├── TESTING.md              # Test suite guide
 │   ├── security.md             # Security guide, RLS (§12), business rules (§11)
@@ -683,6 +686,8 @@ See `docs/security.md` for the complete security guide covering:
 
 | Document | Description |
 |----------|-------------|
+| `docs/API.md` | **Every HTTP route** — method, path, who may call it, rate limit. Generated from the app (`scripts/gen_api_reference.py`) and checked by a unit test |
+| `docs/CONFIGURATION.md` | **Every environment variable** — required/optional, default, purpose. Generated from `config.py` (`scripts/gen_config_reference.py`) and checked by a unit test |
 | `docs/TODO.md` | Current implementation status |
 | `docs/TESTING.md` | Test suite guide — patterns, layout, how to run the integration suite |
 | `docs/security.md` | Security guide, audit checklist, RLS, pagination, and business rules |
