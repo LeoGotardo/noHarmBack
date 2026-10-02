@@ -117,3 +117,21 @@ class TestTokenBlacklistOverRealRedis:
         keys = blacklist._redis.keys("*")
         assert keys == ["jti:" + blacklist._hash("jti-secret")]
         assert "jti-secret" not in keys[0]
+
+
+class TestRevokeAllFor:
+    def test_stores_a_cutoff_after_now_with_the_ttl(self, blacklist, mock_redis_client):
+        import time
+        before = int(time.time())
+        cutoff = blacklist.revokeAllFor("uid-1", ttlSeconds=600)
+        key, ttl, value = mock_redis_client.setex.call_args.args
+        assert key.startswith("revoked_before:") and "uid-1" not in key
+        assert ttl == 600 and int(value) == cutoff and cutoff > before
+
+    def test_revokedBefore_reads_it_back(self, blacklist, mock_redis_client):
+        mock_redis_client.get.return_value = "1700000000"
+        assert blacklist.revokedBefore("uid-1") == 1700000000
+
+    def test_revokedBefore_none_when_unset(self, blacklist, mock_redis_client):
+        mock_redis_client.get.return_value = None
+        assert blacklist.revokedBefore("uid-1") is None

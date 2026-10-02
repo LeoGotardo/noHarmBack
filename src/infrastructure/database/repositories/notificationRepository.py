@@ -95,6 +95,23 @@ class NotificationRepository:
         )
         return [d.device_fcm for d in devices]
 
+    def disableAllForUser(self, user_id: str) -> int:
+        """Stop every device of this account receiving pushes. Returns how many."""
+        try:
+            count = (
+                self.session.query(NotificationModel)
+                .filter(
+                    NotificationModel.user_id == user_id,
+                    NotificationModel.status == config.STATUS_CODES["enabled"],
+                )
+                .update({NotificationModel.status: config.STATUS_CODES["deleted"]}, synchronize_session=False)
+            )
+            self.session.commit()
+            return count
+        except Exception as e:
+            self.session.rollback()
+            raise NoHarmException(statusCode=500, message=f'{type(e).__name__}: {e} in {excLocation()}')
+
     def softDelete(self, user_id: str, fcm_token: str) -> bool:
         try:
             device = self._findByFcm(user_id, fcm_token)

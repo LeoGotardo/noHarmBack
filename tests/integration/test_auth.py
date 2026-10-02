@@ -64,19 +64,22 @@ class TestRegister:
         })
         assert resp.status_code == 401
 
-    def test_identity_comes_from_the_token_not_the_body(self, client):
+    def test_identity_fields_in_the_body_are_refused(self, client):
         identity = new_identity()
         resp = client.post("/auth/register", json={
             **body_for(identity),
-            # What a patched client would send. All of it is ignored.
+            # What a patched client would send. Identity comes from the token.
             "uid": "attacker-chosen-uid",
             "email": "attacker@example.com",
             "emailVerified": True,
             "photoURL": "https://attacker.example.com/pic.png",
         })
-        assert resp.status_code == 201
+        assert resp.status_code == 422
 
-        headers = {"Authorization": f"Bearer {resp.json()['accessToken']}"}
+        # ...and nothing was created under either identity.
+        ok = client.post("/auth/register", json=body_for(identity))
+        assert ok.status_code == 201
+        headers = {"Authorization": f"Bearer {ok.json()['accessToken']}"}
         me = client.get("/users/me", headers=headers).json()
         assert me["id"] == identity["uid"]
         assert me["email"] == identity["email"]
@@ -163,6 +166,63 @@ class TestLogout:
         )
         resp = client.post("/auth/refresh", json={"refreshToken": user["refresh"]})
         assert resp.status_code == 401
+
+
+
+class TestLogoutEverywhere:
+    """A second device's tokens die too — the ones the caller never held."""
+
+    @staticmethod
+    def _secondDevice(client, user):
+        import time
+        time.sleep(1.1)  # `iat` has one-second resolution
+        resp = client.post("/auth/login", json={"idToken": user["idToken"]})
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    def test_every_device_is_signed_out(self, client):
+        user = register(client)
+        other = self._secondDevice(client, user)
+
+        resp = client.post("/auth/logout-all", headers=user["headers"])
+        assert resp.status_code == 204
+
+        assert client.get("/users/me", headers=user["headers"]).status_code == 401
+        otherHeaders = {"Authorization": f"Bearer {other['accessToken']}"}
+        assert client.get("/users/me", headers=otherHeaders).status_code == 401
+        for refresh in (user["refresh"], other["refreshToken"]):
+            assert client.post("/auth/refresh", json={"refreshToken": refresh}).status_code == 401
+
+    def test_signing_in_again_afterwards_works(self, client):
+        import time
+        user = register(client)
+        client.post("/auth/logout-all", headers=user["headers"])
+        time.sleep(1.1)
+        resp = client.post("/auth/login", json={"idToken": user["idToken"]})
+        assert resp.status_code == 200
+        fresh = {"Authorization": f"Bearer {resp.json()['accessToken']}"}
+        assert client.get("/users/me", headers=fresh).status_code == 200
+
+    def test_push_devices_are_unregistered_too(self, client):
+        """A lost phone keeps receiving message previews until its FCM token goes."""
+        from sqlalchemy import text
+        from conftest import _engine
+        user = register(client)
+        resp = client.post("/notifications", json={"deviceFCM": "fcm-lost-phone"}, headers=user["headers"])
+        assert resp.status_code in (200, 201), resp.text
+
+        client.post("/auth/logout-all", headers=user["headers"])
+
+        with _engine.connect() as conn:
+            statuses = conn.execute(
+                text("SELECT cl_9d FROM tb_9 WHERE cl_9b = :uid"), {"uid": user["uid"]}
+            ).scalars().all()
+        assert statuses and all(st == 2 for st in statuses)
+
+    def test_other_accounts_are_untouched(self, client):
+        a, b = register(client), register(client)
+        client.post("/auth/logout-all", headers=a["headers"])
+        assert client.get("/users/me", headers=b["headers"]).status_code == 200
 
 
 class TestRefresh:

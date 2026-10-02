@@ -16,6 +16,7 @@ from security.tokenBlacklist import TokenBlacklist
 def mock_blacklist():
     bl = MagicMock(spec=TokenBlacklist)
     bl.isBlacklisted.return_value = False
+    bl.revokedBefore.return_value = None
     return bl
 
 
@@ -302,3 +303,31 @@ def test_revocation_sets_a_positive_ttl(real_blacklist):
 
     key = "jti:" + real_blacklist._hash(payload["jti"])
     assert real_blacklist._redis.ttl(key) > 0
+
+
+# ── log out everywhere ────────────────────────────────────────────────────────
+
+def test_token_issued_before_the_cutoff_is_refused(handler, mock_blacklist):
+    token = handler.createAccessToken("user-123")
+    iat = pyjwt.decode(token, options={"verify_signature": False})["iat"]
+    mock_blacklist.revokedBefore.return_value = iat + 1
+    assert handler.verifyToken(token, "access") is None
+
+
+def test_token_issued_at_or_after_the_cutoff_is_accepted(handler, mock_blacklist):
+    token = handler.createAccessToken("user-123")
+    iat = pyjwt.decode(token, options={"verify_signature": False})["iat"]
+    mock_blacklist.revokedBefore.return_value = iat
+    assert handler.verifyToken(token, "access") is not None
+
+
+def test_cutoff_is_looked_up_for_the_tokens_own_subject(handler, mock_blacklist):
+    handler.verifyToken(handler.createRefreshToken("user-123"), "refresh")
+    mock_blacklist.revokedBefore.assert_called_with("user-123")
+
+
+def test_revokeAllForUser_lasts_a_refresh_tokens_lifetime(handler, mock_blacklist):
+    handler.revokeAllForUser("user-123")
+    mock_blacklist.revokeAllFor.assert_called_once_with(
+        "user-123", ttlSeconds=JwtHandler._REFRESH_EXPIRE_DAYS * 86400
+    )

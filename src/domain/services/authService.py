@@ -1,5 +1,6 @@
 from infrastructure.database.repositories.userRepository import UserRepository
 from infrastructure.database.repositories.auditLogsRepository import AuditLogsRepository
+from infrastructure.database.repositories.notificationRepository import NotificationRepository
 from domain.services.consentService import ConsentService
 from infrastructure.database.models.userModel import UserModel
 from infrastructure.database.models.auditLogsModel import AuditLogsModel
@@ -15,6 +16,7 @@ from core.database import Database
 
 import re
 from datetime import date, datetime, timedelta, timezone
+from core.auditTypes import AuditType
 
 _USERNAME_RE = re.compile(r'^[a-zA-Z0-9_-]{3,50}$')
 
@@ -86,7 +88,7 @@ class AuthService:
         if deadline is None or deadline <= datetime.now(timezone.utc).replace(tzinfo=None):
             # Window closed, or never opened. The purge has not caught up yet,
             # but as far as anyone outside is concerned the account is gone.
-            self._logAudit(2, str(user.id), "Failed login — deletion window closed")
+            self._logAudit(AuditType.LOGIN_FAILURE, str(user.id), "Failed login — deletion window closed")
             return NoHarmException(statusCode=403, errorCode="ACCOUNT_DELETED", message="Account not found.")
 
         return NoHarmException(
@@ -118,7 +120,7 @@ class AuthService:
         if restored is None:
             return user
 
-        self._logAudit(5, str(user.id), f"Suspension expired for user {user.id}; account re-enabled")
+        self._logAudit(AuditType.ACCOUNT_STATUS, str(user.id), f"Suspension expired for user {user.id}; account re-enabled")
         return restored
 
     def _syncProfilePicture(self, user, picture: str | None) -> None:
@@ -385,7 +387,7 @@ class AuthService:
         try:
             user = self.userRepository.findById(uid)
         except NoHarmException:
-            self._logAudit(2, uid, "Failed login — user not found")
+            self._logAudit(AuditType.LOGIN_FAILURE, uid, "Failed login — user not found")
             # 404, not the generic 401. The caller has just proved it holds
             # this Google identity, so "no account for it" tells them only
             # about themselves — there is nothing to enumerate. And a 401 is
@@ -406,7 +408,7 @@ class AuthService:
             config.STATUS_CODES.get("deleted"),
         }
         if user.status in blocked_statuses:
-            self._logAudit(2, str(user.id), f"Failed login — account status {user.status}")
+            self._logAudit(AuditType.LOGIN_FAILURE, str(user.id), f"Failed login — account status {user.status}")
             match user.status:
                 case s if s == config.STATUS_CODES.get("banned"):
                     raise self._bannedError(user)
@@ -420,7 +422,7 @@ class AuthService:
 
         _loginLimiter.onSuccess(uid)
         self._syncProfilePicture(user, identity.picture)
-        self._logAudit(1, str(user.id), "Successful login")
+        self._logAudit(AuditType.LOGIN_SUCCESS, str(user.id), "Successful login")
 
         accessToken = _jwtHandler.createAccessToken(str(user.id))
         refreshToken = _jwtHandler.createRefreshToken(str(user.id))
@@ -470,7 +472,7 @@ class AuthService:
         user = self._liftExpiredSuspension(user)
 
         if user.status == config.STATUS_CODES["banned"]:
-            self._logAudit(2, str(user.id), "Failed reactivation — account banned")
+            self._logAudit(AuditType.LOGIN_FAILURE, str(user.id), "Failed reactivation — account banned")
             raise self._bannedError(user)
 
         if user.status == config.STATUS_CODES["blocked"]:
@@ -485,13 +487,13 @@ class AuthService:
 
         deadline = self._deletionDeadline(user)
         if deadline is None or deadline <= datetime.now(timezone.utc).replace(tzinfo=None):
-            self._logAudit(2, str(user.id), "Failed reactivation — deletion window closed")
+            self._logAudit(AuditType.LOGIN_FAILURE, str(user.id), "Failed reactivation — deletion window closed")
             raise NoHarmException(statusCode=403, errorCode="ACCOUNT_DELETED", message="Account not found.")
 
         restored = self.userRepository.restore(uid)
 
         _loginLimiter.onSuccess(uid)
-        self._logAudit(5, str(restored.id), "Account restored within the deletion grace window")
+        self._logAudit(AuditType.ACCOUNT_STATUS, str(restored.id), "Account restored within the deletion grace window")
 
         return {
             "accessToken": _jwtHandler.createAccessToken(str(restored.id)),
@@ -569,4 +571,25 @@ class AuthService:
                 _jwtHandler.revokeToken(payload["jti"], payload["exp"])
 
         if userId:
-            self._logAudit(6, userId, "Token revocation — logout")
+            self._logAudit(AuditType.TOKEN_REVOKED, userId, "Token revocation — logout")
+
+    def logoutEverywhere(self, userId: str) -> None:
+        """Revoke every token this account holds, on every device (audit type 6).
+
+        For a lost phone or a session someone else has: a ban or a deletion
+        already shuts every session out through the status check on each
+        request, but an account that is merely compromised had no way to end a
+        stolen 7-day refresh token.
+        """
+        _jwtHandler.revokeAllForUser(userId)
+
+        # The tokens are not the only thing a lost phone holds: its FCM
+        # registration keeps receiving pushes, and a message push carries the
+        # first 200 characters. Every device signs in again to get them back —
+        # the app re-registers on start.
+        try:
+            NotificationRepository(self.db).disableAllForUser(userId)
+        except NoHarmException:
+            pass  # the sessions are already revoked; pushes are the lesser half
+
+        self._logAudit(AuditType.TOKEN_REVOKED, userId, "Token revocation — logout on every device")

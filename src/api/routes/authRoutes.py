@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
+from api.dependencies.auth import getCurrentUser
 from api.dependencies.database import getDb
 from domain.services.authService import AuthService
 from exceptions.baseExceptions import NoHarmException
@@ -115,5 +116,27 @@ def logout(
     try:
         service = AuthService(db)
         service.logout(accessCredentials.credentials, body.refreshToken)
+    except NoHarmException as e:
+        raise HTTPException(status_code=e.statusCode, detail=e.message)
+
+
+@router.post(
+    "/logout-all",
+    status_code=204,
+    summary="Log out on every device",
+    description=(
+        "Revokes every access and refresh token this account holds, on every "
+        "device, including this one — for a lost phone or a session someone "
+        "else has. The next request from any of them is a 401."
+    )
+)
+@limiter.limit("5/minute")
+def logoutEverywhere(
+    request: Request,
+    db: Session = Depends(getDb),
+    currentUserId: str = Depends(getCurrentUser),
+):
+    try:
+        AuthService(db).logoutEverywhere(currentUserId)
     except NoHarmException as e:
         raise HTTPException(status_code=e.statusCode, detail=e.message)

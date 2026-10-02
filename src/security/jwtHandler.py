@@ -133,7 +133,17 @@ class JwtHandler:
         if self._blacklist.isBlacklisted(payload["jti"]):
             return None
 
+        # "Log out everywhere": every token issued before the cutoff is dead,
+        # including the ones this server never saw again since issuing them.
+        cutoff = self._blacklist.revokedBefore(payload["sub"])
+        if cutoff is not None and int(payload["iat"]) < cutoff:
+            return None
+
         return payload
+
+    def revokeAllForUser(self, userId: str) -> None:
+        """Refuse every access and refresh token `userId` holds, on every device."""
+        self._blacklist.revokeAllFor(userId, ttlSeconds=self._REFRESH_EXPIRE_DAYS * 86400)
 
 
     # ── Revocation ────────────────────────────────────────────────────────────
