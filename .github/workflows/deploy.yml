@@ -113,6 +113,7 @@ jobs:
             --build-arg VITE_DELETION_GRACE_DAYS="${{ vars.VITE_DELETION_GRACE_DAYS }}" \
             --build-arg VITE_MINIMUM_AGE="${{ vars.VITE_MINIMUM_AGE }}" \
             --build-arg VITE_SUPPORT_EMAIL="${{ vars.VITE_SUPPORT_EMAIL }}" \
+            --build-arg VITE_APP_VERSION="${{ github.ref_name }}" \
             .
           docker push "$REGISTRY/$REPOSITORY:$TAG"
           echo "image=$REGISTRY/$REPOSITORY:$TAG" >> "$GITHUB_OUTPUT"
