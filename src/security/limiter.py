@@ -33,12 +33,20 @@ def _buildLimiter() -> Limiter:
         # instead of on the first request.
         limiterInstance.limiter.storage.check()
         return limiterInstance
-    except Exception:
+    except Exception as e:
         logger.exception(
             "per-route rate limiting could not reach Redis at startup; "
             "falling back to in-memory storage (limits become per-instance)"
         )
+        global degradedReason
+        degradedReason = e
         return Limiter(key_func=extractClientIp)
 
+
+# Set when the limiter fell back to memory. A log line alone is the failure
+# nobody sees: the ceilings quietly become per-instance and reset on every
+# restart. main.py's startup hook turns this into a fault on the admin board
+# and an alert, and it stays degraded until the process restarts.
+degradedReason: Exception | None = None
 
 limiter = _buildLimiter()

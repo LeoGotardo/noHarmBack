@@ -65,6 +65,50 @@ async def _bindWebsocketLoop():
     handle on the loop the server is actually running."""
     emitter.bindLoop()
 
+
+class RateLimiterDegraded(RuntimeError):
+    """The per-route limiter is counting in memory instead of Redis."""
+
+
+@app.on_event("startup")
+async def _reportDegradedLimiter():
+    """Make a limiter that fell back to memory visible, not just logged.
+
+    It is recorded as a fault — the board's Errors tab and its health panel —
+    and pushed to any administrator with the app open. Both are best effort:
+    this runs at boot, and nothing here may stop the API from starting.
+    """
+    from security import limiter as limiterModule
+
+    reason = limiterModule.degradedReason
+    if reason is None:
+        return
+
+    exc = RateLimiterDegraded(
+        f"per-route rate limits fell back to in-memory storage: {type(reason).__name__}: {reason}"
+    )
+    session = None
+    try:
+        session = database.session
+        ErrorLogService(_DbProxy(session)).capture(
+            exc, kind="startup", method="BOOT", path="security/limiter", statusCode=503,
+        )
+    except Exception:
+        logger.warning("could not record the degraded limiter", exc_info=True)
+    finally:
+        if session is not None:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+    emitter.notifyAdmins(
+        "rate_limiter_degraded",
+        "Rate limits degraded",
+        "Per-route limits are counting in memory: Redis was unreachable at startup. "
+        "Restart the app once Redis is back.",
+    )
+
 app.state.limiter = limiter
 
 app.add_middleware(RateLimitMiddleware)
