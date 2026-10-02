@@ -1,0 +1,2 @@
+# The fake keys tests/conftest.py pins so the suite never reads real ones.
+e5c177094d5d11ccd1a3d635cc2a4ea44ce6ae13:tests/conftest.py:generic-api-key:27

@@ -1,0 +1,26 @@
+# Weekly update PRs, alongside the Monday pip-audit run in security.yml.
+# Security updates are opened as soon as an advisory lands, whatever the
+# schedule says — enable "Dependabot security updates" in the repository
+# settings for that half.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the test tooling; it never reaches the image.
+      test-tooling:
+        patterns: ["pytest*", "fakeredis*", "httpx", "httpcore", "pluggy", "iniconfig", "Pygments"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: docker
+    directory: "/docker"
+    schedule:
+      interval: monthly

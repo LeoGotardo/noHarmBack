@@ -47,4 +47,24 @@ jobs:
       # versions but carries no hashes, and adding the flag would fail on
       # every line rather than report a vulnerability.
       - name: audit
-        run: pip-audit --requirement requirements.txt --progress-spinner off --strict
+        # Both files: the dev set never reaches the image, but it runs on every
+        # developer machine and in CI, which is reason enough to audit it.
+        run: pip-audit --requirement requirements-dev.txt --progress-spinner off --strict
+
+  secrets:
+    name: scan for committed secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The whole history: a secret removed in a later commit is still
+          # in the repository, and still has to be rotated.
+          fetch-depth: 0
+
+      # The binary rather than gitleaks-action, which needs a licence key for
+      # organisation-owned repositories. Same scanner as the pre-commit hook.
+      - name: gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.0/gitleaks_8.30.0_linux_x64.tar.gz \
+            | tar -xz gitleaks
+          ./gitleaks git . --redact --no-banner

@@ -1,0 +1,9 @@
+# Blocks a commit that contains something shaped like a secret.
+#   pip install pre-commit && pre-commit install
+# CI runs the same scanner over every push (security.yml), so a commit made
+# without the hook is still caught — just later.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
