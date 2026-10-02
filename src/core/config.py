@@ -124,6 +124,17 @@ class Config:
 
             self.IS_DEV: bool = self.EXEC_MODE.lower() in ("dev", "development")
 
+            # DEBUG outside dev is refused, not merely discouraged. Starlette's
+            # ServerErrorMiddleware checks `debug` *before* the catch-all
+            # handler in main.py, so DEBUG=true serves a full traceback to any
+            # client that triggers a 500 — and run.py would start uvicorn with
+            # reload on. One wrong line in prod.env should stop the deploy,
+            # not quietly change what production answers.
+            if self.DEBUG and not self.IS_DEV:
+                raise ValueError(
+                    f"DEBUG=true is only allowed with EXEC_MODE=dev (got EXEC_MODE={self.EXEC_MODE!r})"
+                )
+
             # Peers allowed to set X-Forwarded-For. Plain IPs or CIDR blocks.
             # Deployed, this is the loopback pair and nothing else: nginx runs
             # beside the app in the container and uvicorn binds 127.0.0.1, so
@@ -254,18 +265,16 @@ class Config:
             # than arrived at by typing a large number of days.
             self.MAX_SUSPENSION_DAYS: int = _optional_int("MAX_SUSPENSION_DAYS", 365)
 
-            # UIDs allowed to call the admin endpoints — today that is
-            # `PUT /users/{id}/status/{status}`, which can ban, unban and
-            # undelete anyone. There is no role column and no admin UI, so an
-            # allowlist is the whole authorisation model. Empty (the default)
-            # means nobody can reach those routes, which is the right posture
-            # for an environment that has no administrators.
+            # Administrators named by the environment. With OFFICIAL_USER_IDS
+            # and the accounts promoted from the app (tb_19) they are what
+            # core/roles.isAdmin lets through the admin routes; these are the
+            # ones the app cannot revoke. Empty by default.
             self.ADMIN_USER_IDS: list = _optional_json("ADMIN_USER_IDS", [])
 
             # UIDs of NoHarm's own accounts — the ones that speak for the app.
-            # Grants nothing: it only puts an "Official" mark beside the name
-            # (see core/roles.py), so nobody can pass a look-alike handle off
-            # as the app. Empty by default.
+            # They carry the "Official" mark, may message anyone, are admins,
+            # and alone may promote or demote other admins (core/roles.py).
+            # Empty by default.
             self.OFFICIAL_USER_IDS: list = _optional_json("OFFICIAL_USER_IDS", [])
 
             # Global IP floor. Per-route slowapi limits are the real ceilings.

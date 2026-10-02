@@ -14,11 +14,15 @@ if __name__ == "__main__":
     # publishes a port, so it needs 0.0.0.0).
     host = os.environ.get("BIND_HOST") or ("0.0.0.0" if config.DEBUG else "127.0.0.1")
 
+    # `config` already refuses DEBUG outside dev; tying reload to IS_DEV as
+    # well means a debug flag can never put a file watcher in production.
+    reload = config.DEBUG and config.IS_DEV
+
     uvicorn.run(
         "main:app",
         host=host,
         port=config.PORT,
-        reload=config.DEBUG,
+        reload=reload,
         app_dir="src",
         # Uvicorn's own forwarded-header handling defaults to ON and trusts
         # 127.0.0.1 — exactly the peer nginx presents. Left enabled it rewrites
