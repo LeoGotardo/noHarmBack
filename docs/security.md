@@ -1089,11 +1089,15 @@ the table, so without them each read is a sequential scan.
 
 ### Pending ⬜
 
-Validated against the code on 2026-10-01, after the round that implemented
-the rest.
+Validated against the code on 2026-10-02. The three findings at the top come
+from the generated route reference (`docs/API.md`), which shows the gate each
+route actually declares.
 
 | Priority | Control | Why it is still open | Section |
 |----------|---------|----------------------|---------|
+| **High** | Make `POST /logs` server-only (remove it, or `getAdminUser`) | Any signed-in account can write audit entries with any type and any `catalyst_id` — the audit trail can be forged in someone else's name | §7.5 |
+| **High** | Put the badge catalogue's writes behind `getAdminUser` | `POST /badges`, `PUT /badges/update/{id}`, its status route and `DELETE /badges/{id}` accept any signed-in account, and `tb_5` has no RLS: anyone can vandalise the badges every user sees | §5.2 |
+| **Medium** | Remove or gate `POST /user-badges/{userId}/{badgeId}` | An account can grant itself any badge (RLS only stops granting to others); the app never calls it — `StreakService` grants badges | §5.2 |
 | **Medium** | Secrets off the instance disk | `prod.env` holds the column key next to the database password. A real fix is a secrets manager the instance reads through an IAM role — and the box deliberately has no AWS credentials today. A decision about infrastructure, not code | §8.4, §9.2 |
 | **Low** | Key rotation without downtime | Rotation works (`rotate-encryption-key`) but needs a maintenance window of seconds | §8.4 |
 | **Low** | Pager-grade alerting | Faults and the degraded limiter reach the admin board and any admin with the app open; nothing reaches a closed app | §8.1, §8.2 |

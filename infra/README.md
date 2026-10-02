@@ -224,3 +224,22 @@ terraform destroy
 
 A final snapshot is taken on destroy and is not managed by Terraform — it
 outlives the stack and costs storage until deleted.
+
+## Files
+
+| File | What it provisions |
+|------|--------------------|
+| `versions.tf` | Terraform and provider versions; `.terraform.lock.hcl` pins the provider builds |
+| `variables.tf` | Inputs (region, sizes, domain, `ALLOWED_ORIGINS`, …); `terraform.tfvars.example` is the template, `terraform.tfvars` is gitignored |
+| `network.tf` | VPC, public subnets for the tasks, data subnets for RDS and Redis |
+| `security_groups.tf` | ALB open to 80/443; tasks reachable from the ALB only; RDS and Redis from the tasks only |
+| `alb.tf` | Load balancer, HTTPS listener with the ACM certificate, HTTP → HTTPS redirect, target group on `/health` |
+| `ecr.tf` | The image repository |
+| `ecs.tf` | Cluster, service and task definitions — the app, and the `migrate` task |
+| `iam.tf` | Task execution and task roles (read the secrets, write logs) |
+| `rds.tf` | Postgres, with its password generated and rotated in its own RDS secret |
+| `redis.tf` | ElastiCache Redis |
+| `secrets.tf` | The `noharm-prod/app` secret (`REPLACE_ME` placeholders, filled by `put-secrets.sh`) |
+| `github_oidc.tf` | The OIDC provider and the role GitHub Actions assumes to deploy |
+| `outputs.tf` | What steps 3–5 above read: ARNs, subnets, cluster and task names |
+| `put-secrets.sh` | Fills the app secret from `.secrets.toml`, refusing shared or placeholder keys |

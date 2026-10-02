@@ -366,6 +366,68 @@ sudo docker compose --env-file prod.env -f compose.host.yaml run --rm app migrat
 `APP_ENV` defaults to `prod`. An unset or misspelled value silently targets
 production — which on this box is the only database there is.
 
+### Rolling back a deploy
+
+There is no "previous image" kept on the box: `deploy-host.sh` ships
+`noharm:latest`, and the old image is left dangling until someone prunes it. A
+rollback is therefore a deploy of the previous release, built from its tag:
+
+```bash
+cd ~/Documentos/noharm                 # the directory with both repos
+git -C noHarm checkout v1.2.2          # the last good release, in BOTH repos
+git -C noHarmBack checkout v1.2.2
+./noHarmBack/docker/deploy-host.sh --no-release
+git -C noHarm checkout master && git -C noHarmBack checkout main
+```
+
+`--no-release` because a rollback is not a new version. The tag commits are
+already on origin, so the script's "pushed" check passes on the detached HEAD.
+
+**Migrations are forward-only.** If the bad release ran one, the old code now
+runs against the new schema. Most migrations only add (tables, columns,
+policies), which old code ignores; four also changed data or column types on
+the way up — `20260812_01` (milestone column type), `20260901_01` and
+`20260911_01` (UPDATEs, a constraint), `20260928_01` (deletes duplicate device
+rows). Read the `upgrade()` of every migration the bad release carried before
+rolling back.
+If one removed or changed something the old code needs, either run
+`alembic downgrade <revision>` inside the container (only migrations with a
+written `downgrade()`, and only if it loses nothing you need) or restore the
+dump taken before the deploy. **Take that dump yourself before any deploy that
+carries a migration** (`./backup-db.sh`): the nightly one may be a day old.
+
+**The APK cannot be rolled back.** Android refuses a lower `versionCode`, so a
+bad APK is fixed by releasing a newer patch version.
+
+### Rotating the JWT keys
+
+`JWT_SECRET_KEY` and `JWT_REFRESH_SECRET_KEY` sign every token. Rotate them
+when one may have leaked. The cost is that **every session ends**: existing
+access and refresh tokens fail verification, and every user signs in again.
+
+```bash
+cd ~/noHarmBack/docker
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"   # twice — the two keys must differ
+# edit prod.env: JWT_SECRET_KEY=<first>, JWT_REFRESH_SECRET_KEY=<second>
+sudo docker compose --env-file prod.env -f compose.host.yaml up -d --force-recreate app
+```
+
+To end the sessions of one account instead of everyone's, use
+`POST /auth/logout-all` as that account (Settings → *Log out of all devices*):
+it needs no key change. Blacklisted JTIs and log-out-everywhere cutoffs in
+Redis stay valid across a key rotation; they simply stop mattering once no old
+token verifies.
+
+### Dependabot pull requests
+
+`.github/dependabot.yml` in each repo opens update PRs every Monday; the
+`security` workflow runs on each one. Merge a PR when its check is green and
+the change is a patch or minor bump; read the changelog first for a major one.
+After merging backend updates, run the unit suite locally and redeploy — the
+image is only rebuilt by `deploy-host.sh`, so a merged update reaches
+production at the next deploy, not at merge time. The Capacitor CLI is held
+below v8 on purpose (it needs Node 22; the documented APK build is on Node 20).
+
 ## Host header
 
 Set `PUBLIC_HOSTNAMES=noharm.site` in `prod.env` (comma-separated for more

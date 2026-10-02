@@ -3,9 +3,9 @@
 > Status: **backend implementado (fases 1–3)** · 2026-09-30 — migration
 > `20261001_01`, `PostService`, `postRoutes.py`, `tests/integration/test_posts.py`.
 > O que o plano deixava em aberto e como ficou está em
-> `FRONTEND_DESIGN_BRIEF.md` §8b. Falta: bump de `TERMS_VERSION` /
-> `PRIVACY_VERSION` junto com o texto legal (seção 9) e o cron de
-> `purge-removed-content` no host (`docs/operations.md`).
+> `FRONTEND_DESIGN_BRIEF.md` §8b. Feito depois: `TERMS_VERSION` /
+> `PRIVACY_VERSION` = `2026-09-28` com o texto legal (seção 9), e o cron de
+> `purge-removed-content` está no host (`docs/operations.md`).
 > Revisão 1 (conferida contra o código): bloquear não-amigo (1.1, não existia),
 > `blocked_by` porque o bloqueado podia se desbloquear, `CONSENT_REQUIRED` no
 > servidor, `chatId` combinável com `postId`, D8 (evidência anexada em vez de
@@ -13,6 +13,13 @@
 > Divisão: backend (`noHarmBack`) implementa as seções 2–7; frontend (`noHarm`)
 > implementa a seção 8. A seção 3 é o **contrato** — os dois lados constroem
 > contra ela, então qualquer mudança nela é combinada antes.
+>
+> **Nota de implementação (auditoria 2026-10-02):** o front não seguiu a seção 8
+> à risca. `PostActionsSheet.jsx` virou `src/screens/community/ItemMenu.jsx`
+> (apagar · denunciar · bloquear, em post e comentário). `RemoveContentSheet.jsx`
+> **não foi construído**: as rotas de remover/restaurar existem e têm testes,
+> mas o app não tem a tela do moderador — hoje só via API. `tests/posts.spec.js`
+> também não existe ainda.
 
 ---
 
