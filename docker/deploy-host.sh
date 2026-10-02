@@ -48,8 +48,12 @@ RELEASE=1
 VERSION=""
 NOTES_FILE=""
 
+# No `| head` anywhere below: under `set -o pipefail` a reader that stops early
+# kills the writer with SIGPIPE (exit 141) and the whole script exits without a
+# word. Each command limits its own output instead.
 latestTag() {
-    git -C "$1" tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1
+    git -C "$1" for-each-ref --count=1 --sort=-v:refname --format='%(refname:short)' \
+        'refs/tags/v[0-9]*.[0-9]*.[0-9]*'
 }
 
 if (( RELEASE )); then
@@ -102,10 +106,10 @@ if (( RELEASE )); then
         echo "# Release notes for $VERSION — what changed, for the people using the app."
         echo "# Lines starting with # are ignored. Leave it empty to abort."
         echo "#"
-        echo "# noHarm since ${last:-the beginning}:"
-        git -C noHarm log --format='#   %s' ${last:+"$last"..HEAD} | head -30
-        echo "# noHarmBack since ${last:-the beginning}:"
-        git -C noHarmBack log --format='#   %s' ${last:+"$last"..HEAD} 2>/dev/null | head -30
+        echo "# noHarm since ${last:-the beginning} (30 most recent):"
+        git -C noHarm log -n 30 --format='#   %s' ${last:+"$last"..HEAD}
+        echo "# noHarmBack since ${last:-the beginning} (30 most recent):"
+        git -C noHarmBack log -n 30 --format='#   %s' ${last:+"$last"..HEAD} 2>/dev/null || true
     } >"$NOTES_FILE"
     editor="$(git var GIT_EDITOR)"
     eval "$editor \"\$NOTES_FILE\""
