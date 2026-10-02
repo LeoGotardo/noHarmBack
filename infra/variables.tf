@@ -158,5 +158,5 @@ variable "mobile_origins" {
     the only client CORS applies to, and it presents these two.
   EOT
   type        = list(string)
-  default     = ["capacitor://localhost", "http://localhost"]
+  default     = ["capacitor://localhost", "https://localhost", "http://localhost"]
 }

@@ -59,7 +59,8 @@ deploy — there is no separate frontend pipeline.
 Two things this backend owes the frontend:
 
 - **`ALLOWED_ORIGINS` must include `capacitor://localhost` (iOS) and
-  `http://localhost` (Android).** The web build is same-origin with the API and
+  `https://localhost` (Android, Capacitor's default scheme since v6; keep
+  `http://localhost` too for older builds).** The web build is same-origin with the API and
   never sends a preflight; the Capacitor app is the only cross-origin client.
   Omitting these breaks mobile REST while leaving the socket working — an
   asymmetric failure that is confusing without this note.
