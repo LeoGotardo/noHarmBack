@@ -12,7 +12,7 @@
 # CI therefore needs both repos checked out as siblings.
 
 # ── Stage 1: the front-end bundle ──────────────────────────────────────────
-FROM node:22-alpine AS frontend
+FROM node:26-alpine AS frontend
 
 # Vite inlines every VITE_* at build time — they are baked into the JS, not read
 # at runtime, so they must arrive here and nowhere later. A missing one does not
