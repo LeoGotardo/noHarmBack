@@ -27,7 +27,7 @@ pytest --tb=short  # short tracebacks on failure
 Dependencies already installed and configured. To reinstall:
 
 ```bash
-pip install pytest pytest-asyncio httpx pytest-mock
+pip install -r requirements-dev.txt
 ```
 
 `pytest.ini` is configured at the project root:
@@ -51,6 +51,9 @@ python_functions = test_*
 tests/
 ├── conftest.py                 # sys.path + env + core.database mocked
 ├── unit/
+│   ├── core/
+│   │   ├── test_auditTypes.py
+│   │   └── test_config.py
 │   ├── dependencies/
 │   │   ├── test_auth.py
 │   │   └── test_database.py
@@ -80,6 +83,7 @@ tests/
 │   ├── routes/
 │   │   ├── test_appWiring.py
 │   │   ├── test_authRoutes.py
+│   │   ├── test_degradedLimiter.py
 │   │   ├── test_friendshipRoutes.py
 │   │   ├── test_reportRoutes.py
 │   │   ├── test_streakRoutes.py
@@ -133,6 +137,7 @@ tests/
     ├── test_chat.py
     ├── test_consentAndExport.py
     ├── test_friendship.py
+    ├── test_keyRotation.py
     ├── test_message.py
     ├── test_moderationQueue.py
     ├── test_notices.py

@@ -332,8 +332,15 @@ policy that line is promising:
 From the directory holding **both** repos, on a developer machine:
 
 ```bash
-./noHarmBack/docker/deploy-host.sh
+./noHarmBack/docker/deploy-host.sh                # asks for the version and notes
+./noHarmBack/docker/deploy-host.sh --no-release   # a hotfix, no version
 ```
+
+Before building it asks for the release tag and opens your git editor for the
+notes; both repos must be committed and pushed. Only after a healthy deploy
+does it tag both repos `vX.Y.Z` and push the tags, which makes the front end's
+`release` workflow publish the GitHub Release with the Android APK. A deploy
+that fails tags nothing. Details in `noHarm/README.md`, "Releases".
 
 It builds the image locally, ships it over SSH (`docker save | ssh docker load`,
 ~600 MB on the wire — minutes, not seconds), restarts the stack and waits for
@@ -358,6 +365,14 @@ sudo docker compose --env-file prod.env -f compose.host.yaml run --rm app migrat
 
 `APP_ENV` defaults to `prod`. An unset or misspelled value silently targets
 production — which on this box is the only database there is.
+
+## Host header
+
+Set `PUBLIC_HOSTNAMES=noharm.site` in `prod.env` (comma-separated for more
+names). With it, nginx closes the connection (444) on any other `Host` on :443
+and refuses to redirect one from :80 — scanners addressing the box by IP stop
+reaching the API at all. Unset answers every Host. Applied on the next
+`up -d --force-recreate app`, since `entrypoint.sh` generates the rule at start.
 
 ## TLS
 
@@ -399,6 +414,49 @@ comes back up unable to read its own tables.
 > cover "someone deleted the wrong rows", not "the volume is gone". Moving them
 > to S3 needs an instance role — there are deliberately no AWS credentials on
 > this box.
+
+## Rotating the column encryption key
+
+`DATABASE_ENCRYPTION_KEY` encrypts every sensitive column (AES-GCM). Rotate it
+when it may have leaked — and before throwing the old one away, because
+nothing encrypted under it can be read without it.
+
+This is a **maintenance window**: the app reads with one key at a time, so
+between the first rewritten row and the restart it cannot read everything.
+At this size it takes seconds.
+
+```bash
+cd ~/noHarmBack/docker
+./backup-db.sh                                   # 1. a dump under the OLD key
+sudo docker compose --env-file prod.env -f compose.host.yaml stop app
+
+NEW=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+OLD=$(grep '^DATABASE_ENCRYPTION_KEY=' prod.env | cut -d= -f2-)
+
+# 2. rehearse: counts what would change and checks every value decrypts
+sudo docker compose --env-file prod.env -f compose.host.yaml run --rm \
+  -e DATABASE_ENCRYPTION_KEY_OLD="$OLD" -e DATABASE_ENCRYPTION_KEY="$NEW" \
+  app rotate-encryption-key --dry-run
+
+# 3. for real — same command without --dry-run
+sudo docker compose --env-file prod.env -f compose.host.yaml run --rm \
+  -e DATABASE_ENCRYPTION_KEY_OLD="$OLD" -e DATABASE_ENCRYPTION_KEY="$NEW" \
+  app rotate-encryption-key
+
+# 4. only once it exits 0: put NEW in prod.env and start the app
+sed -i "s|^DATABASE_ENCRYPTION_KEY=.*|DATABASE_ENCRYPTION_KEY=$NEW|" prod.env
+sudo docker compose --env-file prod.env -f compose.host.yaml up -d app
+```
+
+- **It is resumable.** A value already under the new key is skipped, so if the
+  run dies halfway, run step 3 again with the same two keys.
+- **Exit 1 with "undecryptable"** means a value decrypts under neither key.
+  That table is left untouched; find out why before going further, and do not
+  discard the old key.
+- **Keep the old key with the pre-rotation dump.** That dump is still encrypted
+  under it, and it is the only way back for the next seven days.
+- `BLIND_INDEX_KEY` is separate and not touched here: rotating it means
+  re-running migration `20260902_01`.
 
 ## Row Level Security
 

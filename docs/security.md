@@ -85,9 +85,10 @@ container on the same host, reached over the compose network as
 | Max requests | 240 (`RATE_LIMIT_MAX_REQUESTS`) |
 | Block duration | 60 s on the first breach, doubling on repeat, capped at 900 s (`RATE_LIMIT_BLOCK_SECONDS`, `RATE_LIMIT_MAX_BLOCK_SECONDS`) |
 
-**Pending countermeasures:**
-- [ ] Constant-time response (add `time.sleep(0.1)` regardless of success/failure to prevent timing attacks)
-- [ ] CAPTCHA after 3 consecutive failures
+**Not applicable:** there is no password to guess. Login takes a Firebase ID
+token, which only Google issues after its own sign-in (with its own rate
+limits, CAPTCHA and 2FA). A timing difference or a CAPTCHA here would protect
+nothing an attacker can try.
 
 ---
 
@@ -138,8 +139,12 @@ user = session.query(UserModel).filter(UserModel.email == email).first()
 - `userService.updateProfile()` — username on update
 - `messageService.sendMessage()` — message content before persistence
 
-**Pending countermeasures:**
-- [ ] Apply `Sanitizer.cleanHtml()` to any future free-text fields added (e.g. profile bio, badge descriptions if user-editable)
+Also applied since: post and comment content (`PostService._clean`), report
+details and notes (`ReportService`), moderator messages (`NoticeService`).
+Usernames are restricted to `[a-zA-Z0-9_-]` instead.
+
+**Rule for new fields:** any new user-supplied free text goes through
+`Sanitizer.cleanHtml()` before persistence.
 
 ---
 
@@ -153,10 +158,9 @@ Pydantic schemas act as an explicit whitelist. Only fields declared in a schema 
 
 **Schemas with `extra="forbid"`:** every single-entity response (`AuthResponse`, `UserResponse`, `MeResponse`, `StreakResponse`, `ChatResponse`, `FriendshipResponse`, `MessageResponse`, `BadgeResponse`, `UserBadgeResponse`, `AuditLogsResponse`, the report, notice, consent and post responses) and the request bodies where an extra field would be an attack — `ReportRequest` (no message text), `ConsentAcceptRequest` (no version), the post and comment bodies.
 
-**Still missing `extra="forbid"`:** most other **input** schemas — `AuthRegisterRequest`, `AuthLoginRequest`, `AuthReactivateRequest`, `AuthRefreshRequest`, `ProfileUpdateRequest`, `StreakStartRequest`, `StreakEndRequest`, and the `*Update` schemas. They ignore unknown fields rather than refusing them.
+**Every request body refuses unknown fields** (422): the auth bodies, `ProfileUpdateRequest`, the streak bodies, `BadgeUpdate`, `UserBadgeUpdate`, and the bodies declared in the route files (`ChatCreateRequest`, `SendMessageRequest`, `BroadcastRequest`, `DeviceBody`, `UpdateDeviceBody`). A register body still carrying `uid`/`email` — the old identity fields — is refused rather than trimmed.
 
-**Pending countermeasures:**
-- [ ] Add `model_config = ConfigDict(extra='forbid')` to the input schemas above, to reject unexpected fields rather than silently ignore them
+Internal `*Create`/`*Update` schemas that no route accepts are not covered; they never see client input.
 
 ---
 
@@ -227,11 +231,13 @@ Exceeding a per-route limit returns 429. All of it — `slowapi`, `IpRateLimiter
 
 **What it is:** Attacker keeps thousands of connections half-open, exhausting server threads.
 
-**In place:** nginx fronts uvicorn and caps request bodies at `client_max_body_size 4m` (`docker/nginx.conf`).
+**In place** (`docker/nginx.conf`): `client_header_timeout 10s`,
+`client_body_timeout 10s`, `send_timeout 30s`, `keepalive_timeout 15s`, and
+request bodies capped at 64 KB (1 MB on `/ws/`). uvicorn listens on loopback
+only, behind nginx, with its default 5 s keep-alive.
 
-**Pending (infrastructure-level):**
-- [ ] Configure Uvicorn `timeout_keep_alive=5`, `limit_concurrency=1000`
-- [ ] Tighten nginx timeouts: `client_header_timeout 10s`, `client_body_timeout 10s`, `keepalive_timeout 5s` (today `keepalive_timeout 65`)
+`limit_concurrency` is deliberately not set: uvicorn counts open WebSockets
+against it, so a cap sized for HTTP would start refusing sockets first.
 
 ---
 
@@ -290,11 +296,10 @@ Exceeding a per-route limit returns 429. All of it — `slowapi`, `IpRateLimiter
 | Room isolation | Users join personal room `user_{userId}` on connect; chat rooms `chat_{chatId}` joined via events |
 | Presence tracking | Registry in Redis, multi-device and shared across instances |
 | Event rate limits | `@wsLimit` per user: `send_message` 30/min, `typing` 60/min |
-| Connection cap | 3 simultaneous connections per user (`WsConnectionLimiter`, Redis); the fourth is refused with `too_many_connections` |
+| Connection cap | 3 sockets per user (`WsConnectionLimiter`, a Redis sorted set of sid → connect time). A fourth is accepted and the **oldest** is told `session_replaced` and disconnected; a stale entry from a dead worker is just the oldest, so the set heals itself |
 | Payload size | `max_http_buffer_size` 2 MB on the server; message content capped at 2000 characters in `MessageService.sendMessage`, shared with the REST path |
 
-**Pending countermeasures:**
-- [ ] Evict the oldest connection instead of refusing the newest, so a phone left open does not lock out a laptop
+
 
 ---
 
@@ -319,15 +324,13 @@ Exceeding a per-route limit returns 429. All of it — `slowapi`, `IpRateLimiter
 
 `ACCOUNT_PENDING_DELETION` carries one extra field, `details.deletionScheduledAt`, and it is the only status response that tells the caller anything they did not already know: that the account they hold a verified Firebase token for is restorable, and until when. It requires the same proof as a login, so it leaks nothing to anyone who is not the account holder.
 
-**Known weakness (found via code audit):**
-`authService.register()` catches only `NoHarmException` during the email/username uniqueness checks. If `findByEmail` or `findByUsername` raises a non-`NoHarmException` (e.g. DB timeout → status 500), the except block silently proceeds to create the user without completing the uniqueness check.
+~~`authService.register()` proceeded to create the user when a uniqueness lookup failed with a non-404 error.~~ **Fixed** — every lookup (`findById`, `findByEmail`, `findByUsername`) now re-raises anything that is not a 404.
+
+~~`GET /users?search=` matched an exact e-mail too, confirming to any signed-in account that an address had an account.~~ **Fixed** — it matches usernames only (`UserRepository.search`).
 
 ~~`userService.getPublicProfile()` swallowed non-404 errors from `findByUsers`, which could allow a blocked user to view a blocker's profile during a DB transient error.~~ **Fixed** — service now re-raises any non-404 exception from `findByUsers`.
 
-**Pending countermeasures:**
-- [ ] Constant-time response on login (timing side-channel still possible)
-- [ ] Fix `authService.register()` uniqueness check to re-raise non-404 errors as 500 instead of falling through
-- [ ] Forgot-password endpoint (when built): always respond with `"If this email is registered, you will receive a reset link"` — never confirm or deny
+
 
 **Where to implement:** `authRoutes.py`
 
@@ -391,12 +394,18 @@ POST /auth/refresh
 
 **Implications:** Without DB-persisted tokens, "revoke all sessions for a user" (e.g. on password reset or account compromise) is not possible — only individual JTI revocation via logout.
 
-**Pending:**
-- [ ] Implement `refreshTokenRepository.py` (create, findByTokenHash, deleteByUserId, deleteExpired)
-- [ ] Wire `authService` to store new refresh token hash in `tb_8` on login/refresh
-- [ ] Use `deleteByUserId` on security events (forced logout all sessions)
+**"Log out everywhere" — implemented without `tb_8`.** `POST /auth/logout-all`
+writes one key per account in Redis, `revoked_before:<sha256(uid)>`, holding a
+cutoff timestamp; `JwtHandler.verifyToken` refuses any token whose `iat` is
+older. One write revokes every token the account holds — including the refresh
+token on a lost phone that the server never sees again — and the key expires
+with the longest token it could still have to refuse (7 days). The same call
+disables every push device of the account (`tb_9`), because a message push
+carries the first 200 characters. Audit type 6. Settings → *Log out of all
+devices* in the app.
 
-**Where to implement:** `refreshTokenRepository.py`, `authService.py`
+`tb_8` stays unused; a per-session list (which device, last seen) would be the
+reason to wire it.
 
 ---
 
@@ -431,10 +440,11 @@ POST /auth/refresh
 | 16 | `adminService` | Admin board opened |
 | 17 / 18 | `postService` | Post or comment removed / restored by a moderator |
 | 19 / 20 | `adminGrantService` | Administrator promoted / demoted by an official account |
+| 21 / 22 | `friendshipService` | User blocked / unblocked |
 
 **Pending:**
-- [ ] Define a `LOG_TYPES` enum (e.g. `LOGIN_SUCCESS=1`, `LOGIN_FAILURE=2`, ...) to replace bare integer literals
-- [ ] Extend audit logging to friendship, chat and message events (types 3, 4, 9 unused)
+- [x] `core/auditTypes.AuditType` names every type; a unit test pins the values
+- [x] Blocks and unblocks are audited (21 / 22). Requests, accepts, removals, chats and messages deliberately are not: they are ordinary social activity, and an audit trail of who talks to whom in a recovery app is a liability, not a control
 
 **Where implemented:** `auditLogsService.py`, `auditLogsRoutes.py`, `auditLogsRepository.py`, `authService.py`, `userService.py`, `streakService.py`, `reportService.py`
 
@@ -464,13 +474,16 @@ This exposes the server's file system layout and internal class names to any cli
 - ~~`messageRepository.update()` — the `except` block silently returns `None` on non-`NoHarmException` DB errors instead of raising a 500, masking failures entirely.~~ **Fixed.**
 - ~~`auditLogsRepository.findByType()` — the method parameter was named `type`, shadowing Python's built-in. On DB error, the handler raised `TypeError: 'int' object is not callable`.~~ **Fixed** — parameter renamed to `logType`.
 
+Since then repositories use `excLocation()`, which still puts the file and line
+into the exception message — but that message only reaches a client in `dev`.
+
 **Implemented countermeasures:**
+- ✅ Every 5xx is logged server-side with its traceback (`logger.exception`) and recorded, encrypted, in `tb_14` by `ErrorLogService` — the admin board's Errors tab
 - ✅ `main.py` exception handler returns generic `{"errorCode": "INTERNAL_ERROR", "message": "An internal server error occurred."}` for all 5xx responses in `staging` and `production` — traceback never reaches the client
 - ✅ Catch-all `@app.exception_handler(Exception)` added — unhandled exceptions also return the generic 500 in non-dev environments; full traceback included only in `development`
 
 **Pending countermeasures:**
-- [ ] Log the full traceback server-side to a structured logger or Sentry (currently only returned in development responses)
-- [ ] Introduce a logging wrapper that captures `exc_info=True` for all repository exceptions
+- [ ] Nothing pages anyone on a new fault: the board shows it, and an admin with the app open gets a socket alert. A closed app hears nothing (see `operations.md`)
 
 **Where to implement:** logging setup, `main.py` (logger integration)
 
@@ -491,11 +504,13 @@ boot — a limiter that cannot reach its store must not take the API down with
 it, but in that mode the ceilings apply per instance again.
 
 **What is left depending on infra:**
-- [ ] Redis has to be genuinely durable (ElastiCache with persistence, not an
-      ephemeral container alongside). A Redis that restarts empty brings the
-      whole problem back, only more quietly.
-- [ ] Alert when the in-memory fallback kicks in. Today it only logs: the
-      ceilings loosen with nothing visible from outside.
+- [x] Redis survives a restart: the live container runs with `--appendonly`
+      on a named volume (`compose.host.yaml`). Losing the volume itself still
+      un-revokes every blacklisted token; ElastiCache would be the answer on
+      the ECS path.
+- [x] The in-memory fallback is reported: at startup it is recorded as a
+      fault (admin board → Errors) and pushed as an alert to any admin with
+      the app open. It lasts until the process restarts.
 
 **Where to implement:** `rateLimiter.py`, `limiter.py`, Redis infra
 
@@ -505,10 +520,9 @@ it, but in that mode the ceilings apply per instance again.
 
 **What it is:** Without a maximum body size, an attacker can send a gigabyte-sized JSON payload to any endpoint, causing memory exhaustion or a slow-upload DoS.
 
-**In place:** nginx refuses bodies over 4 MB (`client_max_body_size 4m`), and uvicorn is reachable only through nginx.
+**In place:** nginx refuses REST bodies over 64 KB and socket bodies over 1 MB, and uvicorn is reachable only through nginx.
 
 **Pending countermeasures:**
-- [ ] Lower the nginx cap to what the API actually needs (no endpoint takes more than a few KB today)
 - [ ] For file upload endpoints (profile picture): validate content type and enforce a stricter limit (e.g. 5 MB) at the route level using `UploadFile` with explicit size checks
 
 **Where to implement:** `run.py` (Uvicorn config), Nginx config
@@ -521,11 +535,18 @@ it, but in that mode the ceilings apply per instance again.
 
 **Current risk:** The column key is `DATABASE_ENCRYPTION_KEY`, kept in `prod.env` on the instance alongside the database password. A single secret file compromise exposes both.
 
+**In place:** `rotate-encryption-key` (`src/jobs/rotateEncryptionKey.py`)
+re-encrypts every `StringEncryptedType` column from `DATABASE_ENCRYPTION_KEY_OLD`
+to `DATABASE_ENCRYPTION_KEY`, found from the models' metadata. It is resumable
+(values already under the new key are skipped), refuses to write a table with
+a value under neither key, and has a `--dry-run`. It needs a short maintenance
+window — runbook in `operations.md`.
+
 **Pending countermeasures:**
-- [ ] Key versioning: prefix encrypted values with a key version identifier (e.g. `v1:...`). When rotating, re-encrypt rows in batches using the new key while old ones are still decryptable with the old key
+- [ ] Rotation without downtime would need the app to read with two keys at once (a key version on each value, or a decrypt fallback)
 - [ ] Separate the encryption key from the database credentials — store them in different secret sources or use a secrets manager (e.g. Google Secret Manager, AWS Secrets Manager, Doppler)
 - [ ] Derive per-table or per-column subkeys from the master key using HKDF — limits blast radius if one subkey is compromised
-- [ ] Define a key rotation runbook: how to re-encrypt all rows with a new key without downtime
+
 
 **Where to implement:** `encryption.py`, `config.py`, infrastructure
 
@@ -536,8 +557,8 @@ it, but in that mode the ceilings apply per instance again.
 **What it is:** `DEBUG = false` is set in `staging` and `production` in `.secrets.toml`, but `main.py` passes `debug=config.DEBUG` directly to FastAPI. If `DEBUG` is ever accidentally set to `true` in production, FastAPI will return full Python tracebacks in HTTP responses.
 
 **Pending countermeasures:**
-- [ ] Add a startup guard that raises a hard error if `DEBUG=true` and `EXEC_MODE` is `"prod"` or `"staging"`
-- [ ] Regardless of `DEBUG`, always use the custom `noHarmExceptionHandler` and the catch-all handler (see §8.1) to prevent tracebacks from reaching clients
+- [x] `Config` refuses to start with `DEBUG=true` unless `EXEC_MODE` is `dev` — this matters because Starlette's `ServerErrorMiddleware` checks `debug` *before* the installed handler, so `DEBUG=true` would serve a full traceback despite the catch-all. `run.py` only enables `reload` in dev as well
+- [x] The custom handlers decide on `EXEC_MODE` (`_IS_DEV`), not on `DEBUG`
 
 ```python
 # In main.py or config.py startup
@@ -553,10 +574,14 @@ if config.DEBUG and config.EXEC_MODE in ("prod", "staging"):
 
 **What it is:** An attacker sends a forged `Host` header (e.g. `Host: evil.com`). If the application uses `request.base_url` or `request.headers["host"]` to build URLs (e.g. in password reset emails), the generated link points to the attacker's domain.
 
-**Pending countermeasures:**
-- [ ] Never build absolute URLs from `request.headers["host"]` — always use a hardcoded `BASE_URL` config value
-- [ ] Add `BASE_URL` to the `.secrets.toml` config and validate it on startup
-- [ ] Nginx: use `if ($host !~* "^noharm\.app$") { return 444; }` to reject requests with unexpected Host headers before they reach the app
+**In place:** no code builds a URL from `Host`. With `PUBLIC_HOSTNAMES` set
+(`prod.env`), nginx closes the connection (444) on any other Host on :443 and
+refuses to redirect one from :80 — generated by `entrypoint.sh` into
+`$hostAllowed`. Unset keeps answering every Host. Only `TLS_MODE=container`
+enforces it; behind an ALB that belongs in the listener rules.
+
+**Rule:** if a URL ever has to be built server-side, take the host from config,
+never from the request.
 
 **Where to implement:** `config.py`, any future email service, Nginx config
 
@@ -586,18 +611,16 @@ if config.DEBUG and config.EXEC_MODE in ("prod", "staging"):
 
 **Current state:** Dependencies are pinned to specific versions in `requirements.txt`, which prevents unexpected breaking changes, but also means security patches are not applied automatically.
 
+**In place:** `.github/workflows/security.yml` runs `pip-audit --strict` on
+every push to `main`, every pull request and every Monday — independently of
+the deploy workflow, so it keeps running while that one is manual.
+
 **Pending countermeasures:**
-- [ ] Add `pip-audit` or `safety` to the CI pipeline — fail the build if any dependency has a known CVE
 
-```bash
-# Add to GitHub Actions
-pip install pip-audit
-pip-audit -r requirements.txt
-```
-
-- [ ] Enable GitHub's Dependabot for automated dependency update PRs
+- [x] Dependabot (`.github/dependabot.yml` in both repos): weekly pip/npm, monthly actions and base images
 - [ ] Review and update pinned versions at least monthly; prioritise security releases immediately
-- [ ] Add a `requirements-dev.txt` for test/dev-only packages to reduce the production attack surface
+- [x] Test tooling moved to `requirements-dev.txt`; the image installs `requirements.txt` only
+- [x] The front end runs `npm audit` in its own `security.yml` — production dependencies fail the build. Both audits are clean as of 2026-10-01
 
 **Where to implement:** `.github/workflows/`, `requirements.txt`
 
@@ -613,9 +636,8 @@ pip-audit -r requirements.txt
 - `.secrets.toml`, `.env`, `.env.local` all listed in `.gitignore`
 
 **Pending countermeasures:**
-- [ ] Run `git log --all -- .secrets.toml` to verify the file was never committed before the ignore was added
-- [ ] If it was committed, rotate all secrets immediately — assume compromised
-- [ ] Add a pre-commit hook (e.g. `detect-secrets` or `git-secrets`) that blocks commits containing high-entropy strings or known secret patterns
+- [x] Verified: `git log --all -- .secrets.toml docker/prod.env` is empty — neither file was ever committed, and both are in `.gitignore`
+- [x] gitleaks: a pre-commit hook (`.pre-commit-config.yaml`, opt-in with `pre-commit install`) and a CI job over the whole history in both repos. The full history of both was scanned on 2026-10-01: nothing but the fake keys in `tests/conftest.py`, listed in `.gitleaksignore`
 - [ ] In production the secrets come from environment variables
       (`docker/prod.env` or the ECS task definition); `.secrets.toml` is in
       `.dockerignore` and never enters the image. The remaining step is moving
@@ -759,6 +781,7 @@ Rules requiring changes outside routes/services (new tables, models, external se
 | Admin board read | 16 |
 | Content removed / restored | 17 / 18 |
 | Administrator promoted / demoted | 19 / 20 |
+| User blocked / unblocked | 21 / 22 |
 
 ### 11.8.1 Reports
 
@@ -1048,28 +1071,44 @@ the table, so without them each read is a sequential scan.
 | `messageRepository.update()` — now raises `NoHarmException(500)` on DB error | §8.1 | `messageRepository.py` |
 | `auditLogsRepository.findByType()` — param renamed `logType`, no longer shadows `type` builtin | §8.1 | `auditLogsRepository.py` |
 | `userService.getPublicProfile()` — non-404 from `findByUsers` now re-raises correctly | §7.1 | `userService.py` |
+| `authService.register()` — every uniqueness lookup re-raises non-404 errors | §7.1 | `authService.py` |
+| `GET /users`, `GET /users/{id}` and the status route no longer return e-mail, status or birth date | §5.1 | `userSchemas.py`, `userRoutes.py` |
+| Socket messages capped at 2000 characters like REST | §6.1 | `messageService.py` |
+| `pip-audit` in CI, weekly and on every push | §9.1 | `.github/workflows/security.yml` |
+| Server-side traceback logging, encrypted fault log | §8.1 | `main.py`, `errorLogService.py` |
+| `DEBUG=true` refused outside dev; reload only in dev | §8.5 | `config.py`, `run.py` |
+| User search by username only — no e-mail membership oracle | §7.1 | `userRepository.py` |
+| "Log out everywhere": per-account token cutoff + push devices disabled | §7.4 | `jwtHandler.py`, `tokenBlacklist.py`, `authService.py` |
+| `extra="forbid"` on every request body | §2.3 | schemas, route bodies |
+| nginx slow-client timeouts, 64 KB body cap, `PUBLIC_HOSTNAMES` | §4.2, §8.3, §8.6 | `nginx.conf`, `server.tls.conf`, `entrypoint.sh` |
+| Column key rotation job + runbook | §8.4 | `jobs/rotateEncryptionKey.py`, `operations.md` |
+| Degraded rate limiter reported on the board and to admins | §8.2 | `limiter.py`, `main.py` |
+| WebSocket cap evicts the oldest socket; self-healing | §6.1 | `websocket/rateLimiter.py` |
+| `AuditType` enum; block/unblock audited | §7.5 | `core/auditTypes.py` |
+| `requirements-dev.txt`, Dependabot, gitleaks (hook + CI); npm audit clean | §9 | both repos |
 
 ### Pending ⬜
 
-| Priority | Control | Section | Location |
-|----------|---------|---------|----------|
-| **High** | Implement `refreshTokenRepository.py` + wire `tb_8` — enables "revoke all sessions" | §7.4 | `refreshTokenRepository.py`, `authService.py` |
-| **High** | Constant-time login response (timing attack) | §1.2 | `authRoutes.py` |
-| **High** | Fix `authService.register()` — non-404 DB error during uniqueness check falls through silently | §7.1 | `authService.py` |
-| **High** | Structured log sanitisation + server-side traceback logging | §5.1, §8.1 | logging setup |
-| **High** | Debug mode guard in production | §8.5 | `main.py`, `config.py` |
-| **High** | pip-audit in CI pipeline | §9.1 | `.github/workflows/` |
-| **Medium** | Lower the request body cap from 4 MB to what the API needs | §8.3 | Nginx config |
-| **Medium** | CAPTCHA after 3 login failures | §1.2 | `authRoutes.py` |
-| **Medium** | `extra='forbid'` on all **input** schemas (response schemas already done) | §2.3 | `authSchemas.py`, `userSchemas.py`, `friendshipSchemas.py`, `chatSchemas.py`, … |
-| **Medium** | Nginx timeouts | §4.2 | `docker/nginx.conf` |
-| **Medium** | Encryption key versioning and rotation strategy | §8.4 | `encryption.py`, `config.py` |
-| **Medium** | File upload security (MIME validation, UUID rename, private bucket) | §8.7 | `storageService.py` |
-| **Medium** | Extend audit logging to friendship, chat, badge events | §7.5 | `friendshipService.py`, `chatService.py`, `badgeService.py` |
-| **Low** | Host header injection protection | §8.6 | `config.py`, Nginx |
-| **Low** | Dependabot / automated dependency update PRs | §9.1 | `.github/` |
-| **Low** | 2FA / MFA | — | `authRoutes.py` |
-| **Low** | `pre-commit` hook to block secrets in commits | §9.2 | `.pre-commit-config.yaml` |
+Validated against the code on 2026-10-01, after the round that implemented
+the rest.
+
+| Priority | Control | Why it is still open | Section |
+|----------|---------|----------------------|---------|
+| **Medium** | Secrets off the instance disk | `prod.env` holds the column key next to the database password. A real fix is a secrets manager the instance reads through an IAM role — and the box deliberately has no AWS credentials today. A decision about infrastructure, not code | §8.4, §9.2 |
+| **Low** | Key rotation without downtime | Rotation works (`rotate-encryption-key`) but needs a maintenance window of seconds | §8.4 |
+| **Low** | Pager-grade alerting | Faults and the degraded limiter reach the admin board and any admin with the app open; nothing reaches a closed app | §8.1, §8.2 |
+
+### Not applicable today
+
+Kept so they are not re-added by the next audit:
+
+| Item | Why it does not apply |
+|------|----------------------|
+| Constant-time login, CAPTCHA, 2FA, forgot-password (§1.2, §7.1, §7.3) | No passwords: identity is a Google-issued Firebase token |
+| CSRF protections (§3.1) | No cookies — JWTs travel in the `Authorization` header |
+| File upload security (§8.7) | No upload endpoint exists; profile pictures are the Google account's URL. Applies the day uploads are built |
+| Email verification and email-based flows (§7.2, §8.6) | The backend sends no email |
+| Burst protection (§4.1) | The per-route `slowapi` ceilings already bound bursts on every route |
 
 ---
 

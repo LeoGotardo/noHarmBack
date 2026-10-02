@@ -111,7 +111,8 @@ noHarmBack/
 ├── .secrets.toml               # Environment secrets (never commit)
 ├── alembic.ini
 ├── migrate.sh                  # alembic upgrade head
-├── requirements.txt
+├── requirements.txt            # runtime — what the image installs
+├── requirements-dev.txt        # + test tooling
 └── docker/                     # production image: nginx + uvicorn
 ```
 
@@ -566,7 +567,7 @@ source venv/bin/activate        # Linux / macOS
 # venv\Scripts\activate         # Windows
 
 # Install dependencies
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # runtime + pytest & co.; the image installs requirements.txt only
 
 # Configure secrets: create .secrets.toml with a [dev] section (see
 # Configuration above). There is no template file in the repo; for the

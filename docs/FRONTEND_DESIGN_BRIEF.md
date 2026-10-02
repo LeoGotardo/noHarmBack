@@ -29,6 +29,7 @@ Authentication uses **Firebase** for identity, then the app issues its own JWT t
 - Access token: **15 min** lifetime — refresh happens silently in background.
 - Refresh token: **7 days** lifetime.
 - On logout, both tokens are revoked for current device only (multi-device supported).
+- "Log out of all devices" (`POST /auth/logout-all`) revokes every token of the account and stops its push notifications on every device.
 
 ---
 
@@ -392,6 +393,12 @@ Connection is authenticated via JWT at connect time. Users auto-join their perso
 |-----------|-------|---------|
 | Client → Server | `get_online_status` | `{ userIds: [...] }` |
 | Server → Client | `online_status` | `{ userId, online: bool }` |
+
+#### Connection events (server → client)
+
+| Event | Meaning |
+|-------|---------|
+| `session_replaced` | This socket was the oldest of the account's three and a newer device took its place. It is disconnected right after; reconnect when the screen is used again, not immediately |
 
 #### Friend notification events (server → client, pushed to `user_{id}` room)
 | Event | Meaning |

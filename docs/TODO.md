@@ -152,7 +152,7 @@ The same table, with the reasoning, is in `security.md` §10.
 
 ```bash
 # Install dependencies
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 
 # Configure secrets: create .secrets.toml with a [dev] section
 # (see README.md, Configuration — there is no template file)
