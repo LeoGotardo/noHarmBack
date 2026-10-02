@@ -286,14 +286,13 @@ def test_search_hidden_statuses_are_the_three_dead_states(repo_and_model):
     assert set(repo._HIDDEN_STATUSES) == set(_hidden_statuses())
 
 
-def test_search_matches_username_or_email_hash(repo_and_model):
-    """Both columns are encrypted, so only their SHA-256 hashes are queryable."""
+def test_search_matches_the_username_hash_only(repo_and_model):
+    """An e-mail match would confirm to anyone that the address has an account."""
     from security.encryption import Encryption
     repo, model = repo_and_model
     repo.search("target@test.com")
-    expected = Encryption.hash("target@test.com")
-    model.username_hash.__eq__.assert_called_once_with(expected)
-    model.email_hash.__eq__.assert_called_once_with(expected)
+    model.username_hash.__eq__.assert_called_once_with(Encryption.hash("target@test.com"))
+    model.email_hash.__eq__.assert_not_called()
 
 
 def test_search_strips_the_term_before_hashing(repo_and_model):

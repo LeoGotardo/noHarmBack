@@ -119,11 +119,15 @@ class UserRepository:
 
 
     def search(self, term: str, params: Optional[PaginationParams] = None) -> list[User] | PaginatedResponse[User]:
-        """Find users by an exact username or email match.
+        """Find users by an exact username match.
 
-        Both columns are encrypted, so only their SHA-256 hashes are queryable —
-        exact matches only, which is also what the privacy rule requires (§5).
-        Without this, clients had to page the whole directory to find one person.
+        The column is encrypted, so only its keyed hash is queryable — exact
+        matches only, which is also what the privacy rule requires (§5).
+
+        Username only, never e-mail. Matching an address told any signed-in
+        account whether that person has an account here, and on a recovery app
+        the membership itself is the sensitive fact (security.md §7.1). E-mail
+        lookups stay where they belong: authentication, by the account itself.
         """
         try:
             term = (term or "").strip()
@@ -134,7 +138,7 @@ class UserRepository:
             query = (
                 self.session.query(UserModel)
                 .filter(UserModel.status.notin_(self._HIDDEN_STATUSES))
-                .filter((UserModel.username_hash == termHash) | (UserModel.email_hash == termHash))
+                .filter(UserModel.username_hash == termHash)
             )
 
             if params:

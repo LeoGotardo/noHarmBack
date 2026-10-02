@@ -397,9 +397,10 @@ def unblockUser(
     response_model=Union[PaginatedResponse[UserResponse], UserListResponse],
     summary="Get all users",
     description=(
-        "Returns the user directory. Pass `search` with a full username or email "
-        "to look one person up — matches are exact, since both columns are "
-        "encrypted and only their hashes are queryable (§5). "
+        "Returns the user directory. Pass `search` with a full username to look "
+        "one person up — matches are exact, since the column is encrypted and "
+        "only its hash is queryable (§5). E-mail is deliberately not searchable: "
+        "a match would confirm that the address has an account. "
         "Deleted, banned and blocked accounts are never listed."
     )
 )
