@@ -62,7 +62,7 @@ RUN npm run build
 
 # ── Stage 2: python deps ───────────────────────────────────────────────────
 # Kept separate so the toolchain needed to compile wheels never ships.
-FROM python:3.12.3-slim AS pydeps
+FROM python:3.14.0-slim AS pydeps
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential libpq-dev \
@@ -72,7 +72,7 @@ COPY noHarmBack/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --prefix=/install -r /tmp/requirements.txt
 
 # ── Stage 3: runtime ───────────────────────────────────────────────────────
-FROM python:3.12.3-slim
+FROM python:3.14.0-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends nginx supervisor libpq5 curl \
