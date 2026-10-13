@@ -16,7 +16,7 @@ dnspython==2.8.0
 dynaconf==3.2.13
 email-validator==2.3.0
 fastapi==0.135.3
-greenlet==3.4.0
+greenlet==3.5.6
 h11==0.16.0
 idna==3.15
 limits==5.8.0
