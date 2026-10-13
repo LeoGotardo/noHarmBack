@@ -56,21 +56,56 @@ latestTag() {
         'refs/tags/v[0-9]*.[0-9]*.[0-9]*'
 }
 
+# The branch each repo releases from.
+releaseBranch() {
+    case "$1" in
+        noHarm) echo master ;;
+        noHarmBack) echo main ;;
+    esac
+}
+
+# What the tag's `release` workflow reads from noHarm's repository secrets.
+APK_SECRETS=(ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS
+             ANDROID_KEY_PASSWORD GOOGLE_SERVICES_JSON ENV_MOBILE_LOCAL)
+
 if (( RELEASE )); then
     for repo in noHarm noHarmBack; do
         # A tag has to name a commit the workflow can check out, and the code
         # it names has to be the code that was deployed: no uncommitted work,
-        # nothing that is only on this machine.
+        # and exactly the tip of the release branch on origin. "Pushed
+        # somewhere" is not enough — a merged feature branch, or a main that is
+        # behind, is pushed too, and a release cut from either ships without
+        # everything merged since.
         if [[ -n "$(git -C "$repo" status --porcelain)" ]]; then
             echo "$repo has uncommitted changes — commit them, or deploy with --no-release" >&2
             exit 1
         fi
+        branch="$(releaseBranch "$repo")"
+        current="$(git -C "$repo" rev-parse --abbrev-ref HEAD)"
+        if [[ "$current" != "$branch" ]]; then
+            echo "$repo is on $current, not $branch — check out $branch, or deploy with --no-release" >&2
+            exit 1
+        fi
         git -C "$repo" fetch --quiet --tags origin
-        if [[ -z "$(git -C "$repo" branch -r --contains HEAD)" ]]; then
-            echo "$repo: HEAD is not pushed — push it, or deploy with --no-release" >&2
+        if [[ "$(git -C "$repo" rev-parse HEAD)" != "$(git -C "$repo" rev-parse "origin/$branch")" ]]; then
+            echo "$repo: $branch differs from origin/$branch — pull or push first, or deploy with --no-release" >&2
             exit 1
         fi
     done
+
+    # A missing secret fails the APK build only after the deploy and the tag —
+    # the most expensive moment to find out. Checked when gh can list them.
+    if command -v gh >/dev/null \
+        && secrets="$(cd noHarm && gh secret list --json name -q '.[].name' 2>/dev/null)"; then
+        for s in "${APK_SECRETS[@]}"; do
+            if ! grep -qx "$s" <<<"$secrets"; then
+                echo "noHarm has no repository secret $s — run noHarm/scripts/setup-release-secrets.sh, or deploy with --no-release" >&2
+                exit 1
+            fi
+        done
+    else
+        echo "warning: could not list noHarm's repository secrets (gh missing or signed out) — the APK build may fail after the deploy" >&2
+    fi
 
     last="$(latestTag noHarm)"
     if [[ -n "$last" ]]; then

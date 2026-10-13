@@ -337,7 +337,9 @@ From the directory holding **both** repos, on a developer machine:
 ```
 
 Before building it asks for the release tag and opens your git editor for the
-notes; both repos must be committed and pushed. Only after a healthy deploy
+notes; both repos must be clean, on their release branch (`noHarm` on
+`master`, `noHarmBack` on `main`) and level with origin, and noHarm must hold
+the six APK secrets. Only after a healthy deploy
 does it tag both repos `vX.Y.Z` and push the tags, which makes the front end's
 `release` workflow publish the GitHub Release with the Android APK. A deploy
 that fails tags nothing. Details in `noHarm/README.md`, "Releases".
