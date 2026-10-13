@@ -1,4 +1,12 @@
 # Paths are relative to the build context (the parent of both repos).
+#
+# The name is load-bearing. Docker reads `.dockerignore` only from the root of
+# the context, which here is a directory no repo owns; BuildKit also reads
+# `<Dockerfile>.dockerignore` beside the Dockerfile, and that is what this is.
+# It used to be `docker/.dockerignore`, which no build ever read: the host's
+# node_modules was copied over the one `npm ci` had just built for Alpine, and
+# once the lockfile moved to Vite 8 the bundle step ran the host's stale Vite 6
+# and died looking for a musl binary the host never installs.
 
 **/node_modules
 **/venv

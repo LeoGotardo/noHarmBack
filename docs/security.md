@@ -640,7 +640,7 @@ the deploy workflow, so it keeps running while that one is manual.
 - [x] gitleaks: a pre-commit hook (`.pre-commit-config.yaml`, opt-in with `pre-commit install`) and a CI job over the whole history in both repos. The full history of both was scanned on 2026-10-01: nothing but the fake keys in `tests/conftest.py`, listed in `.gitleaksignore`
 - [ ] In production the secrets come from environment variables
       (`docker/prod.env` or the ECS task definition); `.secrets.toml` is in
-      `.dockerignore` and never enters the image. The remaining step is moving
+      `docker/Dockerfile.dockerignore` and never enters the image. The remaining step is moving
       them off the on-disk file into AWS Secrets Manager, injected into the task
       definition
 
