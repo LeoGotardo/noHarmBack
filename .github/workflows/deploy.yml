@@ -59,13 +59,13 @@ jobs:
 
     steps:
       - name: Checkout backend
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: noHarmBack
 
       # Same parent directory, because that is the build context.
       - name: Checkout frontend
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: LeoGotardo/noHarm
           # This repo's default branch is `master`, not `main` — the two repos
